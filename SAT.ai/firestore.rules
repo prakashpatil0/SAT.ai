@@ -1,0 +1,75 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isBDM() {
+      return isAuthenticated() && 
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'bdm';
+    }
+    
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // Users collection
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow write: if isOwner(userId);
+    }
+
+    // Meetings collection
+    match /meetings/{meetingId} {
+      allow read: if isAuthenticated();
+      allow create: if isBDM();
+      allow update, delete: if isBDM() && 
+        resource.data.bdmId == request.auth.uid;
+    }
+
+    // Companies collection
+    match /companies/{companyId} {
+      allow read: if isAuthenticated();
+      allow create: if isBDM();
+      allow update, delete: if isBDM() && 
+        resource.data.assignedBdm == request.auth.uid;
+    }
+
+    // Contacts collection
+    match /contacts/{contactId} {
+      allow read: if isAuthenticated();
+      allow write: if isBDM();
+    }
+
+    // Deals collection
+    match /deals/{dealId} {
+      allow read: if isAuthenticated();
+      allow create: if isBDM();
+      allow update, delete: if isBDM() && 
+        resource.data.bdmId == request.auth.uid;
+    }
+
+    // Activities collection
+    match /activities/{activityId} {
+      allow read: if isAuthenticated();
+      allow create: if isBDM();
+      allow update, delete: if isBDM() && 
+        resource.data.bdmId == request.auth.uid;
+    }
+
+    match /otps/{email} {
+      allow read, write: if request.auth != null;
+    }
+  }
+}
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /profileImages/{userId}/{fileName} {
+      allow read: if true;  // Anyone can view profile images
+      allow write: if request.auth != null && request.auth.uid == userId;  // Only authenticated users can upload their own images
+    }
+  }
+} 

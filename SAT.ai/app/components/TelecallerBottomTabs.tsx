@@ -15,7 +15,7 @@ const TelecallerBottomTabs = () => {
     <View style={styles.container}>
       <TouchableOpacity 
         style={styles.tabItem} 
-        onPress={() => navigation.navigate('HomeScreen')}
+        onPress={() => navigation.navigate('HomeScreen' as never)}
       >
         <MaterialIcons 
           name="home" 
@@ -30,7 +30,7 @@ const TelecallerBottomTabs = () => {
 
       <TouchableOpacity 
         style={styles.tabItem} 
-        onPress={() => navigation.navigate('Target')}
+        onPress={() => navigation.navigate('Target' as never)}
       >
         <MaterialIcons 
           name="track-changes" 
@@ -45,7 +45,7 @@ const TelecallerBottomTabs = () => {
 
       <TouchableOpacity 
         style={[styles.tabItem, styles.centerTab]} 
-        onPress={() => navigation.navigate('AlertScreen')}
+        onPress={() => navigation.navigate('AlertScreen' as never)}
       >
         <View style={styles.centerButton}>
           <MaterialIcons name="notifications-active" size={28} color="#FFF" />
@@ -54,7 +54,7 @@ const TelecallerBottomTabs = () => {
 
       <TouchableOpacity 
         style={styles.tabItem} 
-        onPress={() => navigation.navigate('Attendance')}
+        onPress={() => navigation.navigate('Attendance' as never)}
       >
         <MaterialIcons 
           name="event" 
@@ -69,7 +69,7 @@ const TelecallerBottomTabs = () => {
 
       <TouchableOpacity 
         style={styles.tabItem} 
-        onPress={() => navigation.navigate('Report')}
+        onPress={() => navigation.navigate('Report' as never)}
       >
         <MaterialIcons 
           name="description" 

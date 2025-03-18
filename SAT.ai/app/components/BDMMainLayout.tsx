@@ -5,6 +5,7 @@ import { useNavigation, DrawerActions } from '@react-navigation/native';
 import { useProfile } from '@/app/context/ProfileContext';
 import { LinearGradient } from 'expo-linear-gradient';
 import BDMBottomTabs from '@/app/Screens/BDM/BDMBottomTabs';
+import AppGradient from './AppGradient';
 
 type BDMMainLayoutProps = {
   children: React.ReactNode;
@@ -14,15 +15,15 @@ type BDMMainLayoutProps = {
   showBottomTabs?: boolean;
 };
 
-const BDMMainLayout = ({ 
-  children, 
-  title, 
-  showBackButton = false,
+const BDMMainLayout: React.FC<BDMMainLayoutProps> = ({
+  children,
+  title,
+  showBackButton = true,
   showDrawer = true,
-  showBottomTabs = true
-}: BDMMainLayoutProps) => {
+  showBottomTabs = true,
+}) => {
   const navigation = useNavigation();
-  const { profileImage } = useProfile();
+  const { userProfile } = useProfile();
 
   return (
     <View style={styles.container}>
@@ -38,11 +39,11 @@ const BDMMainLayout = ({
             </TouchableOpacity>
           )}
           <TouchableOpacity 
-            onPress={() => navigation.navigate('BDMProfile')}
+            onPress={() => navigation.navigate('BDMProfile' as never)}
             style={styles.profileButton}
           >
             <Image 
-              source={{ uri: profileImage }} 
+              source={userProfile?.profileImageUrl ? { uri: userProfile.profileImageUrl } : require('@/assets/images/girlprofile.png')} 
               style={styles.profileImage}
             />
           </TouchableOpacity>
@@ -67,12 +68,9 @@ const BDMMainLayout = ({
         </View>
       </View>
 
-      <LinearGradient 
-        colors={['#FFF8F0', '#FFF']} 
-        style={styles.content}
-      >
+      <AppGradient>
         {children}
-      </LinearGradient>
+      </AppGradient>
 
       {showBottomTabs && <BDMBottomTabs />}
     </View>
@@ -84,7 +82,6 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   headerContainer: {
-    backgroundColor: 'white',
     elevation: 3,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
@@ -135,9 +132,6 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     borderWidth: 2,
     borderColor: '#FF8447',
-  },
-  content: {
-    flex: 1,
   },
 });
 

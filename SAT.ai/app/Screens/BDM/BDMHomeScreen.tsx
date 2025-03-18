@@ -1,48 +1,14 @@
 import React, { useState, useRef } from "react";
-import { View, Text, FlatList, StyleSheet, TouchableOpacity, Animated } from "react-native";
+import { View, Text, FlatList, StyleSheet, TouchableOpacity, Animated, Image } from "react-native";
 import { ProgressBar, Card } from "react-native-paper";
 import { useNavigation } from "@react-navigation/native";
 import { StackNavigationProp } from '@react-navigation/stack';
 import * as Haptics from 'expo-haptics';
-import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
-import BDMMainLayout from '@/app/Screens/BDM/BDMMainLayout';
-
-type RootStackParamList = {
-  BDMContactDetails: {
-    contact: {
-      name: string;
-      phone: string;
-      email: string;
-    };
-  };
-  BDMCompanyDetails: {
-    company: {
-      name: string;
-    };
-  };
-  CallNoteDetails: {
-    meeting: {
-      name: string;
-      time: string;
-      duration: string;
-    };
-  };
-  BDMCallHistory: {
-    customerName: string;
-    meetings: Array<{
-      date: string;
-      time: string;
-      duration: string;
-    }>;
-  };
-  BDMCallNoteDetailsScreen: {
-    meeting: {
-      name: string;
-      time: string;
-      duration: string;
-    };
-  };
-};
+import { MaterialIcons } from '@expo/vector-icons';
+import { useProfile } from '@/app/context/ProfileContext';
+import { LinearGradient } from 'expo-linear-gradient';
+import { BDMStackParamList, RootStackParamList } from '@/app/index';
+import BDMMainLayout from '@/app/components/BDMMainLayout';
 
 const BDMHomeScreen = () => {
   const [expandedCardId, setExpandedCardId] = useState<string | null>(null);
@@ -143,8 +109,8 @@ const BDMHomeScreen = () => {
   }, []);
 
   return (
-    <BDMMainLayout showDrawer showBottomTabs={false}>
-      <View style={styles.container}>
+    <BDMMainLayout showBackButton={false} showBottomTabs>
+      <View style={styles.content}>
         {/* Welcome Section */}
         <View style={styles.welcomeSection}>
           <Text style={styles.welcomeText}>Welcome Back, 👋</Text>
@@ -221,71 +187,17 @@ const BDMHomeScreen = () => {
                           }
                         }}
                       >
-                        {item.type === 'person' ? (
-                          <MaterialIcons name="person" size={24} color="#FF8800" />
-                        ) : (
-                          <MaterialCommunityIcons name="office-building" size={24} color="#FF8800" />
-                        )}
+                        <MaterialIcons 
+                          name={item.type === 'company' ? 'business' : 'person'} 
+                          size={24} 
+                          color="#FF8447" 
+                        />
                       </TouchableOpacity>
-                      <TouchableOpacity 
-                        style={styles.meetingDetails}
-                        onPress={() => handleCardClick(item.id)}
-                      >
+                      <View style={styles.meetingDetails}>
                         <Text style={styles.meetingName}>{item.name}</Text>
-                        <Text style={styles.meetingTime}>
-                          {item.time} • {item.duration}
-                        </Text>
-                      </TouchableOpacity>
-                      <MaterialIcons 
-                        name="chevron-right" 
-                        size={24} 
-                        color="#666" 
-                        onPress={() => navigation.navigate('BDMCallNoteDetailsScreen', { 
-                          meeting: {
-                            name: item.name,
-                            time: item.time,
-                            duration: item.duration
-                          }
-                        })}
-                      />
-                    </View>
-
-                    {isExpanded && (
-                      <View style={styles.actionButtons}>
-                        <TouchableOpacity 
-                          style={styles.actionButton}
-                          onPress={() => {
-                            navigation.navigate('BDMContactDetails', { 
-                              contact: {
-                                name: item.name,
-                                phone: '+91 87392 83729',
-                                email: `${item.name.toLowerCase().replace(' ', '')}@gmail.com`
-                              }
-                            });
-                          }}
-                        >
-                          <MaterialIcons name="contacts" size={24} color="#FF8800" />
-                          <Text style={styles.actionText}>View Contact</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity 
-                          style={styles.actionButton}
-                          onPress={() => {
-                            const customerMeetings = meetings.filter(meeting => meeting.name === item.name);
-                            navigation.navigate('BDMCallHistory', { 
-                              customerName: item.name,
-                              meetings: customerMeetings.map(meeting => ({
-                                date: meeting.date,
-                                time: meeting.time,
-                                duration: meeting.duration
-                              }))
-                            });
-                          }}
-                        >
-                          <MaterialIcons name="history" size={24} color="#FF8800" />
-                          <Text style={styles.actionText}>History</Text>
-                        </TouchableOpacity>
+                        <Text style={styles.meetingTime}>{item.time} • {item.duration}</Text>
                       </View>
-                    )}
+                    </View>
                   </Card>
                 </TouchableOpacity>
               </>
@@ -298,9 +210,9 @@ const BDMHomeScreen = () => {
 };
 
 const styles = StyleSheet.create({
-  container: {
+  content: {
     flex: 1,
-    padding: 16,
+    padding: 20,
   },
   welcomeSection: {
     marginBottom: 24,

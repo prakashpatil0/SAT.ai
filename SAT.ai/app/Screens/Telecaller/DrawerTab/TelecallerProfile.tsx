@@ -109,27 +109,36 @@ const ProfileScreen = () => {
   const uploadImage = async (uri: string): Promise<string> => {
     try {
       const userId = auth.currentUser?.uid;
-      if (!userId) throw new Error("User not authenticated");
+      if (!userId) {
+        throw new Error("User not authenticated");
+      }
 
-      // Create file name with user ID in path
-      const fileName = `${userId}/${Date.now()}.jpg`;
-      const storageRef = ref(storage, `profileImages/${fileName}`);
-      
-      // Fetch and upload image
+      console.log("Starting upload for user:", userId); // Debug log
+
+      // Convert image URI to blob
       const response = await fetch(uri);
       const blob = await response.blob();
-      await uploadBytes(storageRef, blob);
-      
-      // Get download URL
-      const downloadURL = await getDownloadURL(storageRef);
-      
-      // Update profile context
-      updateProfileImage(downloadURL);
-      
+
+      // Create storage reference with user-specific path
+      const storageRef = ref(storage, `users/${userId}/profile_${Date.now()}.jpg`);
+      console.log("Storage path:", storageRef.fullPath); // Debug log
+
+      // Upload the image
+      const uploadResult = await uploadBytes(storageRef, blob);
+      console.log("Upload completed:", uploadResult); // Debug log
+
+      // Get the download URL
+      const downloadURL = await getDownloadURL(uploadResult.ref);
+      console.log("Download URL obtained:", downloadURL); // Debug log
+
       return downloadURL;
     } catch (error) {
-      console.error("Error uploading image:", error);
-      throw new Error("Failed to upload image");
+      console.error("Upload error:", {
+        message: error.message,
+        code: error.code,
+        fullError: error
+      });
+      throw error;
     }
   };
 
@@ -137,42 +146,56 @@ const ProfileScreen = () => {
     try {
       setIsLoading(true);
       const userId = auth.currentUser?.uid;
-      if (!userId) throw new Error("User not authenticated");
-
-      // Validate form data
-      if (!formData.name.trim() || !formData.mobileNumber.trim()) {
-        Alert.alert("Error", "Please fill in all required fields");
+      if (!userId) {
+        Alert.alert("Error", "Please login to update profile");
         return;
       }
 
       let profileImageUrl = formData.profileImageUrl;
 
-      // Check if we have a new image to upload
-      if ('uri' in profileImage && profileImage.uri) {
+      // Only attempt upload if there's a new image
+      if ('uri' in profileImage && profileImage.uri && profileImage.uri !== formData.profileImageUrl) {
         try {
+          console.log("Attempting to upload new profile image");
           profileImageUrl = await uploadImage(profileImage.uri);
-        } catch (error) {
-          console.error("Error uploading profile image:", error);
-          Alert.alert("Error", "Failed to upload profile image");
+        } catch (uploadError) {
+          console.error("Profile image upload failed:", uploadError);
+          Alert.alert(
+            "Upload Error",
+            "Failed to upload profile image. Please try again later."
+          );
           return;
         }
       }
 
-      // Update profile in Firestore
+      // Update Firestore document
       const userRef = doc(db, "users", userId);
-      await setDoc(userRef, {
+      const updateData = {
         name: formData.name,
         designation: formData.designation,
         mobileNumber: formData.mobileNumber,
         dateOfBirth: formData.dateOfBirth,
-        profileImageUrl,
         updatedAt: serverTimestamp(),
-      }, { merge: true });
+      };
+
+      if (profileImageUrl) {
+        updateData.profileImageUrl = profileImageUrl;
+      }
+
+      await setDoc(userRef, updateData, { merge: true });
+      
+      // Update context and local state
+      if (profileImageUrl && updateProfileImage) {
+        updateProfileImage(profileImageUrl);
+      }
 
       Alert.alert("Success", "Profile updated successfully");
     } catch (error) {
-      console.error("Error saving profile:", error);
-      Alert.alert("Error", "Failed to update profile. Please try again.");
+      console.error("Save changes error:", error);
+      Alert.alert(
+        "Error",
+        "Failed to update profile. Please check your connection and try again."
+      );
     } finally {
       setIsLoading(false);
     }
@@ -365,7 +388,7 @@ const ProfileScreen = () => {
           </TouchableOpacity>
 
           {/* Add Users List Section */}
-          <Text style={styles.sectionTitle}>All Users</Text>
+          {/* <Text style={styles.sectionTitle}>All Users</Text>
           {isLoadingUsers ? (
             <ActivityIndicator size="large" color="#F36F3C" />
           ) : (
@@ -375,7 +398,7 @@ const ProfileScreen = () => {
               keyExtractor={(item) => item.id}
               style={styles.usersList}
             />
-          )}
+          )} */}
         </View>
       </TelecallerMainLayout>
     </AppGradient>

@@ -68,7 +68,7 @@ const ForgotPassword = () => {
 
           // Navigate after short delay
           setTimeout(() => {
-            navigation.navigate('VerifyEmail', { 
+            navigation.navigate('VerifyOTP', { 
               email,
               expectedOtp: otp 
             });

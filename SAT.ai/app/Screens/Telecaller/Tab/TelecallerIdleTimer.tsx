@@ -18,15 +18,41 @@ Notifications.setNotificationHandler({
   }),
 });
 
-const IDLE_TIMEOUT = 1 * 60 * 1000; // 5 minutes
-const FINAL_TIMEOUT = 1 * 60 * 1000; // 15 minutes
-const WARNING_INTERVALS = [10, 5, 1]; // Minutes before final timeout
+const IDLE_TIMEOUT = 5 * 60 * 1000; // 5 minutes
+const FINAL_TIMEOUT = 10 * 60 * 1000; // 10 minutes
+const WARNING_INTERVALS = [5, 3, 1]; // Minutes before final timeout
 
 const TelecallerIdleTimer = () => {
   const navigation = useNavigation();
   const [idleTime, setIdleTime] = useState(0);
   const [warningCount, setWarningCount] = useState(0);
   const [isActive, setIsActive] = useState(false);
+  const [idleCount, setIdleCount] = useState(0);
+
+  useEffect(() => {
+    loadIdleCount();
+  }, []);
+
+  const loadIdleCount = async () => {
+    try {
+      const count = await AsyncStorage.getItem('idleLogoutCount');
+      setIdleCount(count ? parseInt(count) : 0);
+    } catch (error) {
+      console.error('Error loading idle count:', error);
+    }
+  };
+
+  const incrementIdleCount = async () => {
+    try {
+      const newCount = idleCount + 1;
+      await AsyncStorage.setItem('idleLogoutCount', newCount.toString());
+      setIdleCount(newCount);
+      return newCount;
+    } catch (error) {
+      console.error('Error incrementing idle count:', error);
+      return idleCount;
+    }
+  };
 
   useEffect(() => {
     let timer: NodeJS.Timeout;
@@ -77,7 +103,7 @@ const TelecallerIdleTimer = () => {
       await Notifications.scheduleNotificationAsync({
         content: {
           title: 'Inactivity Warning',
-          body: `You have been inactive for ${15 - minutesLeft} minutes. System will log you out in ${minutesLeft} minutes.`,
+          body: `You have been inactive for ${10 - minutesLeft} minutes. System will log you out in ${minutesLeft} minutes.`,
           sound: true,
           priority: Notifications.AndroidNotificationPriority.HIGH,
         },
@@ -86,6 +112,19 @@ const TelecallerIdleTimer = () => {
     };
 
     const handleLogout = async () => {
+      const newCount = await incrementIdleCount();
+      
+      // Show logout notification
+      await Notifications.scheduleNotificationAsync({
+        content: {
+          title: 'Session Terminated',
+          body: `You have been logged out due to inactivity. This is your ${newCount}${getOrdinalSuffix(newCount)} idle timeout.`,
+          sound: true,
+          priority: Notifications.AndroidNotificationPriority.HIGH,
+        },
+        trigger: null,
+      });
+
       await AsyncStorage.clear();
       navigation.reset({
         index: 0,
@@ -95,30 +134,24 @@ const TelecallerIdleTimer = () => {
 
     // Setup
     setupNotifications();
-    AppState.addEventListener('change', handleAppStateChange);
+    const appStateSubscription = AppState.addEventListener('change', handleAppStateChange);
     timer = setInterval(checkIdleTime, 1000);
-
-    // Touch event listeners for activity monitoring
-    const touchEvents = ['touchstart', 'touchmove', 'touchend'];
-    const handleActivity = () => {
-      if (!isActive) {
-        resetTimer();
-      }
-    };
-
-    touchEvents.forEach(event => {
-      document.addEventListener(event, handleActivity);
-    });
 
     // Cleanup
     return () => {
       clearInterval(timer);
-      AppState.removeEventListener('change', handleAppStateChange);
-      touchEvents.forEach(event => {
-        document.removeEventListener(event, handleActivity);
-      });
+      appStateSubscription.remove();
     };
-  }, [navigation, isActive, warningCount]);
+  }, [navigation, isActive, warningCount, idleCount]);
+
+  const getOrdinalSuffix = (n: number) => {
+    const j = n % 10;
+    const k = n % 100;
+    if (j === 1 && k !== 11) return "st";
+    if (j === 2 && k !== 12) return "nd";
+    if (j === 3 && k !== 13) return "rd";
+    return "th";
+  };
 
   const formatTime = (ms: number) => {
     const minutes = Math.floor(ms / (60 * 1000));
@@ -169,11 +202,15 @@ const TelecallerIdleTimer = () => {
             </View>
             <View style={styles.instructionItem}>
               <Text style={styles.bulletPoint}>•</Text>
-              <Text style={styles.instructionsText}>You will be automatically logged out in 15 minutes of inactivity</Text>
+              <Text style={styles.instructionsText}>You will be automatically logged out in 10 minutes of inactivity</Text>
             </View>
             <View style={styles.instructionItem}>
               <Text style={styles.bulletPoint}>•</Text>
               <Text style={styles.instructionsText}>Click anywhere to resume your session</Text>
+            </View>
+            <View style={styles.instructionItem}>
+              <Text style={styles.bulletPoint}>•</Text>
+              <Text style={styles.instructionsText}>Total idle timeouts: {idleCount}</Text>
             </View>
           </View>
 

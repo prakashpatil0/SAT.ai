@@ -3,13 +3,13 @@ import { View, Text, StyleSheet, TouchableOpacity, Image, ScrollView } from 'rea
 import { MaterialIcons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
-import MainLayout from "@/app/components/MainLayout";
+import BDMMainLayout from '@/app/components/BDMMainLayout';
 
 const BDMTargetScreen = () => {
   const navigation = useNavigation();
 
   return (
-    <MainLayout title="Weekly Target" showBackButton showDrawer={true}>
+    <BDMMainLayout title="Weekly Target" showBackButton showDrawer={true} showBottomTabs={true}>
       <View style={styles.container}>
         <LinearGradient colors={['#FFF8F0', '#FFF']} style={styles.container}>
           <ScrollView style={styles.scrollView}>
@@ -100,7 +100,7 @@ const BDMTargetScreen = () => {
           </ScrollView>
         </LinearGradient>
       </View>
-    </MainLayout>
+    </BDMMainLayout>
   );
 };
 

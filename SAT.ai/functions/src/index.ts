@@ -1,66 +1,83 @@
 import * as functions from 'firebase-functions';
 import * as admin from 'firebase-admin';
-import * as nodemailer from 'nodemailer';
+import sgMail from '@sendgrid/mail';
 
 admin.initializeApp();
 
-interface OTPData {
+// Initialize SendGrid with API key
+sgMail.setApiKey(functions.config().sendgrid.key);
+
+interface OTPRequest {
   email: string;
   otp: string;
   type: string;
 }
 
-// Configure nodemailer with your email service
-const transporter = nodemailer.createTransport({
-  host: 'smtp.gmail.com',
-  port: 587,
-  secure: false,
-  auth: {
-    user: functions.config().email.user,
-    pass: functions.config().email.pass
-  }
-});
+interface OTPResponse {
+  success: boolean;
+  message?: string;
+}
 
-export const sendOTPEmail = functions.https.onCall(async (request: functions.https.CallableRequest<OTPData>) => {
-  const { email, otp, type } = request.data;
-
-  if (!email || !otp || !type) {
-    throw new functions.https.HttpsError('invalid-argument', 'Missing required fields');
-  }
-
+export const sendOTPEmail = functions.https.onCall(async (request: functions.https.CallableRequest<OTPRequest>) => {
   try {
-    // Email template
-    const mailOptions = {
-      from: `"SAT.ai Support" <${functions.config().email.user}>`,
-      to: email,
-      subject: 'Password Reset OTP - SAT.ai',
-      html: `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-          <h2 style="color: #FF8447;">SAT.ai Password Reset</h2>
-          <p>Hello,</p>
-          <p>You have requested to reset your password. Here is your OTP:</p>
-          <div style="background-color: #f4f4f4; padding: 15px; text-align: center; font-size: 24px; letter-spacing: 5px; margin: 20px 0;">
-            <strong>${otp}</strong>
+    const { email, otp, type } = request.data;
+
+    // Validate email
+    if (!email || !email.includes('@')) {
+      return {
+        success: false,
+        message: 'Invalid email address'
+      };
+    }
+
+    // Prepare email content based on type
+    let subject = '';
+    let htmlContent = '';
+
+    switch (type) {
+      case 'FORGOT_PASSWORD':
+        subject = 'Password Reset OTP';
+        htmlContent = `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+            <h2 style="color: #FF8447;">Password Reset OTP</h2>
+            <p>Hello,</p>
+            <p>You have requested to reset your password. Please use the following OTP to proceed:</p>
+            <div style="background-color: #f4f4f4; padding: 20px; text-align: center; margin: 20px 0;">
+              <h1 style="color: #FF8447; font-size: 32px; margin: 0;">${otp}</h1>
+            </div>
+            <p>This OTP will expire in 5 minutes.</p>
+            <p>If you didn't request this password reset, please ignore this email.</p>
+            <p>Best regards,<br>SAT.ai Team</p>
           </div>
-          <p>This OTP will expire in 5 minutes.</p>
-          <p>If you didn't request this password reset, please ignore this email.</p>
-          <p style="color: #666; font-size: 12px; margin-top: 30px;">
-            This is an automated email. Please do not reply.
-          </p>
-        </div>
-      `
+        `;
+        break;
+      default:
+        return {
+          success: false,
+          message: 'Invalid OTP type'
+        };
+    }
+
+    // Send email using SendGrid
+    const msg = {
+      to: email,
+      from: functions.config().sendgrid.from_email, // Your verified sender email
+      subject: subject,
+      html: htmlContent,
     };
 
-    // Send email
-    await transporter.sendMail(mailOptions);
+    await sgMail.send(msg);
 
     return {
       success: true,
       message: 'OTP sent successfully'
     };
 
-  } catch (error) {
-    console.error('Error sending email:', error);
-    throw new functions.https.HttpsError('internal', 'Failed to send OTP email');
+  } catch (error: any) {
+    console.error('Error sending OTP:', error);
+    return {
+      success: false,
+      message: error.message || 'Failed to send OTP'
+    };
   }
 }); 

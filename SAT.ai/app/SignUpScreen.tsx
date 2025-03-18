@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { View, StyleSheet, KeyboardAvoidingView, Platform, Alert, TouchableOpacity, Modal } from 'react-native';
 import { TextInput, Button, Text, HelperText } from 'react-native-paper';
 import { useNavigation } from '@react-navigation/native';
+import { StackNavigationProp } from '@react-navigation/stack';
 import { createUserWithEmailAndPassword } from 'firebase/auth';
 import { doc, setDoc } from 'firebase/firestore';
 import { serverTimestamp } from 'firebase/firestore';
@@ -10,8 +11,18 @@ import AppGradient from './components/AppGradient';
 import { MaterialIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
+type RootStackParamList = {
+  Login: undefined;
+  MainApp: undefined;
+  BDMHomeScreen: undefined;
+  SignUpScreen: undefined;
+  BDMStack: undefined;
+};
+
+type SignUpScreenNavigationProp = StackNavigationProp<RootStackParamList, 'SignUpScreen'>;
+
 const SignUpScreen = () => {
-  const navigation = useNavigation();
+  const navigation = useNavigation<SignUpScreenNavigationProp>();
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
     name: '',
@@ -40,14 +51,16 @@ const SignUpScreen = () => {
 
     try {
       setLoading(true);
+      console.log('Starting signup process for role:', formData.role);
       
       // Create user in Firebase Auth
       const userCredential = await createUserWithEmailAndPassword(auth, formData.email, formData.password);
       const user = userCredential.user;
+      console.log('Firebase Auth user created:', user.uid);
 
       // Store additional user data in Firestore
       const userRef = doc(db, 'users', user.uid);
-      await setDoc(userRef, {
+      const userData = {
         name: formData.name.trim(),
         email: formData.email.trim().toLowerCase(),
         phone: formData.phone.trim(),
@@ -55,21 +68,31 @@ const SignUpScreen = () => {
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
         isActive: true
-      });
+      };
+      
+      console.log('Saving user data to Firestore:', userData);
+      await setDoc(userRef, userData);
+      console.log('User data saved successfully');
 
       // Store user role in AsyncStorage
       await AsyncStorage.setItem('userRole', formData.role.toLowerCase());
+      console.log('User role stored in AsyncStorage:', formData.role.toLowerCase());
 
       // Navigate based on role
-      switch (formData.role.toLowerCase()) {
-        case 'telecaller':
-          navigation.navigate('MainApp');
-          break;
-        case 'bdm':
-          navigation.navigate('BDMHomeScreen');
-          break;
-        default:
-          navigation.navigate('MainApp');
+      if (formData.role.toLowerCase() === 'bdm') {
+        console.log('Navigating to BDMStack');
+        navigation.reset({
+          index: 0,
+          routes: [{ name: 'BDMStack' }],
+        });
+      } else if (formData.role.toLowerCase() === 'telecaller') {
+        console.log('Navigating to MainApp');
+        navigation.reset({
+          index: 0,
+          routes: [{ name: 'MainApp' }],
+        });
+      } else {
+        throw new Error('Invalid role selected');
       }
 
     } catch (error: any) {
@@ -81,9 +104,7 @@ const SignUpScreen = () => {
       } else if (error.code === 'auth/invalid-email') {
         errorMessage = 'Invalid email address';
       } else if (error.code === 'auth/weak-password') {
-        errorMessage = 'Password is too weak';
-      } else if (error.message) {
-        errorMessage = error.message;
+        errorMessage = 'Password should be at least 6 characters';
       }
       
       Alert.alert('Error', errorMessage);
@@ -370,7 +391,7 @@ const SignUpScreen = () => {
             <View style={styles.loginWrapper}>
               <Text style={styles.loginText}>Already have an account? </Text>
               <TouchableOpacity
-                onPress={() => navigation.navigate('Login')}
+                onPress={() => navigation.navigate('Login' as never)}
                 style={styles.loginButton}
               >
                 <Text style={styles.loginButtonText}>Login</Text>

@@ -1,11 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Modal, Alert, Dimensions } from 'react-native';
 import { Surface, SegmentedButtons, Button, IconButton } from 'react-native-paper';
-import { format, addDays, isToday, isTomorrow, startOfWeek, isWithinInterval, subDays } from 'date-fns';
+import { format, addDays, isToday, isTomorrow, startOfWeek, isWithinInterval, subDays, startOfDay, endOfDay } from 'date-fns';
 import { LinearGradient } from 'expo-linear-gradient';
 import TelecallerMainLayout from '@/app/components/TelecallerMainLayout';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
+import { collection, query, where, getDocs } from 'firebase/firestore';
+import { db } from '@/firebaseConfig';
+import { getAuth } from 'firebase/auth';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -29,6 +32,7 @@ const ScheduleScreen = () => {
   const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
   const [modalVisible, setModalVisible] = useState(false);
   const [isFollowUpModalVisible, setIsFollowUpModalVisible] = useState(false);
+  const [followUps, setFollowUps] = useState<Event[]>([]);
 
   // Fixed daily schedule template with 30-minute intervals
   const dailyScheduleTemplate = [
@@ -132,31 +136,7 @@ const ScheduleScreen = () => {
     const isShortDuration = duration <= 30;
 
     if (event.type === 'followup') {
-      return (
-        <TouchableOpacity
-          key={event.id}
-          style={[
-            styles.followUpCard,
-            {
-              top,
-              backgroundColor: colors.bg,
-              borderColor: colors.border,
-              width: viewType === 'day' ? '90%' : 140,
-              left: viewType === 'day' ? '5%' : 5,
-            }
-          ]}
-          onPress={() => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-            setSelectedEvent(event);
-            setIsFollowUpModalVisible(true);
-          }}
-        >
-          <Text style={[styles.followUpTime, { color: colors.text }]}>
-            {event.startTime}
-          </Text>
-          <MaterialIcons name="phone-in-talk" size={16} color={colors.text} />
-        </TouchableOpacity>
-      );
+      return renderFollowUpEvent(event, viewType);
     }
 
     return (
@@ -195,6 +175,43 @@ const ScheduleScreen = () => {
             {event.startTime} - {event.endTime}
           </Text>
         )}
+      </TouchableOpacity>
+    );
+  };
+
+  const renderFollowUpEvent = (event: Event, viewType: 'day' | '3days' | 'week') => {
+    const colors = getEventColor('followup');
+    const startMinutes = getMinutesFromTime(event.startTime);
+    const top = ((startMinutes - 9 * 60) / 30) * 30;
+
+    return (
+      <TouchableOpacity
+        key={event.id}
+        style={[
+          styles.followUpCard,
+          {
+            top,
+            backgroundColor: colors.bg,
+            borderColor: colors.border,
+            width: viewType === 'day' ? '90%' : 140,
+            left: viewType === 'day' ? '5%' : 5,
+          }
+        ]}
+        onPress={() => {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+          setSelectedEvent(event);
+          setIsFollowUpModalVisible(true);
+        }}
+      >
+        <View style={styles.followUpContent}>
+          <Text style={[styles.followUpTime, { color: colors.text }]}>
+            {event.startTime}
+          </Text>
+          <Text style={[styles.followUpTitle, { color: colors.text }]} numberOfLines={1}>
+            {event.contactName || 'Follow Up'}
+          </Text>
+          <MaterialIcons name="phone-in-talk" size={16} color={colors.text} />
+        </View>
       </TouchableOpacity>
     );
   };
@@ -387,37 +404,105 @@ const ScheduleScreen = () => {
     </Modal>
   );
 
+  const fetchFollowUps = async () => {
+    try {
+      const auth = getAuth();
+      const userId = auth.currentUser?.uid;
+
+      if (!userId) return;
+
+      const followupsRef = collection(db, 'followups');
+      const q = query(
+        followupsRef,
+        where('userId', '==', userId)
+      );
+
+      const querySnapshot = await getDocs(q);
+      const fetchedFollowUps: Event[] = [];
+
+      querySnapshot.forEach((doc) => {
+        const data = doc.data();
+        // Convert Firestore timestamp to Date
+        const followupDate = data.date.toDate();
+        
+        // Only add follow-ups for the current view period
+        if (isDateInCurrentView(followupDate)) {
+          fetchedFollowUps.push({
+            id: doc.id,
+            title: data.title || 'Follow Up',
+            startTime: data.startTime,
+            endTime: data.endTime,
+            type: 'followup',
+            date: followupDate,
+            description: data.description,
+            contactName: data.contactName,
+            phoneNumber: data.phoneNumber,
+            status: data.status
+          });
+        }
+      });
+
+      console.log('Fetched follow-ups:', fetchedFollowUps); // Debug log
+      setFollowUps(fetchedFollowUps);
+
+    } catch (error) {
+      console.error('Error fetching follow-ups:', error);
+    }
+  };
+
+  // Helper function to check if a date falls within the current view
+  const isDateInCurrentView = (date: Date) => {
+    const startOfView = startOfDay(selectedDate);
+    const endOfView = endOfDay(
+      view === 'day' 
+        ? selectedDate 
+        : view === '3days' 
+          ? addDays(selectedDate, 2) 
+          : addDays(selectedDate, 6)
+    );
+
+    return isWithinInterval(date, { start: startOfView, end: endOfView });
+  };
+
+  // Combine regular schedule with follow-ups
   const getEventsForCurrentView = (): Event[] => {
     let events: Event[] = [];
     
+    // Add daily schedule template events
     if (view === 'day') {
-      events = dailyScheduleTemplate.map((template, index) => ({
+      events = dailyScheduleTemplate.map(template => ({
         ...template,
-        id: `${selectedDate.toISOString()}-${index}`,
+        id: `${selectedDate.toISOString()}-${template.startTime}`,
         date: selectedDate,
       }));
-    } else if (view === '3days') {
-      for (let i = 0; i < 3; i++) {
-        events = [...events, ...dailyScheduleTemplate.map((template, index) => ({
+    } else {
+      const daysToShow = view === '3days' ? 3 : 7;
+      for (let i = 0; i < daysToShow; i++) {
+        const currentDate = addDays(selectedDate, i);
+        events = [...events, ...dailyScheduleTemplate.map(template => ({
           ...template,
-          id: `${addDays(selectedDate, i).toISOString()}-${index}`,
-          date: addDays(selectedDate, i),
-        }))];
-      }
-    } else if (view === 'week') {
-      for (let i = 0; i < 7; i++) {
-        events = [...events, ...dailyScheduleTemplate.map((template, index) => ({
-          ...template,
-          id: `${addDays(selectedDate, i).toISOString()}-${index}`,
-          date: addDays(selectedDate, i),
+          id: `${currentDate.toISOString()}-${template.startTime}`,
+          date: currentDate,
         }))];
       }
     }
 
-    // Add any follow-up events
-    const followUpEvents = getFollowUpEvents();
-    return [...events, ...followUpEvents];
+    // Add follow-ups to events
+    const allEvents = [...events, ...followUps];
+    
+    // Sort events by time
+    return allEvents.sort((a, b) => {
+      const dateCompare = a.date.getTime() - b.date.getTime();
+      if (dateCompare === 0) {
+        return a.startTime.localeCompare(b.startTime);
+      }
+      return dateCompare;
+    });
   };
+
+  useEffect(() => {
+    fetchFollowUps();
+  }, [selectedDate, view]);
 
   return (
     <LinearGradient colors={['#FFF8F0', '#FFF']} style={styles.container}>
@@ -598,10 +683,21 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     zIndex: 2,
   },
+  followUpContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    flex: 1,
+  },
+  followUpTitle: {
+    fontSize: 12,
+    fontFamily: 'LexendDeca_500Medium',
+    flex: 1,
+    marginHorizontal: 8,
+  },
   followUpTime: {
     fontSize: 12,
     fontFamily: 'LexendDeca_500Medium',
-    marginRight: 8,
   },
   followUpModalContent: {
     width: '95%',

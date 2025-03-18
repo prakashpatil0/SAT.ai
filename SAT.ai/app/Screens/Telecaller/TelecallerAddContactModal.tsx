@@ -36,7 +36,7 @@ interface Contact {
 const AddContactModal = ({ visible, onClose = () => {}, phoneNumber: initialPhoneNumber, onContactSaved, editingContact }: AddContactModalProps) => {
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
-  const [phoneNumber, setPhoneNumber] = useState(initialPhoneNumber);
+  const [phoneNumber, setPhoneNumber] = useState('');
   const [email, setEmail] = useState('');
   const [errors, setErrors] = useState({
     firstName: '',
@@ -45,18 +45,20 @@ const AddContactModal = ({ visible, onClose = () => {}, phoneNumber: initialPhon
   const navigation = useNavigation();
 
   useEffect(() => {
+    // Set the phone number when the modal becomes visible or initialPhoneNumber changes
+    if (visible) {
+      setPhoneNumber(initialPhoneNumber || '');
+    }
+  }, [visible, initialPhoneNumber]);
+
+  useEffect(() => {
     if (editingContact) {
       setFirstName(editingContact.firstName);
       setLastName(editingContact.lastName);
       setPhoneNumber(editingContact.phoneNumber);
       setEmail(editingContact.email || '');
-    } else {
-      setFirstName('');
-      setLastName('');
-      setPhoneNumber(initialPhoneNumber);
-      setEmail('');
     }
-  }, [editingContact, initialPhoneNumber]);
+  }, [editingContact]);
 
   const validateForm = () => {
     let isValid = true;
@@ -72,9 +74,6 @@ const AddContactModal = ({ visible, onClose = () => {}, phoneNumber: initialPhon
 
     if (!phoneNumber.trim()) {
       newErrors.phoneNumber = 'Phone number is required';
-      isValid = false;
-    } else if (!/^\d{10}$/.test(phoneNumber.trim())) {
-      newErrors.phoneNumber = 'Please enter a valid 10-digit phone number';
       isValid = false;
     }
 
@@ -152,6 +151,7 @@ const AddContactModal = ({ visible, onClose = () => {}, phoneNumber: initialPhon
       visible={visible}
       animationType="slide"
       transparent={true}
+      onRequestClose={onClose}
     >
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -181,13 +181,12 @@ const AddContactModal = ({ visible, onClose = () => {}, phoneNumber: initialPhon
             keyboardShouldPersistTaps="handled"
           >
             <View style={styles.inputGroup}>
-              <Text style={styles.label}>First Name<Text style={styles.required}>*</Text></Text>
+              <Text style={styles.label}>First Name <Text style={styles.required}>*</Text></Text>
               <TextInput
                 style={[styles.input, errors.firstName ? styles.inputError : null]}
                 placeholder="Enter First Name"
                 value={firstName}
                 onChangeText={setFirstName}
-                autoCapitalize="words"
                 returnKeyType="next"
               />
               {errors.firstName ? (
@@ -202,20 +201,20 @@ const AddContactModal = ({ visible, onClose = () => {}, phoneNumber: initialPhon
                 placeholder="Enter Last Name"
                 value={lastName}
                 onChangeText={setLastName}
-                autoCapitalize="words"
                 returnKeyType="next"
               />
             </View>
 
             <View style={styles.inputGroup}>
-              <Text style={styles.label}>Phone Number<Text style={styles.required}>*</Text></Text>
+              <Text style={styles.label}>Phone Number <Text style={styles.required}>*</Text></Text>
               <TextInput
                 style={[styles.input, errors.phoneNumber ? styles.inputError : null]}
                 placeholder="Enter Phone Number"
                 value={phoneNumber}
                 onChangeText={setPhoneNumber}
                 keyboardType="phone-pad"
-                maxLength={10}
+                editable={false}
+                selectTextOnFocus={false}
                 returnKeyType="next"
               />
               {errors.phoneNumber ? (
@@ -342,6 +341,10 @@ const styles = StyleSheet.create({
     color: 'white',
     fontSize: 16,
     fontFamily: 'LexendDeca_600SemiBold',
+  },
+  readOnlyInput: {
+    backgroundColor: '#F5F5F5',
+    color: '#666',
   },
 });
 

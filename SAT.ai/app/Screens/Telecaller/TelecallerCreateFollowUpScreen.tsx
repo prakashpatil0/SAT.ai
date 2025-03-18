@@ -5,6 +5,9 @@ import { useNavigation } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
 import TelecallerMainLayout from '@/app/components/TelecallerMainLayout';
 import { MaterialIcons } from '@expo/vector-icons';
+import { doc, addDoc, collection } from 'firebase/firestore';
+import { db } from '@/firebaseConfig';
+import { getAuth } from 'firebase/auth';
 
 
 const CreateFollowUpScreen = () => {
@@ -17,6 +20,9 @@ const CreateFollowUpScreen = () => {
   const [minutes, setMinutes] = useState('10');
   const [period, setPeriod] = useState('PM');
   const [showTimePicker, setShowTimePicker] = useState(false);
+  const [description, setDescription] = useState('');
+  const [contactName, setContactName] = useState('');
+  const [phoneNumber, setPhoneNumber] = useState('');
 
   const times = [
     '9:00', '9:30', '10:00', '10:30', '11:00', '11:30', '12:00', 
@@ -57,15 +63,72 @@ const CreateFollowUpScreen = () => {
     setSelectedMonth(newMonth);
   };
 
-  const handleSubmit = () => {
-    if (!selectedDate || (!selectedTime && !customTime.hour)) {
-       alert("Please select a date and time.");
-       return;
+  const handleSubmit = async () => {
+    if (!selectedDate || (!selectedTime && !`${hours}:${minutes} ${period}`)) {
+      alert("Please select a date and time.");
+      return;
     }
-    console.log('Follow-up scheduled:', { selectedDate, selectedTime, customTime });
-    navigation.goBack();
- };
-  
+
+    try {
+      const auth = getAuth();
+      const userId = auth.currentUser?.uid;
+
+      if (!userId) {
+        alert("Please login first");
+        return;
+      }
+
+      // Format the date and time
+      const year = selectedMonth.getFullYear();
+      const month = selectedMonth.getMonth();
+      const date = new Date(year, month, selectedDate);
+      
+      // Convert 12-hour format to 24-hour format if using custom time
+      let finalTime = selectedTime;
+      if (!selectedTime) {
+        let hour = parseInt(hours);
+        if (period === 'PM' && hour !== 12) {
+          hour += 12;
+        } else if (period === 'AM' && hour === 12) {
+          hour = 0;
+        }
+        finalTime = `${hour.toString().padStart(2, '0')}:${minutes}`;
+      }
+
+      // Create the follow-up event
+      const followUpEvent = {
+        title: 'Follow Up: ' + (description || 'Client Call'),
+        startTime: finalTime,
+        endTime: addMinutes(finalTime, 30), // Add 30 minutes for end time
+        type: 'followup',
+        date: date,
+        description: description,
+        contactName: contactName,
+        phoneNumber: phoneNumber,
+        status: 'Pending',
+        userId: userId,
+        createdAt: new Date(),
+      };
+
+      // Add to Firestore
+      await addDoc(collection(db, 'followups'), followUpEvent);
+
+      alert('Follow-up scheduled successfully!');
+      navigation.goBack();
+
+    } catch (error) {
+      console.error('Error scheduling follow-up:', error);
+      alert('Failed to schedule follow-up');
+    }
+  };
+
+  // Helper function to add minutes to time string
+  const addMinutes = (time: string, minutes: number) => {
+    const [hours, mins] = time.split(':').map(Number);
+    const date = new Date(2000, 0, 1, hours, mins + minutes);
+    return `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
+  };
+
   const TimePickerModal = () => (
     <Modal
       visible={showTimePicker}
@@ -181,6 +244,28 @@ const CreateFollowUpScreen = () => {
           <TouchableOpacity style={styles.submitButton} onPress={handleSubmit}>
             <Text style={styles.submitText}>Submit</Text>
           </TouchableOpacity>
+        </View>
+        <View style={styles.formContainer}>
+          <TextInput
+            style={styles.input}
+            placeholder="Contact Name"
+            value={contactName}
+            onChangeText={setContactName}
+          />
+          <TextInput
+            style={styles.input}
+            placeholder="Phone Number"
+            value={phoneNumber}
+            onChangeText={setPhoneNumber}
+            keyboardType="phone-pad"
+          />
+          <TextInput
+            style={[styles.input, styles.descriptionInput]}
+            placeholder="Description"
+            value={description}
+            onChangeText={setDescription}
+            multiline
+          />
         </View>
       </ScrollView>
       <TimePickerModal />
@@ -374,5 +459,24 @@ const styles = StyleSheet.create({
   },
   periodTextActive: {
     color: 'white',
+  },
+  formContainer: {
+    backgroundColor: 'white',
+    borderRadius: 10,
+    padding: 16,
+    marginBottom: 20,
+  },
+  input: {
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 12,
+    fontSize: 14,
+    fontFamily: 'LexendDeca_400Regular',
+  },
+  descriptionInput: {
+    height: 100,
+    textAlignVertical: 'top',
   },
 });

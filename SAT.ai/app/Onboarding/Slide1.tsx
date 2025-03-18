@@ -134,10 +134,10 @@ const OnboardingScreen = () => {
       {slides.map((slide, index) => (
         <View key={slide.id} style={styles.container}>
           <LinearGradient 
-            colors={['#F55100', '#FFFFFF']} 
+            colors={['#FFE4D9', '#FFFFFF']} 
             style={styles.gradient}
             start={{ x: 0.5, y: 0 }}
-            end={{ x: 0.5, y: 0.8 }}
+            end={{ x: 0.5, y: 1 }}
           >
             <View style={styles.contentContainer}>
               {/* Image Container with Enhanced Animation */}
@@ -195,41 +195,38 @@ const OnboardingScreen = () => {
                       ))}
                     </View>
 
-                    <View style={styles.bottomButtons}>
-                      {index === 0 && (
-                        <TouchableOpacity 
-                          style={styles.skipButton} 
-                          onPress={() => navigation.navigate('SignUpScreen' as never)}
-                        >
-                          <Text style={styles.skipText}>Skip</Text>
-                        </TouchableOpacity>
-                      )}
-                      
-                      <View style={[
-                        styles.navigationButtons,
-                        index === 0 ? styles.navigationButtonsWithSkip : styles.navigationButtonsCenter
-                      ]}>
-                        {index > 0 && (
-                          <TouchableOpacity 
-                            style={[styles.navButton, styles.buttonShadow]}
-                            onPress={() => {
-                              setCurrentIndex(currentIndex - 1);
-                              swiperRef.current?.scrollBy(-1);
-                            }}
-                          >
-                            <MaterialIcons name="chevron-left" size={32} color="white" />
-                          </TouchableOpacity>
-                        )}
-                        <TouchableOpacity 
-                          style={[styles.navButton, styles.buttonShadow]}
-                          onPress={() => {
-                            setCurrentIndex(currentIndex + 1);
-                            swiperRef.current?.scrollBy(1);
-                          }}
-                        >
-                          <MaterialIcons name="chevron-right" size={32} color="white" />
-                        </TouchableOpacity>
-                      </View>
+                    {/* Skip button - show on slides 2-4 */}
+                    {index > 0 && index < slides.length - 1 && (
+                      <TouchableOpacity 
+                        style={styles.skipButton} 
+                        onPress={() => navigation.navigate('SignUpScreen' as never)}
+                      >
+                        <Text style={styles.skipText}>Skip</Text>
+                      </TouchableOpacity>
+                    )}
+
+                    <View style={styles.navigationButtons}>
+                      <TouchableOpacity 
+                        style={[styles.navButton, { opacity: index === 0 ? 0 : 1 }]}
+                        onPress={() => {
+                          if (index > 0) {
+                            setCurrentIndex(index - 1);
+                            swiperRef.current?.scrollBy(-1);
+                          }
+                        }}
+                        disabled={index === 0}
+                      >
+                        <MaterialIcons name="chevron-left" size={30} color="#F55100" />
+                      </TouchableOpacity>
+                      <TouchableOpacity 
+                        style={styles.navButton}
+                        onPress={() => {
+                          setCurrentIndex(index + 1);
+                          swiperRef.current?.scrollBy(1);
+                        }}
+                      >
+                        <MaterialIcons name="chevron-right" size={30} color="#F55100" />
+                      </TouchableOpacity>
                     </View>
                   </View>
                 ) : (
@@ -255,34 +252,36 @@ const styles = StyleSheet.create({
   },
   gradient: {
     flex: 1,
+    backgroundColor: 'transparent',
   },
   contentContainer: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: height * 0.05,
+    paddingTop: height * 0.1,
+    paddingBottom: height * 0.05,
   },
   imageContainer: {
-    width: width * 0.85,
-    height: height * 0.4,
+    width: width * 0.8,
+    height: height * 0.35,
     justifyContent: 'center',
     alignItems: 'center',
-    marginTop: height * 0.02,
+    marginBottom: height * 0.05,
   },
   image: {
     width: '100%',
     height: '100%',
+    resizeMode: 'contain',
   },
   textContainer: {
     alignItems: 'center',
-    paddingHorizontal: width * 0.1,
-    marginTop: height * 0.02,
-    marginBottom: height * 0.08,
+    paddingHorizontal: width * 0.08,
+    marginBottom: height * 0.15,
   },
   title: {
-    fontSize: 32,
+    fontSize: 36,
     fontFamily: 'Poppins_600SemiBold',
-    color: '#333',
+    color: '#293646',
     marginBottom: height * 0.02,
     textAlign: 'center',
     letterSpacing: 0.5,
@@ -290,76 +289,75 @@ const styles = StyleSheet.create({
   description: {
     fontSize: 16,
     fontFamily: 'Inter_400Regular',
-    color: '#666',
+    color: '#666666',
     textAlign: 'center',
     lineHeight: 24,
-    letterSpacing: 0.3,
+    paddingHorizontal: 20,
+    marginTop: 5,
   },
   navigationContainer: {
     width: '100%',
-    paddingHorizontal: width * 0.05,
-    marginTop: 'auto', // Push to bottom
-    marginBottom: height * 0.05,
+    paddingHorizontal: 20,
+    position: 'absolute',
+    bottom: height * 0.05,
+    zIndex: 2,
   },
   bottomNavigation: {
     width: '100%',
+    height: 120,
   },
   dotsContainer: {
     flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: height * 0.04,
+    justifyContent: 'flex-start',
+    alignItems: 'flex-start',
+    width: '100%',
+    position: 'absolute',
+    top: 50,
   },
   dot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
     backgroundColor: '#D9D9D9',
-    marginHorizontal: 5,
-    transform: [{ scale: 1 }],
+    marginHorizontal: 4,
   },
   activeDot: {
-    width: 32,
+    width: 24,
     backgroundColor: '#F55100',
-    borderRadius: 5,
+    borderRadius: 4,
   },
-  bottomButtons: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: width * 0.02,
-    marginTop: height * 0.02,
+  skipButton: {
+    position: 'absolute',
+    alignSelf: 'flex-start',
+    left: 5,
+    bottom: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    backgroundColor: 'transparent',
+    borderRadius: 8,
+    zIndex: 3,
+  },
+  skipText: {
+    color: '#F55100',
+    fontSize: 16,
+    fontFamily: 'Poppins_500Medium',
+    textDecorationLine: 'underline',
   },
   navigationButtons: {
     flexDirection: 'row',
-    gap: 10,
-  },
-  navigationButtonsWithSkip: {
+    gap: 16,
     position: 'absolute',
-    right: 0,
-  },
-  navigationButtonsCenter: {
-    flex: 1,
-    justifyContent: 'center',
-    gap: width * 0.05,
-  },
-  buttonShadow: {
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 4,
-    },
-    shadowOpacity: 0.3,
-    shadowRadius: 4.65,
-    elevation: 8,
+    right: 20,
+    bottom: 10,
   },
   navButton: {
-    width: 56,
-    height: 56,
-    backgroundColor: '#F55100',
-    borderRadius: 28,
+    width: 48,
+    height: 48,
+    backgroundColor: '#FFE4E1',
+    borderRadius: 24,
     justifyContent: 'center',
     alignItems: 'center',
+    elevation: 2,
   },
   getStartedButton: {
     width: width * 0.9,
@@ -376,30 +374,15 @@ const styles = StyleSheet.create({
     fontFamily: 'Poppins_600SemiBold',
     letterSpacing: 0.5,
   },
-  skipButton: {
-    padding: 12,
-    backgroundColor: 'white',
-    borderRadius: 12,
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: {
-          width: 0,
-          height: 4,
-        },
-        shadowOpacity: 0.2,
-        shadowRadius: 4.65,
-      },
-      android: {
-        elevation: 8,
-      },
-    }),
-  },
-  skipText: {
-    color: '#F55100',
-    fontSize: 16,
-    fontFamily: 'Poppins_500Medium',
-    letterSpacing: 0.3,
+  buttonShadow: {
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.3,
+    shadowRadius: 4.65,
+    elevation: 8,
   },
 });
 

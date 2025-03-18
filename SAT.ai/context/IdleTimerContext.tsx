@@ -1,13 +1,8 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { useNavigation } from '@react-navigation/native';
-import { StackNavigationProp } from '@react-navigation/stack';
-
-type RootStackParamList = {
-  AlertScreen: undefined;
-  Login: undefined;
-};
-
-type NavigationProp = StackNavigationProp<RootStackParamList>;
+import { AppState, Platform } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Notifications from 'expo-notifications';
 
 type IdleTimerContextType = {
   resetIdleTimer: () => void;
@@ -21,49 +16,62 @@ export const IdleTimerProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const [isIdle, setIsIdle] = useState(false);
   const [isTimerActive, setIsTimerActive] = useState(false);
   const [lastActivity, setLastActivity] = useState(Date.now());
-  const navigation = useNavigation<NavigationProp>();
+  const navigation = useNavigation();
+
+  // Configure notifications
+  useEffect(() => {
+    const setupNotifications = async () => {
+      if (Platform.OS !== 'web') {
+        const { status } = await Notifications.requestPermissionsAsync();
+        if (status !== 'granted') {
+          console.log('Notification permissions not granted');
+        }
+      }
+    };
+
+    setupNotifications();
+  }, []);
 
   useEffect(() => {
-    const IDLE_TIMEOUT = 5 * 60 * 1000; // 5 minutes in milliseconds
-    const TIMER_DURATION = 15 * 60 * 1000; // 15 minutes in milliseconds
-    let idleTimer: NodeJS.Timeout;
-    let timerCheckInterval: NodeJS.Timeout;
+    const IDLE_TIMEOUT = 5 * 60 * 1000; // 5 minutes
+    let idleCheckInterval: NodeJS.Timeout;
 
     const checkIdleTime = () => {
       const currentTime = Date.now();
       const timeSinceLastActivity = currentTime - lastActivity;
 
       if (timeSinceLastActivity >= IDLE_TIMEOUT && !isTimerActive) {
-        // Start 15-minute timer after 5 minutes of inactivity
         setIsTimerActive(true);
         setIsIdle(true);
-        navigation.navigate('AlertScreen');
-      } else if (timeSinceLastActivity >= TIMER_DURATION && isTimerActive) {
-        // If 15 minutes have passed since timer started
-        navigation.navigate('AlertScreen');
+        navigation.navigate('AlertScreen' as never);
       }
     };
 
-    // Reset timer on any navigation state change
-    const unsubscribe = navigation.addListener('state', () => {
+    // Handle app state changes
+    const handleAppStateChange = (nextAppState: string) => {
+      if (nextAppState === 'active') {
+        setLastActivity(Date.now());
+      }
+    };
+
+    // Set up app state listener
+    const appStateSubscription = AppState.addEventListener('change', handleAppStateChange);
+
+    // Set up navigation state listener
+    const unsubscribeNavigation = navigation.addListener('state', () => {
       if (!isTimerActive) {
         setLastActivity(Date.now());
         setIsIdle(false);
       }
     });
 
-    // Check idle time every minute
-    idleTimer = setInterval(checkIdleTime, 60000);
-
-    // More frequent checks when timer is active
-    if (isTimerActive) {
-      timerCheckInterval = setInterval(checkIdleTime, 1000);
-    }
+    // Start idle check interval
+    idleCheckInterval = setInterval(checkIdleTime, 60000); // Check every minute
 
     return () => {
-      clearInterval(idleTimer);
-      if (timerCheckInterval) clearInterval(timerCheckInterval);
-      unsubscribe();
+      clearInterval(idleCheckInterval);
+      appStateSubscription.remove();
+      unsubscribeNavigation();
     };
   }, [lastActivity, navigation, isTimerActive]);
 

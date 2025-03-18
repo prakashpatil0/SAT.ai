@@ -45,6 +45,8 @@ import TelecallerPersonNotes from "@/app/Screens/Telecaller/TelecallerPersonNote
 import TelecallerIdleTimer from "@/app/Screens/Telecaller/Tab/TelecallerIdleTimer"
 import ContactBook from "@/app/components/ContactBook/ContactBook";
 
+
+
 import BDMBottomTabs from "@/app/Screens/BDM/BDMBottomTabs";
 import BDMContactDetailsScreen from "@/app/Screens/BDM/BDMContactDetailsScreen";
 import BDMCompanyDetailsScreen from "@/app/Screens/BDM/BDMCompanyDetailsScreen";
@@ -87,13 +89,14 @@ import { BackendProvider } from './contexts/BackendContext';
 export type RootStackParamList = {
   // Auth Screens
   Login: undefined;
-  SignUp: undefined;
+  SignUpScreen: undefined;
   ForgotPassword: undefined;
   VerifyEmail: { email: string };
   SetNewPassword: undefined;
 
   // Main App Screens
   MainApp: undefined;
+  BDMStack: undefined;
   BDMHomeScreen: undefined;
   Profile: undefined;
   ContactBook: undefined;
@@ -109,6 +112,84 @@ export type RootStackParamList = {
   CompanyDetails: { companyId: string };
   NewCompany: undefined;
   Activities: undefined;
+  BDMBottomTabs: undefined;
+  BDMTarget: undefined;
+  BDMAttendance: undefined;
+  BDMReport: undefined;
+  BDMProfile: undefined;
+  MySchedule: undefined;
+  BDMCallNoteDetailsScreen: undefined;
+  BDMLeaderBoard: undefined;
+  BDMCreateFollowUp: undefined;
+  BDMViewFullReport: undefined;
+  BDMMeetingLog: undefined;
+  BDMMyNotesScreen: undefined;
+  BDMNotesDetailScreen: undefined;
+  BDMVirtualBusinessCard: undefined;
+  BDMCallHistory: undefined;
+  BDMPersonNote: undefined;
+  BDMCameraScreen: undefined;
+  BDMCallModal: undefined;
+  BDMContactDetails: {
+    contact: {
+      name: string;
+      phone: string;
+      email: string;
+    };
+  };
+  BDMCompanyDetails: {
+    company: {
+      name: string;
+    };
+  };
+};
+
+export type BDMStackParamList = {
+  BDMHomeScreen: undefined;
+  BDMBottomTabs: undefined;
+  BDMProfile: undefined;
+  BDMLeaderBoard: undefined;
+  BDMMyNotesScreen: undefined;
+  BDMTarget: undefined;
+  BDMAttendance: undefined;
+  BDMReport: undefined;
+  BDMMyScheduleScreen: undefined;
+  BDMVirtualBusinessCard: undefined;
+  BDMCallHistory: {
+    customerName: string;
+    meetings: Array<{
+      date: string;
+      time: string;
+      duration: string;
+      notes?: string[];
+    }>;
+  };
+  BDMPersonNote: {
+    name: string;
+    time: string;
+    duration: string;
+    type: string;
+    notes: string[];
+  };
+  BDMCallNoteDetailsScreen: {
+    meeting: {
+      name: string;
+      time: string;
+      duration: string;
+    };
+  };
+  BDMContactDetails: {
+    contact: {
+      name: string;
+      phone: string;
+      email: string;
+    };
+  };
+  BDMCompanyDetails: {
+    company: {
+      name: string;
+    };
+  };
 };
 
 // Prevent splash screen from hiding automatically
@@ -250,50 +331,147 @@ const DrawerNavigator = () => {
   );
 };
 
-const BDMStack = () => {
+const BDMStack = createDrawerNavigator<BDMStackParamList>();
+
+function BDMStackNavigator() {
   return (
-    <Drawer.Navigator
+    <BDMStack.Navigator
       drawerContent={(props) => <BDMDrawer {...props} />}
+      initialRouteName="BDMHomeScreen"
       screenOptions={{
         headerShown: false,
         drawerStyle: {
-          width: '80%',
-          backgroundColor: 'white',
+          backgroundColor: '#fff',
+          width: 280,
+          borderTopRightRadius: 20,
+          borderBottomRightRadius: 20,
+          elevation: 5,
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 2 },
+          shadowOpacity: 0.25,
+          shadowRadius: 3.84,
         },
+        drawerLabelStyle: {
+          fontFamily: 'LexendDeca_400Regular',
+          fontSize: 16,
+          color: '#333',
+          marginLeft: -16,
+          paddingLeft: 16,
+        },
+        drawerItemStyle: {
+          paddingVertical: 8,
+          marginVertical: 4,
+          borderRadius: 8,
+        },
+        drawerActiveTintColor: '#FF8447',
+        drawerInactiveTintColor: '#666',
+        drawerActiveBackgroundColor: '#FFF8F0',
+        drawerInactiveBackgroundColor: 'transparent',
       }}
-      initialRouteName="BDMHomeScreen"
     >
-      <Drawer.Screen 
-        name="BDMBottomTabs" 
-        component={BDMBottomTabs}
+      <BDMStack.Screen 
+        name="BDMHomeScreen" 
+        component={BDMHomeScreen}
         options={{
-          title: 'Home'
+          title: 'Home',
+          drawerIcon: ({ color }) => (
+            <MaterialIcons name="home" size={24} color={color} />
+          ),
         }}
       />
-      <Drawer.Screen name="BDMHomeScreen" component={BDMHomeScreen} />
-      <Drawer.Screen name="BDMTarget" component={BDMTargetScreen} />
-      <Drawer.Screen name="BDMAttendance" component={BDMAttendanceScreen} />
-      <Drawer.Screen name="BDMReport" component={BDMReportScreen} />
-      <Drawer.Screen name="Profile" component={Profile} />
-      <Drawer.Screen name="MySchedule" component={BDMMyScheduleScreen} options={{headerShown: false}}/>
-      <Drawer.Screen name="BDMCallNoteDetailsScreen" component={BDMCallNoteDetailsScreen} />
-      <Drawer.Screen name="Leaderboard" component={Leaderboard} />
-      <Drawer.Screen name="BDMCreateFollowUp" component={BDMCreateFollowUpScreen} />
-      <Drawer.Screen name="BDMViewFullReport" component={BDMViewFullReport} />
-      <Drawer.Screen name="BDMMeetingLog" component={BDMMeetingLogScreen} />
-      <Drawer.Screen name="BDMMyNotesScreen" component={BDMMyNotesScreen} />
-      <Drawer.Screen name="BDMNotesDetailScreen" component={BDMNotesDetailScreen} />
-      <Drawer.Screen name="BDMMyScheduleScreen" component={BDMMyScheduleScreen} />
-      <Drawer.Screen name="BDMVirtualBusinessCard" component={BDMVirtualBusinessCard} />
-      <Drawer.Screen name="BDMProfile" component={BDMProfile} />
-      <Drawer.Screen name="BDMLeaderBoard" component={BDMLeaderBoard} />
-      <Drawer.Screen name="BDMCallHistory" component={BDMCallHistory} options={{headerShown: false}}/>
-      <Drawer.Screen name="BDMPersonNote" component={BDMPersonNote} options={{headerShown: false}}/>
-      <Drawer.Screen name="BDMCameraScreen" component={BDMCameraScreen} options={{headerShown: false}}/>
-      <Drawer.Screen name="BDMCallModal" component={BDMCallModal}/>
-    </Drawer.Navigator>
+      <BDMStack.Screen 
+        name="BDMProfile" 
+        component={BDMProfile}
+        options={{
+          title: 'Profile',
+          drawerIcon: ({ color }) => (
+            <MaterialIcons name="person" size={24} color={color} />
+          ),
+        }}
+      />
+      <BDMStack.Screen 
+        name="BDMVirtualBusinessCard" 
+        component={BDMVirtualBusinessCard}
+        options={{
+          title: 'Virtual Business Card',
+          drawerIcon: ({ color }) => (
+            <MaterialIcons name="credit-card" size={24} color={color} />
+          ),
+        }}
+      />
+      <BDMStack.Screen 
+        name="BDMMyScheduleScreen" 
+        component={BDMMyScheduleScreen}
+        options={{
+          title: 'My Schedule',
+          drawerIcon: ({ color }) => (
+            <MaterialIcons name="event" size={24} color={color} />
+          ),
+        }}
+      />
+      <BDMStack.Screen 
+        name="BDMMyNotesScreen" 
+        component={BDMMyNotesScreen}
+        options={{
+          title: 'My Notes',
+          drawerIcon: ({ color }) => (
+            <MaterialIcons name="edit" size={24} color={color} />
+          ),
+        }}
+      />
+      <BDMStack.Screen 
+        name="BDMLeaderBoard" 
+        component={BDMLeaderBoard}
+        options={{
+          title: 'Leaderboard',
+          drawerIcon: ({ color }) => (
+            <MaterialIcons name="leaderboard" size={24} color={color} />
+          ),
+        }}
+      />
+      <BDMStack.Screen 
+        name="BDMTarget" 
+        component={BDMTargetScreen}
+        options={{ headerShown: false }}
+      />
+      <BDMStack.Screen 
+        name="BDMAttendance" 
+        component={BDMAttendanceScreen}
+        options={{ headerShown: false }}
+      />
+      <BDMStack.Screen 
+        name="BDMReport" 
+        component={BDMReportScreen}
+        options={{ headerShown: false }}
+      />
+      <BDMStack.Screen 
+        name="BDMContactDetails" 
+        component={BDMContactDetailsScreen}
+        options={{ headerShown: false }}
+      />
+      <BDMStack.Screen 
+        name="BDMCompanyDetails" 
+        component={BDMCompanyDetailsScreen}
+        options={{ headerShown: false }}
+      />
+      <BDMStack.Screen 
+        name="BDMCallNoteDetailsScreen" 
+        component={BDMCallNoteDetailsScreen}
+        options={{ headerShown: false }}
+      />
+      <BDMStack.Screen 
+        name="BDMCallHistory" 
+        component={BDMCallHistory}
+        options={{ headerShown: false }}
+      />
+      <BDMStack.Screen 
+        name="BDMPersonNote" 
+        component={BDMPersonNote}
+        options={{ headerShown: false }}
+      />
+    </BDMStack.Navigator>
   );
-};
+}
 
 const RootStack = () => {
   return (
@@ -310,83 +488,16 @@ const RootStack = () => {
       <Stack.Screen name="VerifyEmail" component={VerifyEmail} />
       <Stack.Screen name="SetNewPassword" component={SetNewPassword} />
       <Stack.Screen name="MainApp" component={DrawerNavigator} />
-      <Stack.Screen name="BDMHomeScreen" component={BDMStack} />
+      <Stack.Screen 
+        name="BDMStack" 
+        component={BDMStackNavigator}
+        options={{
+          headerShown: false,
+          gestureEnabled: false
+        }}
+      />
       <Stack.Screen name="TelecallerIdleTimer" component={TelecallerIdleTimer} options={{ headerShown: false }} />
-      <Stack.Screen name="BDMMyNotesScreen" component={BDMMyNotesScreen} />
-      <Stack.Screen name="BDMNotesDetailScreen" component={BDMNotesDetailScreen} />
-
-      <Stack.Screen 
-        name="BDMContactDetails" 
-        component={BDMContactDetailsScreen}
-        options={{ headerShown: false }}
-      />
-      <Stack.Screen 
-        name="BDMCompanyDetails" 
-        component={BDMCompanyDetailsScreen}
-        options={{ headerShown: false }}
-      />
-      <Stack.Screen 
-        name="BDMCallNoteDetailsScreen" 
-        component={BDMCallNoteDetailsScreen}
-        options={{ headerShown: false }}
-      />
-      <Stack.Screen 
-        name="BDMReportScreen" 
-        component={BDMReportScreen}
-        options={{ headerShown: false }}
-      />
-      <Stack.Screen 
-        name="BDMCreateFollowUpScreen" 
-        component={BDMCreateFollowUpScreen}
-        options={{ headerShown: false }}
-      />
-      <Stack.Screen 
-        name="BDMViewFullReport" 
-        component={BDMViewFullReport}
-        options={{ headerShown: false }}
-      />
-      <Stack.Screen 
-        name="BDMMyScheduleScreen" 
-        component={BDMMyScheduleScreen} 
-        options={{ headerShown: false }}
-      />
-      <Stack.Screen 
-        name="BDMVirtualBusinessCard" 
-        component={BDMVirtualBusinessCard} 
-        options={{ headerShown: false }}
-      />
-      <Stack.Screen 
-        name="BDMProfile" 
-        component={BDMProfile} 
-        options={{ headerShown: false }}
-      />
-      <Stack.Screen 
-        name="BDMLeaderBoard" 
-        component={BDMLeaderBoard} 
-        options={{ headerShown: false }}
-      />
-      <Stack.Screen
-        name="BDMCallHistory"
-        component={BDMCallHistory}
-        options={{ headerShown: false }}
-      />
-      <Stack.Screen
-        name="BDMPersonNote" 
-        component={BDMPersonNote}
-        initialParams={{}} // Add initialParams to fix type error
-        options={{ headerShown: false }}
-      />
-      <Stack.Screen 
-        name="BDMCameraScreen"
-        component={BDMCameraScreen}
-        options={{ headerShown: false }}
-      />
-      <Stack.Screen name="BDMCallModal" component={BDMCallModal}/>
-      <Stack.Screen 
-        name="ContactInfo" 
-        component={ContactInfo}
-        options={{ headerShown: false }}
-      />
+      <Stack.Screen name="ContactInfo" component={ContactInfo} options={{ headerShown: false }} />
     </Stack.Navigator>
   );
 };

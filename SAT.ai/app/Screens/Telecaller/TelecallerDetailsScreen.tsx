@@ -7,7 +7,8 @@ import { db } from '@/firebaseConfig';
 import { collection, query, where, orderBy, onSnapshot } from 'firebase/firestore';
 import { Timestamp } from 'firebase/firestore';
 import { addDoc, serverTimestamp } from 'firebase/firestore';
-
+import TelecallerMainLayout from '../../components/TelecallerMainLayout';
+import AppGradient from '../../components/AppGradient';
 interface Script {
   id: string;
   title: string;
@@ -109,16 +110,9 @@ const DetailsScreen = () => {
   };
 
   return (
+    <AppGradient>
+    <TelecallerMainLayout title="My Script" showBackButton={true} showBottomTabs={true} showHeader={true}>
     <ScrollView style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={handleBackPress} style={styles.backButton}>
-          <Ionicons name="arrow-back" size={24} color="#000"/>
-        </TouchableOpacity>
-        <View style={styles.headerTitleContainer}>
-          <Text style={styles.headerTitle}>My Script</Text>
-        </View>
-      </View>
-
       <View style={styles.card}>
         <View style={styles.cardHeader}>
           <Text style={styles.title}>{script.title}</Text>
@@ -143,6 +137,8 @@ const DetailsScreen = () => {
         )}
       </View>
     </ScrollView>
+    </TelecallerMainLayout>
+    </AppGradient>
   );
 };
 
@@ -150,6 +146,7 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     padding: 20,
+    backgroundColor: "transparent",
   },
   backButton: {
     padding: 1,

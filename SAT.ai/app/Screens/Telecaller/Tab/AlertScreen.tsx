@@ -3,24 +3,38 @@ import { View, Text, StyleSheet, Alert, Vibration, TouchableWithoutFeedback } fr
 import Svg, { G, Text as SvgText, Line } from "react-native-svg";
 import { Audio } from "expo-av";
 import * as ScreenOrientation from "expo-screen-orientation";
-import { LinearGradient } from "expo-linear-gradient";
 import { useNavigation } from "@react-navigation/native";
 import TelecallerMainLayout from "@/app/components/TelecallerMainLayout";
 import AppGradient from "@/app/components/AppGradient";
 import { useIdleTimer } from '@/context/IdleTimerContext';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const AlertScreen = () => {
   const navigation = useNavigation();
   const { resetIdleTimer, isTimerActive } = useIdleTimer();
-  const initialTime = 900; // 15 minutes in seconds
+  const initialTime = 600; // 10 minutes in seconds
   const [secondsRemaining, setSecondsRemaining] = useState(initialTime);
   const [isRinging, setIsRinging] = useState(false);
   const [sound, setSound] = useState(null);
+  const [idleCount, setIdleCount] = useState(0);
 
   const radius = 80;
   const strokeWidth = 4;
   const dashCount = 60; // 60 dashes
   const dashAngle = 360 / dashCount; // Angle between each dash
+
+  useEffect(() => {
+    loadIdleCount();
+  }, []);
+
+  const loadIdleCount = async () => {
+    try {
+      const count = await AsyncStorage.getItem('idleLogoutCount');
+      setIdleCount(count ? parseInt(count) : 0);
+    } catch (error) {
+      console.error('Error loading idle count:', error);
+    }
+  };
 
   useEffect(() => {
     if (!isTimerActive) {
@@ -43,7 +57,7 @@ const AlertScreen = () => {
 
   const handleScreenPress = () => {
     if (isTimerActive && secondsRemaining < initialTime) {
-      resetIdleTimer(); // This will reset the timer to 15 minutes
+      resetIdleTimer();
       setSecondsRemaining(initialTime);
       stopAlertSound();
     }
@@ -76,14 +90,11 @@ const AlertScreen = () => {
   };
 
   const formatTime = (totalSeconds: number) => {
-    const hours = Math.floor(totalSeconds / 3600)
-      .toString()
-      .padStart(2, "0");
-    const minutes = Math.floor((totalSeconds % 3600) / 60)
+    const minutes = Math.floor(totalSeconds / 60)
       .toString()
       .padStart(2, "0");
     const seconds = (totalSeconds % 60).toString().padStart(2, "0");
-    return `${hours}:${minutes}:${seconds}`;
+    return `${minutes}:${seconds}`;
   };
 
   return (
@@ -108,7 +119,7 @@ const AlertScreen = () => {
                         y1={y1}
                         x2={x2}
                         y2={y2}
-                        stroke={index < (initialTime - secondsRemaining) / 15 ? "#FF8447" : "#E0E0E0"}
+                        stroke={index < (initialTime - secondsRemaining) / 10 ? "#FF8447" : "#E0E0E0"}
                         strokeWidth={strokeWidth}
                         strokeLinecap="round"
                       />
@@ -136,7 +147,7 @@ const AlertScreen = () => {
                   fontFamily="LexendDeca_400Regular"
                   fill="#FF8447"
                 >
-                  Total 15 minutes
+                  Total 10 minutes
                 </SvgText>
               </Svg>
             </View>
@@ -157,6 +168,9 @@ const AlertScreen = () => {
               </Text>
               <Text style={styles.instructionsText}>
                 • Timer restarts after 5 minutes of inactivity.
+              </Text>
+              <Text style={styles.instructionsText}>
+                • Total idle timeouts: {idleCount}
               </Text>
             </View>
           </View>

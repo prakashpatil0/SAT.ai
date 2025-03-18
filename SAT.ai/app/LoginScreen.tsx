@@ -14,7 +14,7 @@ import { getFirestore } from "firebase/firestore";
 type RootStackParamList = {
   Login: undefined;
   MainApp: undefined;
-  BDMHomeScreen: undefined;
+  BDMStack: undefined;
   SignUpScreen: undefined;
   AdminDrawer: undefined;
   ForgotPassword: undefined;
@@ -71,8 +71,7 @@ const LoginScreen = () => {
 
       // Store user role in AsyncStorage for future reference
       await AsyncStorage.setItem('userRole', userData.role.toLowerCase());
-
-      console.log('User role from Firestore:', userData.role);
+      console.log('User role stored in AsyncStorage:', userData.role.toLowerCase());
 
       // Navigate based on role
       switch (userData.role.toLowerCase()) {
@@ -83,18 +82,18 @@ const LoginScreen = () => {
             routes: [{ name: 'MainApp' }],
           });
           break;
+        case 'bdm':
+          console.log('Navigating to BDMStack');
+          navigation.reset({
+            index: 0,
+            routes: [{ name: 'BDMStack' }],
+          });
+          break;
         case 'admin':
           console.log('Navigating to AdminDrawer');
           navigation.reset({
             index: 0,
             routes: [{ name: 'AdminDrawer' }],
-          });
-          break;
-        case 'bdm':
-          console.log('Navigating to BDMHomeScreen');
-          navigation.reset({
-            index: 0,
-            routes: [{ name: 'BDMHomeScreen' }],
           });
           break;
         default:
@@ -111,6 +110,8 @@ const LoginScreen = () => {
         errorMessage = 'Incorrect password';
       } else if (error.code === 'auth/invalid-email') {
         errorMessage = 'Invalid email address';
+      } else if (error.code === 'auth/too-many-requests') {
+        errorMessage = 'Too many failed attempts. Please try again later';
       } else if (error.message) {
         errorMessage = error.message;
       }

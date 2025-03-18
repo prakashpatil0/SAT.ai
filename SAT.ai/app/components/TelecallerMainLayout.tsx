@@ -13,6 +13,7 @@ type TelecallerMainLayoutProps = {
   showBackButton?: boolean;
   showDrawer?: boolean;
   showBottomTabs?: boolean;
+
 };
 
 const TelecallerMainLayout: React.FC<TelecallerMainLayoutProps> = ({
@@ -23,7 +24,7 @@ const TelecallerMainLayout: React.FC<TelecallerMainLayoutProps> = ({
   showBottomTabs = true,
 }) => {
   const navigation = useNavigation();
-  const { profileImage } = useProfile();
+  const { userProfile } = useProfile();
 
   return (
     <View style={styles.container}>
@@ -39,11 +40,11 @@ const TelecallerMainLayout: React.FC<TelecallerMainLayoutProps> = ({
             </TouchableOpacity>
           )}
           <TouchableOpacity 
-            onPress={() => navigation.navigate('Profile')}
+            onPress={() => navigation.navigate('Profile' as never)}
             style={styles.profileButton}
           >
             <Image 
-              source={{ uri: profileImage }} 
+              source={userProfile?.profileImageUrl ? { uri: userProfile.profileImageUrl } : require('@/assets/images/girlprofile.png')} 
               style={styles.profileImage}
             />
           </TouchableOpacity>

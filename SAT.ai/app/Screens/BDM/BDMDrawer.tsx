@@ -1,68 +1,44 @@
 import React from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  Image,
-  ScrollView,
-} from 'react-native';
-import { DrawerContentScrollView } from '@react-navigation/drawer';
-import { NavigationProp, useNavigation } from '@react-navigation/native';
-import { MaterialIcons } from '@expo/vector-icons';
-import { DrawerContentComponentProps } from "@react-navigation/drawer";
-
-
-type RootStackParamList = {
-  BDMHomeScreen: undefined;
-  Profile: undefined;
-  VirtualBusinessCard: undefined;
-  MySchedule: undefined;
-  BDMMyNotesScreen: undefined;
-  Leaderboard: undefined;
-  Login: undefined;
-};
+import { View, Image, StyleSheet, TouchableOpacity, Alert } from 'react-native';
+import { DrawerContentScrollView, DrawerItem } from '@react-navigation/drawer';
+import { Text } from 'react-native-paper';
+import { MaterialCommunityIcons, MaterialIcons } from '@expo/vector-icons';
+import { useNavigation } from '@react-navigation/native';
+import { DrawerContentComponentProps } from '@react-navigation/drawer';
+import { getAuth, signOut } from 'firebase/auth';
+import { BDMStackParamList } from '@/app/index';
 
 const BDMDrawer = (props: DrawerContentComponentProps) => {
-  const navigation = useNavigation<NavigationProp<RootStackParamList>>();
+  const navigation = useNavigation();
+  const auth = getAuth();
 
-  const menuItems = [
-    { 
-      id: 1, 
-      title: 'Profile',
-      screen: 'BDMProfile',
-      icon: 'person',
-      color: '#666'
-    },
-    { 
-      id: 2, 
-      title: 'Virtual Business Card',
-      screen: 'BDMVirtualBusinessCard',
-      icon: 'credit-card',
-      color: '#666'
-    },
-    { 
-      id: 3, 
-      title: 'My Schedule',
-      screen: 'BDMMyScheduleScreen',
-      icon: 'event',
-      color: '#666'
-    },
-    { 
-      id: 4, 
-      title: 'My Notes',
-      screen: 'BDMMyNotesScreen',
-      icon: 'edit',
-      color: '#666'
-    },
-    { 
-      id: 5, 
-      title: 'Leaderboard',
-      screen: 'BDMLeaderBoard',
-      icon: 'leaderboard',
-      color: '#666'
-    },
-  ];
+  const handleLogout = () => {
+    Alert.alert(
+      'Logout',
+      'Are you sure you want to logout?',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel'
+        },
+        {
+          text: 'Logout',
+          onPress: async () => {
+            try {
+              await signOut(auth);
+              navigation.reset({
+                index: 0,
+                routes: [{ name: 'Login' as never }]
+              });
+            } catch (error) {
+              console.error('Logout error:', error);
+              Alert.alert('Error', 'Failed to logout. Please try again.');
+            }
+          }
+        }
+      ]
+    );
+  };
 
   return (
     <View style={styles.container}>
@@ -80,31 +56,52 @@ const BDMDrawer = (props: DrawerContentComponentProps) => {
           </View>
         </View>
 
-      {/* Menu Items */}
-      <ScrollView style={styles.menuContainer}>
-        <TouchableOpacity onPress={() => navigation.navigate("BDMHomeScreen")}>
-          <Text style={styles.sectionTitle}>Home</Text>
-        </TouchableOpacity>
-        {menuItems.map((item) => (
-          <TouchableOpacity 
-            key={item.id} 
-            style={styles.menuItem}
-            onPress={() => navigation.navigate(item.screen as keyof RootStackParamList)}
-          >
-            <View style={styles.menuItemContent}>
-              <MaterialIcons name={item.icon as keyof typeof MaterialIcons.glyphMap} size={24} color={item.color} />
-              <Text style={styles.menuText}>{item.title}</Text>
-            </View>
+        {/* Menu Items */}
+        <View style={styles.menuSection}>
+          <TouchableOpacity onPress={() => props.navigation.navigate('BDMHomeScreen')}>
+            <Text style={styles.sectionTitle}>Home</Text>
           </TouchableOpacity>
-        ))}
-      </ScrollView>
+          
+          <DrawerItem
+            label="Profile"
+            icon={() => <MaterialCommunityIcons name="account-circle" size={24} color="#09142D" />}
+            labelStyle={styles.menuText}
+            onPress={() => props.navigation.navigate('BDMProfile')}
+          />
+
+          <DrawerItem
+            label="Virtual Business Card"
+            icon={() => <MaterialCommunityIcons name="card-account-details" size={24} color="#09142D" />}
+            labelStyle={styles.menuText}
+            onPress={() => props.navigation.navigate('BDMVirtualBusinessCard')}
+          />
+
+          <DrawerItem
+            label="My Schedule"
+            icon={() => <MaterialCommunityIcons name="calendar" size={24} color="#09142D" />}
+            labelStyle={styles.menuText}
+            onPress={() => props.navigation.navigate('BDMMyScheduleScreen')}
+          />
+
+          <DrawerItem
+            label="My Notes"
+            icon={() => <MaterialCommunityIcons name="note-text-outline" size={24} color="#09142D" />}
+            labelStyle={styles.menuText}
+            onPress={() => props.navigation.navigate('BDMMyNotesScreen')}
+          />
+
+          <DrawerItem
+            label="Leaderboard"
+            icon={() => <MaterialCommunityIcons name="podium" size={24} color="#09142D" />}
+            labelStyle={styles.menuText}
+            onPress={() => props.navigation.navigate('BDMLeaderBoard')}
+          />
+        </View>
       </DrawerContentScrollView>
 
       {/* Logout Button */}
-      <TouchableOpacity 
-        style={styles.logoutButton}
-        onPress={() => navigation.navigate('Login')}
-      >
+      <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
+        <MaterialCommunityIcons name="logout" size={24} color="#FFFFFF" style={styles.logoutIcon} />
         <Text style={styles.logoutText}>Logout</Text>
       </TouchableOpacity>
     </View>
@@ -112,26 +109,27 @@ const BDMDrawer = (props: DrawerContentComponentProps) => {
 };
 
 const styles = StyleSheet.create({
-  container: {
+  container: { 
     flex: 1,
-    backgroundColor: '#fff',
-    paddingTop: 10,
+    backgroundColor: '#FFFFFF' 
   },
-  drawerContent: { paddingHorizontal: 15 },
-  /** Header Section **/
+  drawerContent: { 
+    paddingHorizontal: 15 
+  },
   header: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between", // Space between Close Button & Logo
+    justifyContent: "space-between",
     paddingVertical: 15,
     paddingHorizontal: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
   },
-  
-  /** Close Button (Left Side) **/
   closeButton: {
-    position: "relative",
+    padding: 8,
+    borderRadius: 20,
+    backgroundColor: '#F5F5F5',
   },
-  /** Logo (Right Side) **/
   logoContainer: {
     alignItems: "flex-end",
   },
@@ -140,42 +138,43 @@ const styles = StyleSheet.create({
     height: 40,
     resizeMode: "contain",
   },
-  menuContainer: {
-    flex: 1,
-    paddingTop: 24,
+  menuSection: { 
+    marginTop: 20 
   },
   sectionTitle: {
     fontSize: 14,
-    color: "#9C9C9C",
+    color: '#9C9C9C',
     marginBottom: 5,
     fontFamily: "LexendDeca_400Regular",
-    
-  },
-  menuItem: {
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-  },
-  menuItemContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
+    paddingHorizontal: 8,
   },
   menuText: {
     fontSize: 16,
-    fontFamily: 'LexendDeca_400Regular',
-    color: '#333',
+    color: "#09142D",
+    fontFamily: "LexendDeca_400Regular",
   },
   logoutButton: {
-    margin: 20,
-    backgroundColor: '#FF8447',
-    padding: 16,
-    borderRadius: 12,
+    flexDirection: 'row',
     alignItems: 'center',
+    backgroundColor: "#FF7F41",
+    padding: 15,
+    margin: 20,
+    marginBottom: 30,
+    borderRadius: 12,
+    justifyContent: 'center',
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+  },
+  logoutIcon: {
+    marginRight: 8,
   },
   logoutText: {
-    color: 'white',
+    color: "#FFFFFF",
     fontSize: 16,
-    fontFamily: 'LexendDeca_500Medium',
+    fontFamily: "LexendDeca_500Medium",
   },
 });
 

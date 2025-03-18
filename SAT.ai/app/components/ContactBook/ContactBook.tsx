@@ -138,39 +138,106 @@ const ContactBook = () => {
     }
   };
 
+  const handleContactOptions = (contact: Contact) => {
+    if (Platform.OS === 'ios') {
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          options: ['Cancel', 'Call', 'Edit', 'Toggle Favorite', 'Delete'],
+          destructiveButtonIndex: 4,
+          cancelButtonIndex: 0,
+          title: `${contact.firstName} ${contact.lastName}`,
+        },
+        (buttonIndex) => {
+          switch (buttonIndex) {
+            case 1:
+              handleCall(contact.phoneNumber);
+              break;
+            case 2:
+              setEditingContact(contact);
+              setModalVisible(true);
+              break;
+            case 3:
+              toggleFavorite(contact);
+              break;
+            case 4:
+              handleDelete(contact);
+              break;
+          }
+        }
+      );
+    } else {
+      Alert.alert(
+        `${contact.firstName} ${contact.lastName}`,
+        'Choose an action',
+        [
+          {
+            text: 'Call',
+            onPress: () => handleCall(contact.phoneNumber)
+          },
+          {
+            text: 'Edit',
+            onPress: () => {
+              setEditingContact(contact);
+              setModalVisible(true);
+            }
+          },
+          {
+            text: contact.favorite ? 'Remove from Favorites' : 'Add to Favorites',
+            onPress: () => toggleFavorite(contact)
+          },
+          {
+            text: 'Delete',
+            onPress: () => handleDelete(contact),
+            style: 'destructive'
+          },
+          {
+            text: 'Cancel',
+            style: 'cancel'
+          }
+        ],
+        { cancelable: true }
+      );
+    }
+  };
+
   const toggleFavorite = async (contact: Contact) => {
     try {
       const storedContacts = await AsyncStorage.getItem('contacts');
-      const currentContacts: Contact[] = storedContacts ? JSON.parse(storedContacts) : [];
-      
-      const updatedContacts = currentContacts.map(c => 
-        c.id === contact.id ? { ...c, favorite: !c.favorite } : c
-      );
-
-      await AsyncStorage.setItem('contacts', JSON.stringify(updatedContacts));
-      organizeContactsByAlphabet(updatedContacts);
+      if (storedContacts) {
+        const contacts = JSON.parse(storedContacts);
+        const updatedContacts = contacts.map((c: Contact) => {
+          if (c.id === contact.id) {
+            return { ...c, favorite: !c.favorite };
+          }
+          return c;
+        });
+        await AsyncStorage.setItem('contacts', JSON.stringify(updatedContacts));
+        loadContacts(); // Reload contacts to reflect changes
+      }
     } catch (error) {
-      console.error('Error updating favorite:', error);
+      console.error('Error toggling favorite:', error);
       Alert.alert('Error', 'Failed to update favorite status');
     }
   };
 
-  const handleDeleteContact = async (contact: Contact) => {
+  const handleDelete = (contact: Contact) => {
     Alert.alert(
       'Delete Contact',
       `Are you sure you want to delete ${contact.firstName} ${contact.lastName}?`,
       [
         { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
+        { 
+          text: 'Delete', 
           style: 'destructive',
           onPress: async () => {
             try {
               const storedContacts = await AsyncStorage.getItem('contacts');
-              const currentContacts: Contact[] = storedContacts ? JSON.parse(storedContacts) : [];
-              const updatedContacts = currentContacts.filter(c => c.id !== contact.id);
-              await AsyncStorage.setItem('contacts', JSON.stringify(updatedContacts));
-              organizeContactsByAlphabet(updatedContacts);
+              if (storedContacts) {
+                const contacts = JSON.parse(storedContacts);
+                const updatedContacts = contacts.filter((c: Contact) => c.id !== contact.id);
+                await AsyncStorage.setItem('contacts', JSON.stringify(updatedContacts));
+                loadContacts(); // Reload contacts to reflect changes
+              }
             } catch (error) {
               console.error('Error deleting contact:', error);
               Alert.alert('Error', 'Failed to delete contact');
@@ -181,112 +248,50 @@ const ContactBook = () => {
     );
   };
 
-  const handleContactPress = (contact: Contact) => {
-    if (Platform.OS === 'ios') {
-      ActionSheetIOS.showActionSheetWithOptions(
-        {
-          options: ['Cancel', 'Call', 'Edit', 'Share', 'Delete', contact.favorite ? 'Remove from Favorites' : 'Add to Favorites'],
-          cancelButtonIndex: 0,
-          destructiveButtonIndex: 4,
-        },
-        (buttonIndex) => {
-          if (buttonIndex === 1) handleCall(contact.phoneNumber);
-          else if (buttonIndex === 2) {
-            setEditingContact(contact);
-            setModalVisible(true);
-          }
-          else if (buttonIndex === 3) handleShare(contact);
-          else if (buttonIndex === 4) handleDeleteContact(contact);
-          else if (buttonIndex === 5) toggleFavorite(contact);
-        }
-      );
-    } else {
-      Alert.alert(
-        `${contact.firstName} ${contact.lastName}`,
-        `Phone: ${contact.phoneNumber}\nEmail: ${contact.email || 'Not provided'}`,
-        [
-          { text: 'Cancel', style: 'cancel' },
-          { 
-            text: 'Call',
-            style: 'default',
-            onPress: () => handleCall(contact.phoneNumber)
-          },
-          {
-            text: 'Edit',
-            style: 'default',
-            onPress: () => {
-              setEditingContact(contact);
-              setModalVisible(true);
-            }
-          },
-          {
-            text: 'Share Contact',
-            style: 'default',
-            onPress: () => handleShare(contact)
-          },
-          {
-            text: contact.favorite ? '⭐ Remove from Favorites' : '⭐ Add to Favorites',
-            style: 'default',
-            onPress: () => toggleFavorite(contact)
-          },
-          {
-            text: 'Delete Contact',
-            style: 'destructive',
-            onPress: () => handleDeleteContact(contact)
-          }
-        ]
-      );
-    }
-  };
-
-  const renderContactItem = ({ item }: { item: Contact }) => (
-    <TouchableOpacity 
+  const renderContact = (contact: Contact) => (
+    <TouchableOpacity
+      key={contact.id}
       style={styles.contactItem}
-      onPress={() => handleContactPress(item)}
+      onLongPress={() => handleContactOptions(contact)}
+      delayLongPress={500}
     >
-      <View style={[styles.avatarContainer, item.favorite && styles.favoriteAvatarContainer]}>
-        <Text style={styles.avatarText}>{item.firstName[0].toUpperCase()}</Text>
+      <View style={[styles.avatarContainer, contact.favorite && styles.favoriteAvatarContainer]}>
+        <Text style={styles.avatarText}>
+          {contact.firstName[0].toUpperCase()}
+        </Text>
       </View>
       <View style={styles.contactInfo}>
         <View style={styles.nameContainer}>
           <Text style={styles.contactName}>
-            {`${item.firstName} ${item.lastName}`}
+            {`${contact.firstName} ${contact.lastName}`.trim()}
           </Text>
-          {item.favorite && (
-            <MaterialIcons name="star" size={16} color="#FFD700" style={styles.favoriteIcon} />
+          {contact.favorite && (
+            <MaterialIcons
+              name="star"
+              size={16}
+              color="#FFB347"
+              style={styles.favoriteIcon}
+            />
           )}
         </View>
-        <Text style={styles.contactPhone}>{item.phoneNumber}</Text>
+        <Text style={styles.contactPhone}>{contact.phoneNumber}</Text>
       </View>
-      <TouchableOpacity 
-        style={styles.quickCallButton}
-        onPress={() => handleCall(item.phoneNumber)}
-      >
-        <MaterialIcons name="phone" size={20} color="#FF8447" />
-      </TouchableOpacity>
+      <View style={styles.actionButtons}>
+        <TouchableOpacity
+          style={styles.quickActionButton}
+          onPress={() => handleCall(contact.phoneNumber)}
+        >
+          <MaterialIcons name="phone" size={24} color="#FF8447" />
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.quickActionButton}
+          onPress={() => handleContactOptions(contact)}
+        >
+          <MaterialIcons name="more-vert" size={24} color="#666" />
+        </TouchableOpacity>
+      </View>
     </TouchableOpacity>
   );
-
-  const renderAlphabetSection = ({ letter }: { letter: string }) => {
-    const contactsToShow = filteredContacts[letter] || [];
-    if (contactsToShow.length === 0) return null;
-    
-    return (
-      <View 
-        key={letter}
-        onLayout={(event) => {
-          sectionRefs.current[letter] = event.nativeEvent.layout.y;
-        }}
-      >
-        <Text style={styles.sectionHeader}>{letter}</Text>
-        {contactsToShow.map((contact) => (
-          <View key={contact.id}>
-            {renderContactItem({ item: contact })}
-          </View>
-        ))}
-      </View>
-    );
-  };
 
   return (
     <TelecallerMainLayout showBackButton={true} title="Contact Book">
@@ -339,7 +344,12 @@ const ContactBook = () => {
           style={styles.contactsList}
           showsVerticalScrollIndicator={false}
         >
-          {ALPHABETS.map((letter) => renderAlphabetSection({ letter }))}
+          {Object.keys(filteredContacts).sort().map(letter => (
+            <View key={letter}>
+              <Text style={styles.sectionHeader}>{letter}</Text>
+              {filteredContacts[letter].map(contact => renderContact(contact))}
+            </View>
+          ))}
         </ScrollView>
 
         <View style={styles.alphabetList}>
@@ -501,9 +511,14 @@ const styles = StyleSheet.create({
     fontFamily: 'LexendDeca_400Regular',
     marginTop: 2,
   },
-  quickCallButton: {
+  actionButtons: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  quickActionButton: {
     padding: 8,
     borderRadius: 20,
+    marginLeft: 8,
     backgroundColor: '#F5F5F5',
   },
   alphabetList: {

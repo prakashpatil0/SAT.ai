@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
-import { View, Text, FlatList, StyleSheet, TouchableOpacity, Animated, Modal, Platform, NativeScrollEvent, NativeSyntheticEvent, ActivityIndicator, PermissionsAndroid, NativeModules } from "react-native";
+import { View, Text, FlatList, StyleSheet, TouchableOpacity, Animated, Modal, Platform, NativeScrollEvent, NativeSyntheticEvent, ActivityIndicator, PermissionsAndroid, NativeModules, PanResponder, Dimensions } from "react-native";
 import { ProgressBar } from "react-native-paper";
 import { useNavigation } from "@react-navigation/native";
 import { MaterialIcons } from '@expo/vector-icons';
@@ -18,6 +18,7 @@ import CallLog from 'react-native-call-log';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import api from '@/app/services/api';
 import { useProfile } from '@/app/context/ProfileContext';
+import TelecallerAddContactModal from '@/app/Screens/Telecaller/TelecallerAddContactModal';
 
 // Define navigation types
 type RootStackParamList = {
@@ -103,6 +104,33 @@ const HomeScreen = () => {
   const [savedContacts, setSavedContacts] = useState<{[key: string]: boolean}>({});
   const [userName, setUserName] = useState('');
   const [isLoading, setIsLoading] = useState(true);
+  const [dialerHeight] = useState(new Animated.Value(0));
+  const [dialerY] = useState(new Animated.Value(Dimensions.get('window').height));
+  const [selectedNumber, setSelectedNumber] = useState('');
+  const [addContactModalVisible, setAddContactModalVisible] = useState(false);
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderMove: (_, gestureState) => {
+        if (gestureState.dy > 0) {
+          dialerY.setValue(gestureState.dy);
+        }
+      },
+      onPanResponderRelease: (_, gestureState) => {
+        if (gestureState.dy > 100) {
+          // Close dialer if dragged down more than 100 units
+          closeDialer();
+        } else {
+          // Snap back to original position
+          Animated.spring(dialerY, {
+            toValue: 0,
+            useNativeDriver: true,
+          }).start();
+        }
+      },
+    })
+  ).current;
 
   // Add function to check if number is saved
   const isNumberSaved = (phoneNumber: string) => {
@@ -722,9 +750,8 @@ const HomeScreen = () => {
       formatDate(new Date(item.timestamp)) !== formatDate(new Date(callLogs[index - 1].timestamp));
 
     // Display name logic: show saved name or just the number
-    const displayName = isNumberSaved(item.phoneNumber) ? 
-      item.contactName : 
-      item.phoneNumber;
+    const isNumberSaved = item.contactName && item.contactName !== item.phoneNumber;
+    const displayName = isNumberSaved ? item.contactName : item.phoneNumber;
 
     return (
       <>
@@ -744,24 +771,6 @@ const HomeScreen = () => {
                   name="person" 
                   size={24} 
                   color="#FF8447"
-                  onPress={() => {
-                    if (isNumberSaved(item.phoneNumber)) {
-                      navigation.navigate('ContactInfo', {
-                        contact: {
-                          ...item,
-                          isNewContact: false
-                        }
-                      });
-                    } else {
-                      navigation.navigate('AddContactModal', { 
-                        phoneNumber: item.phoneNumber,
-                        onContactSaved: () => {
-                          loadSavedContacts();
-                          fetchCallLogs();
-                        }
-                      });
-                    }
-                  }}
                 />
               </View>
               <View style={styles.callDetails}>
@@ -772,21 +781,6 @@ const HomeScreen = () => {
                   ]}>
                     {displayName}
                   </Text>
-                  {!isNumberSaved(item.phoneNumber) && (
-                    <TouchableOpacity
-                      style={styles.addContactButton}
-                      onPress={() => navigation.navigate('AddContactModal', { 
-                        phoneNumber: item.phoneNumber,
-                        onContactSaved: () => {
-                          loadSavedContacts();
-                          fetchCallLogs();
-                        }
-                      })}
-                    >
-                      <MaterialIcons name="person-add" size={16} color="#FF8447" />
-                      <Text style={styles.addContactText}>Add Contact</Text>
-                    </TouchableOpacity>
-                  )}
                   {item.callCount > 1 && (
                     <Text style={styles.callCount}>({item.callCount})</Text>
                   )}
@@ -814,8 +808,11 @@ const HomeScreen = () => {
 
   // Update the renderCallActions function
   const renderCallActions = (call: GroupedCallLog) => {
+    const isNumberSaved = call.contactName && call.contactName !== call.phoneNumber;
+
     return (
       <View style={styles.actionContainer}>
+        {/* Call Button - Always show */}
         <TouchableOpacity 
           style={styles.actionButton}
           onPress={() => handleCallFromLogs(call.phoneNumber)}
@@ -824,6 +821,7 @@ const HomeScreen = () => {
           <Text style={styles.actionText}>Call</Text>
         </TouchableOpacity>
 
+        {/* History Button - Always show */}
         <TouchableOpacity 
           style={styles.actionButton}
           onPress={() => navigation.navigate('CallHistory', { 
@@ -850,23 +848,27 @@ const HomeScreen = () => {
           <Text style={styles.actionText}>History ({call.callCount})</Text>
         </TouchableOpacity>
 
+        {/* Conditional third button based on contact status */}
         <TouchableOpacity 
           style={styles.actionButton}
           onPress={() => {
-            if (call.status === 'completed') {
+            if (isNumberSaved) {
+              // For saved contacts - Add Notes
               navigation.navigate('TelecallerCallNoteDetails', { meeting: call });
             } else {
-              navigation.navigate('AddContactModal', { phone: call.phoneNumber });
+              // For unsaved contacts - Show Add Contact Modal
+              setSelectedNumber(call.phoneNumber);
+              setAddContactModalVisible(true);
             }
           }}
         >
           <MaterialIcons 
-            name={call.status === 'completed' ? "note-add" : "person-add"} 
+            name={isNumberSaved ? "note-add" : "person-add"} 
             size={24} 
             color="#FF8447" 
           />
           <Text style={styles.actionText}>
-            {call.status === 'completed' ? 'Add Notes' : 'Add Contact'}
+            {isNumberSaved ? 'Add Notes' : 'Add Contact'}
           </Text>
         </TouchableOpacity>
       </View>
@@ -1016,6 +1018,39 @@ const HomeScreen = () => {
     return false;
   };
 
+  // Add these functions to handle dialer animations
+  const openDialer = () => {
+    setDialerVisible(true);
+    Animated.parallel([
+      Animated.timing(dialerHeight, {
+        toValue: 1,
+        duration: 300,
+        useNativeDriver: true,
+      }),
+      Animated.spring(dialerY, {
+        toValue: 0,
+        tension: 65,
+        friction: 11,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  };
+
+  const closeDialer = () => {
+    Animated.parallel([
+      Animated.timing(dialerHeight, {
+        toValue: 0,
+        duration: 300,
+        useNativeDriver: true,
+      }),
+      Animated.timing(dialerY, {
+        toValue: Dimensions.get('window').height,
+        duration: 300,
+        useNativeDriver: true,
+      }),
+    ]).start(() => setDialerVisible(false));
+  };
+
   return (
     <AppGradient>
       <TelecallerMainLayout showDrawer showBottomTabs={true} showBackButton={false}>
@@ -1080,7 +1115,7 @@ const HomeScreen = () => {
           { opacity: dialerOpacity }
         ]}>
           <TouchableOpacity
-            onPress={() => setDialerVisible(true)}
+            onPress={openDialer}
           >
             <MaterialIcons name="dialpad" size={24} color="#FFF" />
           </TouchableOpacity>
@@ -1090,48 +1125,61 @@ const HomeScreen = () => {
         <Modal
           visible={isDialerVisible}
           transparent
-          animationType="slide"
-          onRequestClose={() => setDialerVisible(false)}
+          animationType="none"
+          onRequestClose={closeDialer}
         >
           <TouchableOpacity 
-            style={styles.modalContainer} 
+            style={styles.modalOverlay} 
             activeOpacity={1} 
-            onPress={() => setDialerVisible(false)}
+            onPress={closeDialer}
           >
-            <TouchableOpacity 
-              activeOpacity={1} 
-              onPress={e => e.stopPropagation()}
+            <Animated.View 
+              style={[
+                styles.dialerContainer,
+                {
+                  transform: [{ translateY: dialerY }],
+                  opacity: dialerHeight.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [0, 1],
+                  }),
+                },
+              ]}
+              {...panResponder.panHandlers}
             >
+              <View style={styles.dragIndicator} />
+              
               <View style={styles.dialerContent}>
                 <View style={styles.dialerHeader}>
                   <Text style={styles.phoneNumberDisplay}>
                     {phoneNumber || ''}
                   </Text>
                   <View style={styles.dialerActions}>
-                    {phoneNumber.length > 0 && !isNumberSaved(phoneNumber) && (
-                      <TouchableOpacity
-                        style={styles.addContactButtonDialer}
-                        onPress={() => {
-                          setDialerVisible(false);
-                          navigation.navigate('AddContactModal', { 
-                            phoneNumber: phoneNumber,
-                            onContactSaved: () => {
-                              loadSavedContacts();
-                              setPhoneNumber('');
-                            }
-                          });
-                        }}
-                      >
-                        <MaterialIcons name="person-add" size={24} color="#FF8447" />
-                      </TouchableOpacity>
-                    )}
                     {phoneNumber.length > 0 && (
-                      <TouchableOpacity
-                        onPress={handleBackspace}
-                        style={styles.backspaceButton}
-                      >
-                        <MaterialIcons name="backspace" size={24} color="#666" />
-                      </TouchableOpacity>
+                      <>
+                        {!isNumberSaved(phoneNumber) && (
+                          <TouchableOpacity
+                            style={styles.addContactButtonDialer}
+                            onPress={() => {
+                              closeDialer();
+                              navigation.navigate('AddContactModal', { 
+                                phoneNumber: phoneNumber,
+                                onContactSaved: () => {
+                                  loadSavedContacts();
+                                  setPhoneNumber('');
+                                }
+                              });
+                            }}
+                          >
+                            <MaterialIcons name="person-add" size={24} color="#FF8447" />
+                          </TouchableOpacity>
+                        )}
+                        <TouchableOpacity
+                          onPress={handleBackspace}
+                          style={styles.backspaceButton}
+                        >
+                          <MaterialIcons name="backspace" size={24} color="#666" />
+                        </TouchableOpacity>
+                      </>
                     )}
                   </View>
                 </View>
@@ -1156,23 +1204,27 @@ const HomeScreen = () => {
                   ))}
                 </View>
 
-                <TouchableOpacity
-                  style={[styles.callButton, isCallActive && styles.endCall]}
-                  onPress={() => {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                    isCallActive ? handleEndCall() : handleCall(phoneNumber);
-                  }}
+                <TouchableOpacity 
+                  style={styles.callButton}
+                  onPress={() => handleCall(phoneNumber)}
                 >
-                  <MaterialIcons 
-                    name={isCallActive ? "call-end" : "call"} 
-                    size={32} 
-                    color="#FFF" 
-                  />
+                  <MaterialIcons name="call" size={32} color="#FFF" />
                 </TouchableOpacity>
               </View>
-            </TouchableOpacity>
+            </Animated.View>
           </TouchableOpacity>
         </Modal>
+
+        <TelecallerAddContactModal
+          visible={addContactModalVisible}
+          onClose={() => setAddContactModalVisible(false)}
+          phoneNumber={selectedNumber}
+          onContactSaved={(contact) => {
+            setAddContactModalVisible(false);
+            loadSavedContacts();
+            fetchCallLogs();
+          }}
+        />
       </TelecallerMainLayout>
     </AppGradient>
   );
@@ -1324,45 +1376,51 @@ const styles = StyleSheet.create({
   callIcon: {
     marginRight: 4,
   },
-  modalContainer: {
+  modalOverlay: {
     flex: 1,
-    justifyContent: 'flex-end',
     backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
   },
-  dialerContent: {
+  dialerContainer: {
     backgroundColor: '#FFF',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    padding: 24,
-    paddingBottom: 40,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingTop: 12,
+    paddingBottom: Platform.OS === 'ios' ? 40 : 20,
     elevation: 5,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: -2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
+    shadowOpacity: 0.25,
+    shadowRadius: 5,
+  },
+  dragIndicator: {
+    width: 40,
+    height: 4,
+    backgroundColor: '#DDD',
+    borderRadius: 2,
+    alignSelf: 'center',
+    marginBottom: 10,
+  },
+  dialerContent: {
+    paddingHorizontal: 20,
   },
   dialerHeader: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 32,
-    paddingTop: 20,
-    position: 'relative',
+    marginBottom: 20,
   },
   phoneNumberDisplay: {
-    fontSize: 32,
-    fontFamily: 'LexendDeca_600SemiBold',
+    fontSize: 28,
+    fontFamily: 'LexendDeca_500Medium',
     color: '#333',
-    letterSpacing: 2,
-    textAlign: 'center',
-    paddingHorizontal: 40,
+    flex: 1,
   },
-  backspaceButton: {
+  dialerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
     position: 'absolute',
     right: 0,
-    padding: 12,
-    borderRadius: 20,
-    backgroundColor: '#F5F5F5',
   },
   dialPad: {
     marginBottom: 32,
@@ -1398,18 +1456,19 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   callButton: {
+    backgroundColor: '#4CAF50',
     width: 64,
     height: 64,
     borderRadius: 32,
-    backgroundColor: '#4CAF50',
     justifyContent: 'center',
     alignItems: 'center',
     alignSelf: 'center',
-    elevation: 4,
+    marginTop: 20,
+    elevation: 3,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 3,
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
   },
   endCall: {
     backgroundColor: '#F44336',
@@ -1466,17 +1525,18 @@ const styles = StyleSheet.create({
     marginLeft: 4,
     fontFamily: 'LexendDeca_500Medium',
   },
-  dialerActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    position: 'absolute',
-    right: 0,
-  },
   addContactButtonDialer: {
     padding: 12,
     borderRadius: 20,
     backgroundColor: '#FFF5E6',
     marginRight: 8,
+  },
+  backspaceButton: {
+    position: 'absolute',
+    right: 0,
+    padding: 12,
+    borderRadius: 20,
+    backgroundColor: '#F5F5F5',
   },
 });
 

@@ -10,6 +10,7 @@ interface UserProfile {
   phoneNumber?: string;
   role?: string;
   name?: string;
+  profileImageUrl?: string;
   // Add other profile fields as needed
 }
 
@@ -18,6 +19,8 @@ interface ProfileContextType {
   updateProfile: (profile: UserProfile) => void;
   refreshProfile: () => Promise<void>;
   isLoading: boolean;
+  profileImage: string | null;
+  updateProfileImage?: (url: string) => void;
   profilePhotoUri: string | null;
 }
 
@@ -89,6 +92,12 @@ export const ProfileProvider: React.FC<{ children: React.ReactNode }> = ({ child
       updateProfile, 
       refreshProfile, 
       isLoading,
+      profileImage: userProfile?.profileImageUrl || null,
+      updateProfileImage: (url: string) => {
+        if (userProfile) {
+          setUserProfile({ ...userProfile, profileImageUrl: url });
+        }
+      },
       profilePhotoUri
     }}>
       {children}

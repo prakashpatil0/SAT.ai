@@ -1,24 +1,90 @@
-import React from "react";
-import { View, Text, StyleSheet, TouchableOpacity, Image } from "react-native";
+import React, { useState, useEffect } from "react";
+import { View, Text, StyleSheet, TouchableOpacity, Image, ActivityIndicator } from "react-native";
 import { ProgressBar } from "react-native-paper";
 import { useNavigation } from "@react-navigation/native";
 import { MaterialIcons } from '@expo/vector-icons';
 import TelecallerMainLayout from "@/app/components/TelecallerMainLayout";
 import { LinearGradient } from 'expo-linear-gradient';
 import AppGradient from "@/app/components/AppGradient";
+import { auth } from '@/firebaseConfig';
+import targetService, { getTargets, getCurrentWeekAchievements, getPreviousWeekAchievement } from "@/app/services/targetService";
+import { differenceInDays, endOfWeek } from 'date-fns';
 
 const WeeklyTargetScreen = () => {
   const navigation = useNavigation();
+  const [loading, setLoading] = useState(true);
+  const [achievements, setAchievements] = useState<{
+    positiveLeads: number;
+    numCalls: number;
+    callDuration: number;
+    closingAmount: number;
+    percentageAchieved: number;
+  }>({
+    positiveLeads: 0,
+    numCalls: 0,
+    callDuration: 0,
+    closingAmount: 0,
+    percentageAchieved: 0,
+  });
+  const [previousAchievement, setPreviousAchievement] = useState<number>(0);
+  const [targets, setTargets] = useState(getTargets());
+  const [daysRemaining, setDaysRemaining] = useState(0);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      if (!auth.currentUser) {
+        return;
+      }
+      
+      try {
+        setLoading(true);
+        
+        // Calculate days remaining in the week
+        const today = new Date();
+        const weekEnd = endOfWeek(today, { weekStartsOn: 1 });
+        const daysLeft = differenceInDays(weekEnd, today);
+        setDaysRemaining(daysLeft);
+        
+        // Get current achievements
+        const currentAchievements = await getCurrentWeekAchievements(auth.currentUser.uid);
+        console.log("Current achievements:", currentAchievements); // Debug log
+        setAchievements(currentAchievements);
+        
+        // Get previous week's achievement percentage
+        const prevAchievement = await getPreviousWeekAchievement(auth.currentUser.uid);
+        setPreviousAchievement(prevAchievement);
+      } catch (error) {
+        console.error('Error fetching target data:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    fetchData();
+  }, []);
+
+  if (loading) {
+    return (
+      <AppGradient>
+        <TelecallerMainLayout showDrawer showBackButton={true} title="Weekly Target">
+          <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
+            <ActivityIndicator size="large" color="#FF8447" />
+            <Text style={styles.loadingText}>Loading your targets...</Text>
+          </View>
+        </TelecallerMainLayout>
+      </AppGradient>
+    );
+  }
 
   return (
     <AppGradient>
     <TelecallerMainLayout showDrawer showBackButton={true} title="Weekly Target">
-       <View  style={styles.container}>
+       <View style={styles.container}>
 
         {/* Achievement Card */}
         <View style={styles.achievementCard}>
           <Text style={styles.achievementText}>
-            Last week you achieved <Text style={styles.achievementPercentage}>98%</Text> of your target!
+            Last week you achieved <Text style={styles.achievementPercentage}>{previousAchievement}%</Text> of your target!
           </Text>
           <TouchableOpacity 
             style={styles.viewReportButton}
@@ -34,15 +100,15 @@ const WeeklyTargetScreen = () => {
         <View style={styles.weeklyCard}>
           <View style={styles.weeklyHeader}>
             <Text style={styles.weeklyTitle}>This Week</Text>
-            <Text style={styles.daysLeft}>4 days to go!</Text>
+            <Text style={styles.daysLeft}>{daysRemaining} days to go!</Text>
           </View>
 
           <ProgressBar 
-            progress={0.4} 
+            progress={achievements.percentageAchieved > 0 ? achievements.percentageAchieved / 100 : 0} 
             color="#FF8447" 
             style={styles.progressBar} 
           />
-          <Text style={styles.progressText}>40%</Text>
+          <Text style={styles.progressText}>{achievements.percentageAchieved.toFixed(1)}%</Text>
 
           <View style={styles.statsTable}>
   <View style={styles.tableHeader}>
@@ -53,26 +119,26 @@ const WeeklyTargetScreen = () => {
 
   <View style={styles.tableRow}>
     <Text style={[styles.tableCell, { flex: 2 }]}>Positive Leads</Text>
-    <Text style={[styles.tableCell, { flex: 1, textAlign: 'right' }]}>20</Text>
-    <Text style={[styles.targetCell, { flex: 1, textAlign: 'right' }]}>50</Text>
+    <Text style={[styles.tableCell, { flex: 1, textAlign: 'right' }]}>{achievements.positiveLeads}</Text>
+    <Text style={[styles.targetCell, { flex: 1, textAlign: 'right' }]}>{targets.positiveLeads}</Text>
   </View>
 
   <View style={styles.tableRow}>
     <Text style={[styles.tableCell, { flex: 2 }]}>No. of Calls</Text>
-    <Text style={[styles.tableCell, { flex: 1, textAlign: 'right' }]}>180</Text>
-    <Text style={[styles.targetCell, { flex: 1, textAlign: 'right' }]}>300</Text>
+    <Text style={[styles.tableCell, { flex: 1, textAlign: 'right' }]}>{achievements.numCalls}</Text>
+    <Text style={[styles.targetCell, { flex: 1, textAlign: 'right' }]}>{targets.numCalls}</Text>
   </View>
 
   <View style={styles.tableRow}>
     <Text style={[styles.tableCell, { flex: 2 }]}>Call Duration</Text>
-    <Text style={[styles.tableCell, { flex: 1, textAlign: 'right' }]}>08 hrs</Text>
-    <Text style={[styles.targetCell, { flex: 1, textAlign: 'right' }]}>20 hrs</Text>
+    <Text style={[styles.tableCell, { flex: 1, textAlign: 'right' }]}>{achievements.callDuration} hrs</Text>
+    <Text style={[styles.targetCell, { flex: 1, textAlign: 'right' }]}>{targets.callDuration} hrs</Text>
   </View>
 
   <View style={styles.tableRow}>
     <Text style={[styles.tableCell, { flex: 2 }]}>Closing</Text>
-    <Text style={[styles.tableCell, { flex: 1, textAlign: 'right' }]}>₹21,864</Text>
-    <Text style={[styles.targetCell, { flex: 1, textAlign: 'right' }]}>₹50,000</Text>
+    <Text style={[styles.tableCell, { flex: 1, textAlign: 'right' }]}>₹{achievements.closingAmount.toLocaleString()}</Text>
+    <Text style={[styles.targetCell, { flex: 1, textAlign: 'right' }]}>₹{targets.closingAmount.toLocaleString()}</Text>
   </View>
 </View>
 
@@ -206,6 +272,12 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#FF8447', // Orange color for Target column
     fontWeight: "bold",
+  },
+  loadingText: {
+    marginTop: 16,
+    fontSize: 16,
+    fontFamily: 'LexendDeca_500Medium',
+    color: '#666',
   },
 });
 

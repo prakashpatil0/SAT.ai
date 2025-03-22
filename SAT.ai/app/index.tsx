@@ -35,6 +35,7 @@ import MyScheduleScreen from "@/app/Screens/Telecaller/DrawerTab/TelecallerMySch
 import ViewFullReport from "@/app/Screens/Telecaller/TelecallerViewFullReport";
 import VirtualBusinessCard from "@/app/Screens/Telecaller/DrawerTab/TelecallerVirtualBusinessCard";
 import Profile from "@/app/Screens/Telecaller/DrawerTab/TelecallerProfile";
+import TelecallerSettings from "@/app/Screens/Telecaller/DrawerTab/TelecallerSettings";
 import ConfirmationScreen from "@/app/Screens/Telecaller/TelecallerConfirmationScreen";
 import CameraScreen from "@/app/Screens/Telecaller/TelecallerCameraScreen";
 import LoginScreen from "@/app/LoginScreen";
@@ -52,18 +53,18 @@ import BDMContactDetailsScreen from "@/app/Screens/BDM/BDMContactDetailsScreen";
 import BDMCompanyDetailsScreen from "@/app/Screens/BDM/BDMCompanyDetailsScreen";
 import BDMDrawer from '@/app/Screens/BDM/BDMDrawer';
 import BDMCallNoteDetailsScreen from "@/app/Screens/BDM/BDMCallNotesScreen";
-import BDMReportScreen from "@/app/Screens/BDM/BDMReportScreen";
-import BDMTargetScreen from "@/app/Screens/BDM/BDMTargetScreen";
-import BDMAttendanceScreen from "@/app/Screens/BDM/BDMAttendanceScreen";
-import BDMCreateFollowUpScreen from "@/app/Screens/BDM/BDMCreateFollowUpScreen";
+import BDMReportScreen from "@/app/Screens/BDM/Tab/BDMReportScreen";
+import BDMTargetScreen from "@/app/Screens/BDM/Tab/BDMTargetScreen";
+import BDMAttendanceScreen from "@/app/Screens/BDM/Tab/BDMAttendanceScreen";
+import BDMCreateFollowUp from "@/app/Screens/BDM/BDMCreateFollowUpScreen";
 import BDMViewFullReport from "@/app/Screens/BDM/BDMViewFullReport";
-import BDMMeetingLogScreen from "@/app/Screens/BDM/BDMMeetingLogScreen";
-import BDMMyNotesScreen from "@/app/Screens/BDM/BDMMyNotesScreen";
-import BDMNotesDetailScreen from "@/app/Screens/BDM/BDMNotesDetailScreen";
-import BDMMyScheduleScreen from "@/app/Screens/BDM/BDMMyScheduleScreen";
-import BDMVirtualBusinessCard from "@/app/Screens/BDM/BDMVirtualBusinessCard";
-import BDMProfile from "@/app/Screens/BDM/BDMProfile";
-import BDMLeaderBoard from "@/app/Screens/BDM/BDMLeaderBoard";
+import BDMMeetingLogScreen from "@/app/Screens/BDM/Tab/BDMMeetingLogScreen";
+import BDMMyNotesScreen from "@/app/Screens/BDM/DrawerTab/BDMMyNotesScreen";
+import BDMNotesDetailScreen from "@/app/Screens/BDM/DrawerTab/BDMNotesDetailScreen";
+import BDMMyScheduleScreen from "@/app/Screens/BDM/DrawerTab/BDMMyScheduleScreen";
+import BDMVirtualBusinessCard from "@/app/Screens/BDM/DrawerTab/BDMVirtualBusinessCard";
+import BDMProfile from "@/app/Screens/BDM/DrawerTab/BDMProfile";
+import BDMLeaderBoard from "@/app/Screens/BDM/DrawerTab/BDMLeaderBoard";
 import BDMCallHistory from "@/app/Screens/BDM/BDMCallHistory"
 import BDMPersonNote from "@/app/Screens/BDM/BDMPersonNote";
 import BDMCameraScreen from "@/app/Screens/BDM/BDMCameraScreen";
@@ -74,13 +75,15 @@ import { ProfileProvider, useProfile } from '@/app/context/ProfileContext';
 import SignUpScreen from "@/app/SignUpScreen";
 import { testDatabaseConnection } from "@/app/services/api";
 import Slide1 from "@/app/Onboarding/Slide1";
-import BDMHomeScreen from "@/app/Screens/BDM/BDMHomeScreen";
+import BDMHomeScreen from "@/app/Screens/BDM/Tab/BDMHomeScreen";
 import { IdleTimerProvider } from '@/context/IdleTimerContext';
 import ForgotPassword from '@/app/components/ForgotPassword/ForgotPassword';
 import VerifyEmail from '@/app/components/ForgotPassword/VerifyEmail';
 import SetNewPassword from '@/app/components/ForgotPassword/SetNewPassword';
 import { BackendProvider } from './contexts/BackendContext';
-
+import BDMMyCallsScreen from '@/app/Screens/BDM/BDMMyCallsScreen';
+import BDMSettings from "@/app/Screens/BDM/BDMSettings";
+import BDMMeetingReports from "./Screens/BDM/DrawerTab/BDMMeetingReports";
 
 
 
@@ -150,11 +153,26 @@ export type BDMStackParamList = {
   BDMProfile: undefined;
   BDMLeaderBoard: undefined;
   BDMMyNotesScreen: undefined;
+  BDMNotesDetailScreen: { 
+    note: {
+      id: string;
+      title: string;
+      content: string;
+      isPinned: boolean;
+      createdAt: Date;
+      date: string;
+      userId: string;
+    }
+  };
   BDMTarget: undefined;
   BDMAttendance: undefined;
   BDMReport: undefined;
   BDMMyScheduleScreen: undefined;
   BDMVirtualBusinessCard: undefined;
+  BDMMeetingLogScreen: undefined;
+  BDMCameraScreen: {
+    type: 'in' | 'out';
+  };
   BDMCallHistory: {
     customerName: string;
     meetings: Array<{
@@ -176,7 +194,11 @@ export type BDMStackParamList = {
       name: string;
       time: string;
       duration: string;
-    };
+      phoneNumber?: string;
+      date?: string;
+      type?: 'incoming' | 'outgoing' | 'missed';
+      contactType?: 'person' | 'company';
+    }
   };
   BDMContactDetails: {
     contact: {
@@ -190,6 +212,10 @@ export type BDMStackParamList = {
       name: string;
     };
   };
+  BDMMyCallsScreen: undefined;
+  BDMCreateFollowUp: undefined;
+  BDMSettings: undefined;
+  BDMMeetingReports: undefined;
 };
 
 // Prevent splash screen from hiding automatically
@@ -317,9 +343,8 @@ const DrawerNavigator = () => {
       <Drawer.Screen name="ViewFullReport" component={ViewFullReport} />
       <Drawer.Screen name="VirtualBusinessCard" component={VirtualBusinessCard} />
       <Drawer.Screen name="Profile" component={Profile} />
+      <Drawer.Screen name="TelecallerSettings" component={TelecallerSettings} />
       <Drawer.Screen name="Confirmation" component={ConfirmationScreen} />
-      <Drawer.Screen name="BDMMyNotesScreen" component={BDMMyNotesScreen} />
-      <Drawer.Screen name="BDMNotesDetailScreen" component={BDMNotesDetailScreen} />
       <Drawer.Screen name="CallHistory" component={CallHistory} />
       <Drawer.Screen name="ContactInfo" component={ContactInfo} />
       <Drawer.Screen name="AddContactModal" component={AddContactModal} />
@@ -467,6 +492,46 @@ function BDMStackNavigator() {
       <BDMStack.Screen 
         name="BDMPersonNote" 
         component={BDMPersonNote}
+        options={{ headerShown: false }}
+      />
+      <BDMStack.Screen 
+        name="BDMMeetingLogScreen" 
+        component={BDMMeetingLogScreen} 
+        options={{ headerShown: false }}
+      />
+      <BDMStack.Screen 
+        name="BDMCameraScreen" 
+        component={BDMCameraScreen} 
+        options={{ headerShown: false }}
+      />
+      <BDMStack.Screen 
+        name="BDMNotesDetailScreen" 
+        component={BDMNotesDetailScreen} 
+        options={{ headerShown: false }}
+      />
+      <BDMStack.Screen 
+        name="BDMMyCallsScreen" 
+        component={BDMMyCallsScreen} 
+        options={{ headerShown: false }}
+      />
+      <BDMStack.Screen 
+        name="BDMCreateFollowUp" 
+        component={BDMCreateFollowUp} 
+        options={{ headerShown: false }}
+      />
+      <BDMStack.Screen 
+        name="BDMSettings" 
+        component={BDMSettings} 
+        options={{ headerShown: false }}
+      />
+      <BDMStack.Screen 
+        name="BDMMeetingReports" 
+        component={BDMMeetingReports} 
+        options={{ headerShown: false }}
+      />
+      <BDMStack.Screen 
+        name="BDMViewFullReport" 
+        component={BDMViewFullReport} 
         options={{ headerShown: false }}
       />
     </BDMStack.Navigator>

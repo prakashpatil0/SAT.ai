@@ -9,7 +9,8 @@ import {
   Linking,
   Platform,
   ActionSheetIOS,
-  Share
+  Share,
+  Animated
 } from 'react-native';
 import { Text } from 'react-native-paper';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -31,6 +32,9 @@ const ALPHABETS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
 const ContactBook = () => {
   const [contacts, setContacts] = useState<{ [key: string]: Contact[] }>({});
   const [searchQuery, setSearchQuery] = useState('');
+  const [searchHistory, setSearchHistory] = useState<string[]>([]);
+  const [showSearchHistory, setShowSearchHistory] = useState(false);
+  const [showScrollToTop, setShowScrollToTop] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
   const [selectedLetter, setSelectedLetter] = useState('');
   const [filteredContacts, setFilteredContacts] = useState<{ [key: string]: Contact[] }>({});
@@ -38,9 +42,12 @@ const ContactBook = () => {
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
   const scrollViewRef = useRef<ScrollView>(null);
   const sectionRefs = useRef<{ [key: string]: number }>({});
+  const [activeLetters, setActiveLetters] = useState<string[]>([]);
+  const fadeAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     loadContacts();
+    loadSearchHistory();
   }, []);
 
   useEffect(() => {
@@ -53,11 +60,69 @@ const ContactBook = () => {
       if (storedContacts) {
         const parsedContacts = JSON.parse(storedContacts);
         organizeContactsByAlphabet(parsedContacts);
+        
+        // Find which letters have contacts
+        const lettersWithContacts = parsedContacts.reduce((letters: string[], contact: Contact) => {
+          const firstLetter = contact.firstName[0].toUpperCase();
+          if (!letters.includes(firstLetter)) {
+            letters.push(firstLetter);
+          }
+          return letters;
+        }, []);
+        
+        setActiveLetters(lettersWithContacts.sort());
       }
     } catch (error) {
       console.error('Error loading contacts:', error);
       Alert.alert('Error', 'Failed to load contacts');
     }
+  };
+
+  const loadSearchHistory = async () => {
+    try {
+      const storedHistory = await AsyncStorage.getItem('contactSearchHistory');
+      if (storedHistory) {
+        setSearchHistory(JSON.parse(storedHistory));
+      }
+    } catch (error) {
+      console.error('Error loading search history:', error);
+    }
+  };
+
+  const saveSearchToHistory = async (query: string) => {
+    if (!query.trim() || query.length < 3) return;
+    
+    try {
+      const newHistory = [query, ...searchHistory.filter(item => item !== query)].slice(0, 5);
+      setSearchHistory(newHistory);
+      await AsyncStorage.setItem('contactSearchHistory', JSON.stringify(newHistory));
+    } catch (error) {
+      console.error('Error saving search history:', error);
+    }
+  };
+
+  const handleSearch = (query: string) => {
+    setSearchQuery(query);
+    saveSearchToHistory(query);
+    setShowSearchHistory(false);
+  };
+
+  const clearSearchHistory = async () => {
+    try {
+      setSearchHistory([]);
+      await AsyncStorage.removeItem('contactSearchHistory');
+    } catch (error) {
+      console.error('Error clearing search history:', error);
+    }
+  };
+
+  const handleScroll = (event: any) => {
+    const yOffset = event.nativeEvent.contentOffset.y;
+    setShowScrollToTop(yOffset > 300);
+  };
+
+  const scrollToTop = () => {
+    scrollViewRef.current?.scrollTo({ y: 0, animated: true });
   };
 
   const organizeContactsByAlphabet = (contactsList: Contact[]) => {
@@ -112,7 +177,25 @@ const ContactBook = () => {
   };
 
   const scrollToLetter = (letter: string) => {
+    if (!activeLetters.includes(letter)) return;
+    
     setSelectedLetter(letter);
+    
+    // Fade in animation
+    Animated.sequence([
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 150,
+        useNativeDriver: true,
+      }),
+      Animated.delay(800),
+      Animated.timing(fadeAnim, {
+        toValue: 0,
+        duration: 300,
+        useNativeDriver: true,
+      })
+    ]).start();
+    
     const yOffset = sectionRefs.current[letter] || 0;
     scrollViewRef.current?.scrollTo({ y: yOffset, animated: true });
   };
@@ -303,13 +386,42 @@ const ContactBook = () => {
           value={searchQuery}
           onChangeText={setSearchQuery}
           placeholderTextColor="#999"
+          onFocus={() => setShowSearchHistory(true)}
+          onSubmitEditing={() => {
+            saveSearchToHistory(searchQuery);
+            setShowSearchHistory(false);
+          }}
         />
         {searchQuery ? (
-          <TouchableOpacity onPress={() => setSearchQuery('')}>
+          <TouchableOpacity onPress={() => {
+            setSearchQuery('');
+            setShowSearchHistory(true);
+          }}>
             <MaterialIcons name="close" size={24} color="#999" />
           </TouchableOpacity>
         ) : null}
       </View>
+
+      {showSearchHistory && searchHistory.length > 0 && (
+        <View style={styles.searchHistoryContainer}>
+          <View style={styles.searchHistoryHeader}>
+            <Text style={styles.searchHistoryTitle}>Recent Searches</Text>
+            <TouchableOpacity onPress={clearSearchHistory}>
+              <Text style={styles.clearHistoryText}>Clear</Text>
+            </TouchableOpacity>
+          </View>
+          {searchHistory.map((item, index) => (
+            <TouchableOpacity 
+              key={index} 
+              style={styles.searchHistoryItem}
+              onPress={() => handleSearch(item)}
+            >
+              <MaterialIcons name="history" size={18} color="#999" />
+              <Text style={styles.searchHistoryItemText}>{item}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      )}
 
       <View style={styles.filterContainer}>
         <TouchableOpacity
@@ -343,35 +455,77 @@ const ContactBook = () => {
           ref={scrollViewRef}
           style={styles.contactsList}
           showsVerticalScrollIndicator={false}
+          onScroll={handleScroll}
+          scrollEventThrottle={16}
         >
           {Object.keys(filteredContacts).sort().map(letter => (
-            <View key={letter}>
+            <View 
+              key={letter} 
+              onLayout={(event) => {
+                const layout = event.nativeEvent.layout;
+                sectionRefs.current[letter] = layout.y;
+              }}
+            >
               <Text style={styles.sectionHeader}>{letter}</Text>
               {filteredContacts[letter].map(contact => renderContact(contact))}
             </View>
           ))}
+          
+          {/* Add some padding at the bottom for better scrolling */}
+          <View style={{height: 100}} />
         </ScrollView>
 
         <View style={styles.alphabetList}>
-          {ALPHABETS.map((letter) => (
-            <TouchableOpacity
-              key={letter}
-              onPress={() => scrollToLetter(letter)}
-              style={[
-                styles.alphabetItem,
-                selectedLetter === letter && styles.alphabetItemSelected
-              ]}
-            >
-              <Text style={[
-                styles.alphabetText,
-                selectedLetter === letter && styles.alphabetTextSelected
-              ]}>
-                {letter}
-              </Text>
-            </TouchableOpacity>
-          ))}
+          <ScrollView 
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={{paddingVertical: 4}}
+          >
+            {ALPHABETS.map((letter) => (
+              <TouchableOpacity
+                key={letter}
+                onPress={() => scrollToLetter(letter)}
+                style={[
+                  styles.alphabetItem,
+                  activeLetters.includes(letter) ? {opacity: 1} : {opacity: 0.3},
+                  selectedLetter === letter && styles.alphabetItemSelected
+                ]}
+                disabled={!activeLetters.includes(letter)}
+                activeOpacity={0.7}
+              >
+                <Text style={[
+                  styles.alphabetText,
+                  activeLetters.includes(letter) ? {color: '#666', fontFamily: 'LexendDeca_500Medium'} : {},
+                  selectedLetter === letter && styles.alphabetTextSelected
+                ]}>
+                  {letter}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
         </View>
       </View>
+
+      {/* Scroll to top button */}
+      {showScrollToTop && (
+        <TouchableOpacity 
+          style={styles.scrollToTopButton}
+          onPress={scrollToTop}
+        >
+          <MaterialIcons name="arrow-upward" size={24} color="#FFF" />
+        </TouchableOpacity>
+      )}
+
+      {/* Quick Alphabet Navigation Indicator */}
+      {selectedLetter ? (
+        <Animated.View 
+          style={[
+            styles.letterIndicator,
+            { opacity: fadeAnim }
+          ]}
+        >
+          <Text style={styles.letterIndicatorText}>{selectedLetter}</Text>
+        </Animated.View>
+      ) : null}
 
       <TelecallerAddContactModal
         visible={modalVisible}
@@ -523,30 +677,128 @@ const styles = StyleSheet.create({
   },
   alphabetList: {
     width: 24,
-    backgroundColor: '#F5F5F5',
+    backgroundColor: '#F8F8F8',
     alignItems: 'center',
-    paddingVertical: 8,
+    paddingVertical: 4,
     borderTopLeftRadius: 12,
     borderBottomLeftRadius: 12,
+    elevation: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: -1, height: 0 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
   },
   alphabetItem: {
     padding: 2,
-    width: 24,
-    height: 24,
+    width: 22,
+    height: 22,
     alignItems: 'center',
     justifyContent: 'center',
+    marginVertical: 1,
+    borderRadius: 11,
   },
   alphabetItemSelected: {
     backgroundColor: '#FF8447',
-    borderRadius: 12,
+    borderRadius: 11,
+    elevation: 2,
+    shadowColor: '#FF8447',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.3,
+    shadowRadius: 2,
   },
   alphabetText: {
-    fontSize: 12,
+    fontSize: 11,
     fontFamily: 'LexendDeca_400Regular',
-    color: '#666',
+    color: '#888',
   },
   alphabetTextSelected: {
     color: '#fff',
+    fontFamily: 'LexendDeca_600SemiBold',
+  },
+  letterIndicator: {
+    position: 'absolute',
+    top: '45%',
+    left: '45%',
+    width: 70,
+    height: 70,
+    borderRadius: 35,
+    backgroundColor: 'rgba(255, 132, 71, 0.95)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    elevation: 6,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+  },
+  letterIndicatorText: {
+    color: '#FFF',
+    fontSize: 36,
+    fontFamily: 'LexendDeca_700Bold',
+    textShadowColor: 'rgba(0, 0, 0, 0.2)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
+  },
+  searchHistoryContainer: {
+    backgroundColor: '#FFF',
+    marginHorizontal: 16,
+    marginBottom: 16,
+    borderRadius: 12,
+    padding: 12,
+    elevation: 3,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    zIndex: 10,
+  },
+  searchHistoryHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingBottom: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F0F0F0',
+    marginBottom: 8,
+  },
+  searchHistoryTitle: {
+    fontSize: 14,
+    fontFamily: 'LexendDeca_500Medium',
+    color: '#666',
+  },
+  clearHistoryText: {
+    fontSize: 12,
+    fontFamily: 'LexendDeca_500Medium',
+    color: '#FF8447',
+  },
+  searchHistoryItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F5F5F5',
+  },
+  searchHistoryItemText: {
+    fontSize: 14,
+    fontFamily: 'LexendDeca_400Regular',
+    color: '#333',
+    marginLeft: 12,
+  },
+  scrollToTopButton: {
+    position: 'absolute',
+    right: 20,
+    bottom: 20,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#FF8447',
+    justifyContent: 'center',
+    alignItems: 'center',
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 3,
   },
 });
 

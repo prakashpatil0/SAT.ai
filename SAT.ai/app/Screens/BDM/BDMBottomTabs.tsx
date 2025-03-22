@@ -33,7 +33,7 @@ const BDMBottomTabs = () => {
         onPress={() => navigation.navigate('BDMTarget' as never)}
       >
         <MaterialIcons 
-          name="flag" 
+          name="track-changes" 
           size={24} 
           color={isRouteActive('BDMTarget') ? '#FF8447' : '#666'} 
         />
@@ -44,11 +44,28 @@ const BDMBottomTabs = () => {
       </TouchableOpacity>
 
       <TouchableOpacity 
+        style={styles.centerTabContainer} 
+        onPress={() => navigation.navigate('BDMMeetingLogScreen' as never)}
+      >
+        <View style={styles.centerTabCircle}>
+          <MaterialIcons 
+            name="document-scanner" 
+            size={35} 
+            color="#FFF" 
+          />
+        </View>
+        <Text style={[
+          styles.tabText, 
+          isRouteActive('BDMMeetingLogScreen') && styles.activeTabText,
+        ]}></Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity 
         style={styles.tabItem} 
         onPress={() => navigation.navigate('BDMAttendance' as never)}
       >
         <MaterialIcons 
-          name="event" 
+          name="calendar-month"
           size={24} 
           color={isRouteActive('BDMAttendance') ? '#FF8447' : '#666'} 
         />
@@ -108,7 +125,28 @@ const styles = StyleSheet.create({
     color: '#FF8447',
     fontSize: 12,
     fontFamily: 'LexendDeca_400Regular',
-  }
+  },
+  centerTabContainer: {
+    flex: 1.2,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: -30,
+    marginBottom: -20,
+  },
+  centerTabCircle: {
+    width: 67,
+    height: 67,
+    borderRadius: 35,
+    backgroundColor: '#FF8447',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 1,
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+  },
 });
 
 export default BDMBottomTabs;

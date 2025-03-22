@@ -19,6 +19,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import api from '@/app/services/api';
 import { useProfile } from '@/app/context/ProfileContext';
 import TelecallerAddContactModal from '@/app/Screens/Telecaller/TelecallerAddContactModal';
+import { getCurrentWeekAchievements } from "@/app/services/targetService";
 
 // Define navigation types
 type RootStackParamList = {
@@ -108,6 +109,10 @@ const HomeScreen = () => {
   const [dialerY] = useState(new Animated.Value(Dimensions.get('window').height));
   const [selectedNumber, setSelectedNumber] = useState('');
   const [addContactModalVisible, setAddContactModalVisible] = useState(false);
+  const [weeklyAchievement, setWeeklyAchievement] = useState({
+    percentageAchieved: 0,
+    isLoading: true
+  });
   const panResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
@@ -1051,6 +1056,30 @@ const HomeScreen = () => {
     ]).start(() => setDialerVisible(false));
   };
 
+  // Add a function to fetch weekly achievement data
+  const fetchWeeklyAchievement = async () => {
+    try {
+      if (!auth.currentUser?.uid) return;
+      
+      const achievements = await getCurrentWeekAchievements(auth.currentUser.uid);
+      setWeeklyAchievement({
+        percentageAchieved: achievements.percentageAchieved,
+        isLoading: false
+      });
+    } catch (error) {
+      console.error('Error fetching weekly achievement:', error);
+      setWeeklyAchievement({
+        percentageAchieved: 0,
+        isLoading: false
+      });
+    }
+  };
+
+  // Use effect to load weekly achievement on component mount
+  useEffect(() => {
+    fetchWeeklyAchievement();
+  }, []);
+
   return (
     <AppGradient>
       <TelecallerMainLayout showDrawer showBottomTabs={true} showBackButton={false}>
@@ -1067,14 +1096,27 @@ const HomeScreen = () => {
             )}
             {/* Progress Section */}
             <View style={styles.progressSection}>
-              <ProgressBar 
-                progress={0.4} 
-                color="#FF8447" 
-                style={styles.progressBar} 
-              />
-              <Text style={styles.progressText}>
-                Great job! You've completed <Text style={styles.progressHighlight}>40%</Text> of your target
-              </Text>
+              {weeklyAchievement.isLoading ? (
+                <ActivityIndicator size="small" color="#FF8447" style={{marginVertical: 10}} />
+              ) : (
+                <>
+                  <ProgressBar 
+                    progress={weeklyAchievement.percentageAchieved / 100} 
+                    color="#FF8447" 
+                    style={styles.progressBar} 
+                  />
+                  <Text style={styles.progressText}>
+                    Great job! You've completed <Text style={styles.progressHighlight}>{weeklyAchievement.percentageAchieved.toFixed(1)}%</Text> of your weekly target
+                  </Text>
+                  <TouchableOpacity 
+                    onPress={() => navigation.navigate('Target')}
+                    style={styles.viewTargetButton}
+                  >
+                    <Text style={styles.viewTargetText}>View Target Details</Text>
+                    <MaterialIcons name="arrow-forward" size={16} color="#FF8447" />
+                  </TouchableOpacity>
+                </>
+              )}
             </View>
           </View>
 
@@ -1236,11 +1278,9 @@ const styles = StyleSheet.create({
     padding: 16,
   },
   welcomeSection: {
-    // flexDirection: 'row',
     backgroundColor: 'white',
     borderRadius: 12,
     padding: 16,
-    // alignItems: 'center',
     marginBottom: 24,
     elevation: 2,
     shadowColor: "#000",
@@ -1276,6 +1316,18 @@ const styles = StyleSheet.create({
   progressHighlight: {
     color: '#FF8447',
     fontFamily: 'LexendDeca_600SemiBold',
+  },
+  viewTargetButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 8,
+    alignSelf: 'flex-end',
+  },
+  viewTargetText: {
+    fontSize: 14,
+    fontFamily: 'LexendDeca_500Medium',
+    color: '#FF8447',
+    marginRight: 4,
   },
   sectionHeader: {
     flexDirection: 'row',

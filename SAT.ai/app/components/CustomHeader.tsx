@@ -7,7 +7,7 @@ import { useProfile } from "@/app/context/ProfileContext";
 const CustomDrawerContent = (props: DrawerContentComponentProps) => {
   const { userProfile } = useProfile();
 
-  const defaultImage = require("@/assets/images/girlprofile.png");
+  const defaultImage = require("@/assets/images/girl.png");
   
   return (
     <View style={{ flex: 1 }}>

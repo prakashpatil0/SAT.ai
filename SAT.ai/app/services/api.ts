@@ -56,6 +56,12 @@ interface DailyReportData {
   totalClosingAmount: number;
   status?: string;
   comments?: string;
+  durationInHours?: number;
+  positiveLeadsPercentage?: number;
+  numCallsPercentage?: number;
+  durationPercentage?: number;
+  closingPercentage?: number;
+  percentageAchieved?: number;
 }
 
 // Add this interface at the top with your other interfaces
@@ -263,7 +269,13 @@ const api = {
         totalClosingAmount: Number(reportData.totalClosingAmount),
         status: 'submitted',
         createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp()
+        updatedAt: serverTimestamp(),
+        durationInHours: reportData.durationInHours,
+        positiveLeadsPercentage: reportData.positiveLeadsPercentage,
+        numCallsPercentage: reportData.numCallsPercentage,
+        durationPercentage: reportData.durationPercentage,
+        closingPercentage: reportData.closingPercentage,
+        percentageAchieved: reportData.percentageAchieved
       };
 
       // Try saving to dailyReports collection

@@ -1,19 +1,15 @@
-import React, { useState, useEffect, useRef } from "react";
-import { View, Text, Image, StyleSheet, ScrollView, ActivityIndicator, Animated, Alert, TouchableOpacity, Platform } from "react-native";
+import React, { useState, useEffect, useRef } from 'react';
+import { View, Text, Image, StyleSheet, ScrollView, Animated, ActivityIndicator, TouchableOpacity, Alert } from 'react-native';
 import { Avatar } from "react-native-paper";
-import { MaterialIcons, Ionicons } from "@expo/vector-icons";
-import TelecallerMainLayout from "@/app/components/TelecallerMainLayout";
-import AppGradient from "@/app/components/AppGradient";
-import { FontAwesome5 } from "@expo/vector-icons";
-import { getLeaderboardData } from "@/app/services/targetService";
-import { auth } from '@/firebaseConfig';
+import { MaterialIcons, Ionicons, FontAwesome5 } from '@expo/vector-icons';
+import BDMMainLayout from '@/app/components/BDMMainLayout';
+import AppGradient from '@/app/components/AppGradient';
+import { auth, db } from '@/firebaseConfig';
+import { collection, query, where, getDocs, Timestamp } from 'firebase/firestore';
 import { DEFAULT_PROFILE_IMAGE } from '@/app/utils/profileStorage';
 import { useProfile } from '@/app/context/ProfileContext';
-import { db } from '@/firebaseConfig';
-import { collection, query, where, getDocs } from 'firebase/firestore';
 
-// Define the LeaderboardUser type
-type LeaderboardUser = {
+interface LeaderboardUser {
   userId: string;
   name: string;
   profileImage: string | null;
@@ -21,27 +17,26 @@ type LeaderboardUser = {
   rank: number;
   isPlaceholder?: boolean;
   isNotRanked?: boolean;
-};
+}
 
 // Default images for when user has no profile image
 const defaultProfileImages = [
-  require("@/assets/images/girl.png"),
-  require("@/assets/images/girl.png"),
-  require("@/assets/images/girl.png"),
-  require("@/assets/images/girl.png"),
+  require('@/assets/images/person.png'),
+  require('@/assets/images/profile.png'),
+  require('@/assets/images/profile.png'),
 ];
 
-// Placeholder data to maintain leaderboard structure when no real data is available
-const placeholderData: LeaderboardUser[] = Array(10).fill(null).map((_, index) => ({
+// Placeholder data
+const placeholderData: LeaderboardUser[] = Array(7).fill(null).map((_, index) => ({
   userId: `placeholder-${index}`,
-  name: "Add your data",
+  name: `Rank ${index + 4}`,
   profileImage: null,
   percentageAchieved: 0,
-  rank: index + 1,
+  rank: index + 4,
   isPlaceholder: true
 }));
 
-const LeaderBoard = () => {
+const BDMLeaderBoard = () => {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [leaderboardData, setLeaderboardData] = useState<LeaderboardUser[]>([]);
@@ -56,13 +51,12 @@ const LeaderBoard = () => {
   const { userProfile, refreshProfile } = useProfile();
 
   useEffect(() => {
-    refreshProfile(); // Ensure we have the latest profile data
+    refreshProfile();
     fetchLeaderboardData();
     fetchAllUserNames();
   }, []);
-  
+
   useEffect(() => {
-    // Start animation when data is loaded
     if (!loading) {
       Animated.parallel([
         Animated.timing(fadeAnim, {
@@ -79,7 +73,6 @@ const LeaderBoard = () => {
     }
   }, [loading]);
 
-  // Fetch all user names from Firebase to have a complete mapping
   const fetchAllUserNames = async () => {
     try {
       const usersRef = collection(db, 'users');
@@ -91,7 +84,6 @@ const LeaderBoard = () => {
         const data = doc.data();
         const userId = data.uid;
         if (userId) {
-          // Try different name fields
           const name = data.name || 
             (data.firstName && data.lastName ? `${data.firstName} ${data.lastName}` : null) ||
             data.displayName || 
@@ -112,52 +104,126 @@ const LeaderBoard = () => {
     try {
       if (showRefreshing) setRefreshing(true);
       else setLoading(true);
+
+      // Get start and end of current week
+      const now = new Date();
+      const startOfWeek = new Date(now);
+      startOfWeek.setDate(now.getDate() - now.getDay());
+      startOfWeek.setHours(0, 0, 0, 0);
       
-      const data = await getLeaderboardData(10);
+      const endOfWeek = new Date(startOfWeek);
+      endOfWeek.setDate(startOfWeek.getDate() + 6);
+      endOfWeek.setHours(23, 59, 59, 999);
+
+      // Get all BDM users
+      const usersRef = collection(db, 'users');
+      const usersQuery = query(usersRef, where('role', '==', 'bdm'));
+      const usersSnapshot = await getDocs(usersQuery);
       
-      // Add rank to each user
-      const rankedData = data.map((user, index) => ({
-        ...user,
-        rank: index + 1
-      }));
+      const userProgressPromises = usersSnapshot.docs.map(async (userDoc) => {
+        const userData = userDoc.data();
+        const userId = userData.uid;
+
+        if (!userId) return null; // Skip if no userId
+
+        // Fetch reports for current week
+        const reportsRef = collection(db, 'bdm_reports');
+        const reportsQuery = query(
+          reportsRef,
+          where('userId', '==', userId),
+          where('createdAt', '>=', Timestamp.fromDate(startOfWeek)),
+          where('createdAt', '<=', Timestamp.fromDate(endOfWeek))
+        );
+
+        try {
+          const querySnapshot = await getDocs(reportsQuery);
+          let totalMeetings = 0;
+          let totalAttendedMeetings = 0;
+          let totalDuration = 0;
+          let totalClosing = 0;
+
+          querySnapshot.forEach(doc => {
+            const data = doc.data();
+            totalMeetings += data.numMeetings || 0;
+            totalAttendedMeetings += data.numMeetings || 0;
+            
+            // Parse duration string (e.g., "1 hr 30 mins" -> hours)
+            const durationStr = data.meetingDuration || '';
+            const hrMatch = durationStr.match(/(\d+)\s*hr/);
+            const minMatch = durationStr.match(/(\d+)\s*min/);
+            const hours = (hrMatch ? parseInt(hrMatch[1]) : 0) +
+                         (minMatch ? parseInt(minMatch[1]) / 60 : 0);
+            totalDuration += hours;
+
+            totalClosing += data.totalClosingAmount || 0;
+          });
+
+          // Calculate progress percentages using same targets as BDMTargetScreen
+          const progressPercentages = [
+            (totalMeetings / 30) * 100, // projectedMeetings target: 30
+            (totalAttendedMeetings / 30) * 100, // attendedMeetings target: 30
+            (totalDuration / 20) * 100, // meetingDuration target: 20 hours
+            (totalClosing / 50000) * 100 // closing target: 50000
+          ];
+
+          const averageProgress = Math.min(
+            Math.round(progressPercentages.reduce((a, b) => a + b, 0) / progressPercentages.length),
+            100
+          );
+
+          return {
+            userId,
+            name: userData.name || 
+                  (userData.firstName && userData.lastName ? `${userData.firstName} ${userData.lastName}` : null) ||
+                  userData.displayName || 
+                  'Unknown User',
+            profileImage: userData.profileImageUrl || null,
+            percentageAchieved: averageProgress
+          };
+        } catch (error) {
+          console.error(`Error fetching reports for user ${userId}:`, error);
+          return null;
+        }
+      });
+
+      const userProgressResults = await Promise.all(userProgressPromises);
       
-      // If we have user name mappings, update the names
-      if (Object.keys(userNameMap).length > 0) {
-        rankedData.forEach(user => {
-          if (userNameMap[user.userId]) {
-            user.name = userNameMap[user.userId];
-          }
-        });
-      }
-      
-      // If current user is authenticated but not in the list, add their data for context
-      if (currentUserId && userProfile && !rankedData.some(user => user.userId === currentUserId)) {
-        // Add a dummy entry for the current user with a rank beyond the leaderboard
-        // This won't be displayed in the top 10 but will be used to show "Your Position" banner
+      // Filter out null results and sort by percentage
+      const sortedUsers = userProgressResults
+        .filter(result => result !== null)
+        .sort((a, b) => b.percentageAchieved - a.percentageAchieved)
+        .map((user, index) => ({
+          ...user,
+          rank: index + 1
+        }));
+
+      // Add current user if not in top 10
+      if (currentUserId && userProfile && !sortedUsers.some(user => user.userId === currentUserId)) {
+        const currentUserProgress = sortedUsers.find(user => user.userId === currentUserId);
         const currentUserEntry: LeaderboardUser = {
           userId: currentUserId,
           name: userProfile.name || userNameMap[currentUserId] || 'You',
           profileImage: userProfile.profileImageUrl || null,
-          percentageAchieved: 0, // This will be shown as "Not Ranked Yet"
-          rank: rankedData.length + 1,
+          percentageAchieved: currentUserProgress?.percentageAchieved || 0,
+          rank: sortedUsers.length + 1,
           isNotRanked: true
         };
-        rankedData.push(currentUserEntry);
+        sortedUsers.push(currentUserEntry);
       }
-      
-      // If we have less than 10 users, fill the rest with placeholder data
-      if (rankedData.length < 10) {
-        const fillerData = placeholderData.slice(rankedData.length).map(placeholder => ({
+
+      // Fill remaining positions with placeholder data if needed
+      const topUsers = sortedUsers.slice(0, 10);
+      const remainingPlaceholders = placeholderData
+        .slice(topUsers.length)
+        .map((placeholder, index) => ({
           ...placeholder,
-          rank: rankedData.length + placeholder.rank
+          rank: topUsers.length + index + 1
         }));
-        setLeaderboardData([...rankedData, ...fillerData]);
-      } else {
-        setLeaderboardData(rankedData);
-      }
+
+      setLeaderboardData([...topUsers, ...remainingPlaceholders].slice(0, 10));
+
     } catch (error) {
       console.error('Error fetching leaderboard data:', error);
-      // On error, show placeholder data to maintain UI structure
       setLeaderboardData(placeholderData);
       Alert.alert(
         "Error",
@@ -170,50 +236,37 @@ const LeaderBoard = () => {
     }
   };
 
-  // Helper function to get a profile image (either from user data or fallback)
-  const getProfileImage = (user: LeaderboardUser | { profileImage: string | null, rank: number, isPlaceholder?: boolean }) => {
-    // For placeholder entries, use a consistent default image with reduced opacity
+  const getProfileImage = (user: LeaderboardUser) => {
     if (user.isPlaceholder) {
-      return defaultProfileImages[3];
+      return defaultProfileImages[0];
     }
     
-    // Use the user's profile image if available
     if (user.profileImage) {
       return { uri: user.profileImage };
     }
     
-    // If this is the current user, try to get image from userProfile
-    if ('userId' in user && isCurrentUser(user.userId) && userProfile?.profileImageUrl) {
+    if (isCurrentUser(user.userId) && userProfile?.profileImageUrl) {
       return { uri: userProfile.profileImageUrl };
     }
     
-    // Use predetermined images for top 3, then default for others
     if (user.rank <= 3) {
       return defaultProfileImages[user.rank - 1];
     }
     
-    // Default fallback image
-    return DEFAULT_PROFILE_IMAGE ? { uri: DEFAULT_PROFILE_IMAGE } : defaultProfileImages[3];
+    return DEFAULT_PROFILE_IMAGE ? { uri: DEFAULT_PROFILE_IMAGE } : defaultProfileImages[0];
   };
-  
-  // Check if this entry is the current user
+
   const isCurrentUser = (userId: string) => {
     return currentUserId === userId;
   };
 
-  // Format percentage for display
   const formatPercentage = (percentage: number) => {
     if (percentage === 0) return "0%";
     return `${percentage.toFixed(1)}%`;
   };
 
-  // Get top 3 users for the podium
   const topThree = leaderboardData.filter(user => !user.isNotRanked).slice(0, 3);
-  
-  // Get remaining users for the list
   const remainingUsers = leaderboardData.filter(user => !user.isNotRanked).slice(3);
-  
-  // Find current user in leaderboard
   const currentUserRanking = leaderboardData.find(user => user.userId === currentUserId);
 
   const handleRefresh = () => {
@@ -224,24 +277,24 @@ const LeaderBoard = () => {
   if (loading) {
     return (
       <AppGradient>
-        <TelecallerMainLayout showDrawer showBottomTabs={true} showBackButton title="Leaderboard">
+        <BDMMainLayout title="Leaderboard" showBackButton showDrawer={true} showBottomTabs={true}>
           <View style={[styles.content, { justifyContent: 'center', alignItems: 'center' }]}>
             <ActivityIndicator size="large" color="#FF8447" />
             <Text style={styles.loadingText}>Loading leaderboard data...</Text>
           </View>
-        </TelecallerMainLayout>
+        </BDMMainLayout>
       </AppGradient>
     );
   }
 
   return (
     <AppGradient>
-      <TelecallerMainLayout 
-        showDrawer 
-        showBottomTabs={true} 
-        showBackButton 
-        title="Leaderboard"
-        rightIcon={
+      <BDMMainLayout 
+        title="Leaderboard" 
+        showBackButton={true}
+        showDrawer={true} 
+        showBottomTabs={true}
+        rightComponent={
           refreshing ? 
           <ActivityIndicator size="small" color="#333" /> : 
           <TouchableOpacity onPress={handleRefresh}>
@@ -273,24 +326,26 @@ const LeaderBoard = () => {
                   Achievement: {currentUserRanking.isNotRanked ? (
                     <Text style={styles.notRankedText}>No Data</Text>
                   ) : (
-                    <Text style={styles.currentUserScoreValue}>{formatPercentage(currentUserRanking.percentageAchieved)}</Text>
+                    <Text style={styles.currentUserScoreValue}>
+                      {formatPercentage(currentUserRanking.percentageAchieved)}
+                    </Text>
                   )}
                 </Text>
               </View>
             )}
-            
-            {/* Top Three Section - Always display even with placeholder data */}
+
+            {/* Top Three Section */}
             <View style={styles.topThreeContainer}>
               {/* Second Place */}
               <View style={styles.secondPlaceWrapper}>
                 <View style={styles.imageContainer}>
                   <Image 
-                    source={getProfileImage(topThree[1] || { profileImage: null, rank: 2, isPlaceholder: true })} 
+                    source={getProfileImage(topThree[1] || { ...placeholderData[1], rank: 2 })}
                     style={[
-                      styles.topThreeImage, 
+                      styles.topThreeImage,
                       topThree[1]?.isPlaceholder && styles.placeholderImage,
                       isCurrentUser(topThree[1]?.userId) && styles.currentUserImage
-                    ]} 
+                    ]}
                   />
                   {isCurrentUser(topThree[1]?.userId) && (
                     <View style={styles.youBadge}>
@@ -300,15 +355,15 @@ const LeaderBoard = () => {
                 </View>
                 <View style={[styles.podium, styles.secondPodium]}>
                   <Text style={[
-                    styles.topThreeName, 
+                    styles.topThreeName,
                     topThree[1]?.isPlaceholder && styles.placeholderText,
                     isCurrentUser(topThree[1]?.userId) && styles.currentUserText
                   ]}>
-                    {topThree[1]?.name ? topThree[1].name.split(' ').join('\n') : 'Waiting\nfor data'}
+                    {topThree[1]?.name || 'Waiting\nfor data'}
                   </Text>
                   <Text style={[styles.rank, styles.secondRank]}>2</Text>
                   <Text style={[
-                    styles.percentage, 
+                    styles.percentage,
                     topThree[1]?.isPlaceholder && styles.placeholderText,
                     isCurrentUser(topThree[1]?.userId) && styles.currentUserScore
                   ]}>
@@ -317,18 +372,18 @@ const LeaderBoard = () => {
                 </View>
               </View>
 
-              {/* First Place (Centered and Highlighted) */}
+              {/* First Place */}
               <View style={styles.firstPlaceWrapper}>
                 <FontAwesome5 name="crown" size={40} color="#FFD700" style={styles.crown} />
                 <View style={styles.imageContainer}>
                   <Image 
-                    source={getProfileImage(topThree[0] || { profileImage: null, rank: 1, isPlaceholder: true })} 
+                    source={getProfileImage(topThree[0] || { ...placeholderData[0], rank: 1 })}
                     style={[
-                      styles.topThreeImage, 
-                      styles.firstImage, 
+                      styles.topThreeImage,
+                      styles.firstImage,
                       topThree[0]?.isPlaceholder && styles.placeholderImage,
                       isCurrentUser(topThree[0]?.userId) && styles.currentUserImage
-                    ]} 
+                    ]}
                   />
                   {isCurrentUser(topThree[0]?.userId) && (
                     <View style={styles.youBadge}>
@@ -338,17 +393,17 @@ const LeaderBoard = () => {
                 </View>
                 <View style={[styles.podium, styles.firstPodium]}>
                   <Text style={[
-                    styles.topThreeName, 
-                    styles.firstName, 
+                    styles.topThreeName,
+                    styles.firstName,
                     topThree[0]?.isPlaceholder && styles.placeholderText,
                     isCurrentUser(topThree[0]?.userId) && styles.currentUserText
                   ]}>
-                    {topThree[0]?.name ? topThree[0].name.split(' ').join('\n') : 'Waiting\nfor data'}
+                    {topThree[0]?.name || 'Waiting\nfor data'}
                   </Text>
                   <Text style={[styles.rank, styles.firstRank]}>1</Text>
                   <Text style={[
-                    styles.percentage, 
-                    styles.firstPercentage, 
+                    styles.percentage,
+                    styles.firstPercentage,
                     topThree[0]?.isPlaceholder && styles.placeholderText,
                     isCurrentUser(topThree[0]?.userId) && styles.currentUserScore
                   ]}>
@@ -360,13 +415,13 @@ const LeaderBoard = () => {
               {/* Third Place */}
               <View style={styles.thirdPlaceWrapper}>
                 <View style={styles.imageContainer}>
-                  <Image 
-                    source={getProfileImage(topThree[2] || { profileImage: null, rank: 3, isPlaceholder: true })} 
+                  <Image
+                    source={getProfileImage(topThree[2] || { ...placeholderData[2], rank: 3 })}
                     style={[
-                      styles.topThreeImage, 
+                      styles.topThreeImage,
                       topThree[2]?.isPlaceholder && styles.placeholderImage,
                       isCurrentUser(topThree[2]?.userId) && styles.currentUserImage
-                    ]} 
+                    ]}
                   />
                   {isCurrentUser(topThree[2]?.userId) && (
                     <View style={styles.youBadge}>
@@ -376,15 +431,15 @@ const LeaderBoard = () => {
                 </View>
                 <View style={[styles.podium, styles.thirdPodium]}>
                   <Text style={[
-                    styles.topThreeName, 
+                    styles.topThreeName,
                     topThree[2]?.isPlaceholder && styles.placeholderText,
                     isCurrentUser(topThree[2]?.userId) && styles.currentUserText
                   ]}>
-                    {topThree[2]?.name ? topThree[2].name.split(' ').join('\n') : 'Waiting\nfor data'}
+                    {topThree[2]?.name || 'Waiting\nfor data'}
                   </Text>
                   <Text style={[styles.rank, styles.thirdRank]}>3</Text>
                   <Text style={[
-                    styles.percentage, 
+                    styles.percentage,
                     topThree[2]?.isPlaceholder && styles.placeholderText,
                     isCurrentUser(topThree[2]?.userId) && styles.currentUserScore
                   ]}>
@@ -394,7 +449,7 @@ const LeaderBoard = () => {
               </View>
             </View>
 
-            {/* List Section - Always show structure with 7 more entries */}
+            {/* List Section */}
             <View style={styles.listContainer}>
               {remainingUsers.map((user) => (
                 <View key={user.userId} style={[
@@ -410,7 +465,7 @@ const LeaderBoard = () => {
                       size={40}
                       source={getProfileImage(user)}
                       style={[
-                        styles.listAvatar, 
+                        styles.listAvatar,
                         user.isPlaceholder && styles.placeholderAvatar,
                         isCurrentUser(user.userId) && styles.currentUserAvatar
                       ]}
@@ -422,13 +477,13 @@ const LeaderBoard = () => {
                     )}
                   </View>
                   <Text style={[
-                    styles.listName, 
+                    styles.listName,
                     user.isPlaceholder && styles.placeholderText,
                     isCurrentUser(user.userId) && styles.currentUserText
                   ]}>{user.name}</Text>
                   <View style={styles.percentageContainer}>
                     <Text style={[
-                      styles.listPercentage, 
+                      styles.listPercentage,
                       user.isPlaceholder && styles.placeholderPercentage,
                       isCurrentUser(user.userId) && styles.currentUserScoreValue
                     ]}>
@@ -445,14 +500,15 @@ const LeaderBoard = () => {
                 </View>
               ))}
               
-              {/* Always show 7 list items even if we don't have that many users */}
               {remainingUsers.length === 0 && (
-                <Text style={styles.noDataMessage}>Submit your daily reports to appear on the leaderboard!</Text>
+                <Text style={styles.noDataMessage}>
+                  Submit your daily reports to appear on the leaderboard!
+                </Text>
               )}
             </View>
           </Animated.View>
         </ScrollView>
-      </TelecallerMainLayout>
+      </BDMMainLayout>
     </AppGradient>
   );
 };
@@ -462,7 +518,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    paddingBottom: 120, // Extra padding to account for bottom tabs
+    paddingBottom: 120,
   },
   content: {
     flex: 1,
@@ -529,18 +585,24 @@ const styles = StyleSheet.create({
     height: 140,
     zIndex: 1,
     elevation: 4,
+    borderWidth: 1,
+    borderColor: "#CF8A00",
   },
   secondPodium: {
     backgroundColor: "#E6E6FA",
     width: 110,
     height: 110,
     elevation: 3,
+    borderWidth: 1,
+    borderColor: "#A58BFF",
   },
   thirdPodium: {
     backgroundColor: "#FFE4E1",
     width: 110,
     height: 110,
     elevation: 3,
+    borderWidth: 1,
+    borderColor: "#A58BFF",
   },
   crown: {
     position: "absolute",
@@ -593,7 +655,7 @@ const styles = StyleSheet.create({
     paddingTop: 25,
     flex: 1,
     elevation: 5,
-    minHeight: 300, // Ensure minimum height for visual structure
+    minHeight: 300,
   },
   listItem: {
     flexDirection: "row",
@@ -744,4 +806,5 @@ const styles = StyleSheet.create({
   }
 });
 
-export default LeaderBoard;
+export default BDMLeaderBoard;
+

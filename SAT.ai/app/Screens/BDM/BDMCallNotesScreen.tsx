@@ -1,20 +1,59 @@
-import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, SafeAreaView, Modal } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, SafeAreaView, Modal, Alert } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, RouteProp } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { LinearGradient } from 'expo-linear-gradient';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { auth } from '@/firebaseConfig';
+import BDMMainLayout from '@/app/components/BDMMainLayout';
+import AppGradient from '@/app/components/AppGradient';
 
+// Define types
 type RootStackParamList = {
+  BDMHomeScreen: undefined;
   BDMCreateFollowUp: undefined;
+  BDMCallNoteDetailsScreen: {
+    meeting: {
+      name: string;
+      time: string;
+      duration: string;
+      phoneNumber?: string;
+      date?: string;
+      type?: 'incoming' | 'outgoing' | 'missed';
+      contactType?: 'person' | 'company';
+    }
+  };
 };
 
-const CallNoteDetailsScreen = ({ route }) => {
+type CallNoteDetailsScreenProps = {
+  route: RouteProp<RootStackParamList, 'BDMCallNoteDetailsScreen'>;
+};
+
+interface Note {
+  id: string;
+  contactName: string;
+  phoneNumber?: string;
+  date: string;
+  time: string;
+  duration: string;
+  notes: string;
+  status: string;
+  followUp: boolean;
+  userId: string;
+  createdAt: number;
+}
+
+// Define AsyncStorage key
+const CALL_NOTES_STORAGE_KEY = 'bdm_call_notes';
+
+const CallNoteDetailsScreen: React.FC<CallNoteDetailsScreenProps> = ({ route }) => {
   const navigation = useNavigation<StackNavigationProp<RootStackParamList>>();
   const [notes, setNotes] = useState('');
   const [followUp, setFollowUp] = useState(false);
   const [status, setStatus] = useState('Mark Status');
   const [showStatusModal, setShowStatusModal] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const { meeting } = route.params;
 
   const statusOptions = ['Prospect', 'Suspect', 'Closing'];
@@ -26,20 +65,80 @@ const CallNoteDetailsScreen = ({ route }) => {
 
   const handleFollowUpPress = () => {
     setFollowUp(!followUp);
-    navigation.navigate('BDMCreateFollowUp');
+    if (!followUp) {
+      navigation.navigate('BDMCreateFollowUp');
+    }
+  };
+
+  const saveNote = async () => {
+    if (!notes.trim()) {
+      Alert.alert('Missing Notes', 'Please enter notes for this call');
+      return;
+    }
+
+    try {
+      setIsSaving(true);
+      
+      const userId = auth.currentUser?.uid;
+      if (!userId) {
+        Alert.alert('Error', 'You must be signed in to save notes');
+        setIsSaving(false);
+        return;
+      }
+      
+      // Create new note object
+      const newNote: Note = {
+        id: Date.now().toString(), // Generate unique ID using timestamp
+        contactName: meeting.name,
+        phoneNumber: meeting.phoneNumber,
+        date: meeting.date || new Date().toLocaleDateString(),
+        time: meeting.time,
+        duration: meeting.duration,
+        notes: notes.trim(),
+        status: status === 'Mark Status' ? 'Prospect' : status,
+        followUp,
+        userId,
+        createdAt: Date.now()
+      };
+      
+      // Get existing notes from AsyncStorage
+      const storedNotes = await AsyncStorage.getItem(CALL_NOTES_STORAGE_KEY + "_" + userId);
+      let allNotes: Note[] = [];
+      
+      if (storedNotes) {
+        allNotes = JSON.parse(storedNotes);
+      }
+      
+      // Add new note to array
+      allNotes.push(newNote);
+      
+      // Sort notes by creation date (newest first)
+      allNotes.sort((a, b) => b.createdAt - a.createdAt);
+      
+      // Save back to AsyncStorage
+      await AsyncStorage.setItem(CALL_NOTES_STORAGE_KEY + "_" + userId, JSON.stringify(allNotes));
+      
+      Alert.alert('Success', 'Call notes saved successfully');
+      
+      // Navigate back
+      navigation.goBack();
+    } catch (error) {
+      console.error('Error saving note:', error);
+      Alert.alert('Error', 'Failed to save note. Please try again.');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
-    <SafeAreaView style={styles.container}>
-      <LinearGradient colors={['#FFF8F0', '#FFF']} style={styles.gradient}>
+    <AppGradient>
+    <BDMMainLayout title="Call Notes" showBackButton={true} showDrawer={true} showBottomTabs={true}>
+      <View style={styles.gradient}>
         {/* Header */}
         <View style={styles.header}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-            <MaterialIcons name="arrow-back" size={24} color="#333" />
-          </TouchableOpacity>
           <View style={styles.headerContent}>
             <Text style={styles.headerTitle}>{meeting.name}</Text>
-            <Text style={styles.headerSubtitle}>{meeting.time} {meeting.duration}</Text>
+            <Text style={styles.headerSubtitle}>{meeting.time} • {meeting.duration}</Text>
           </View>
           <TouchableOpacity style={styles.playButton}>
             <MaterialIcons name="play-circle-outline" size={28} color="#333" />
@@ -94,12 +193,15 @@ const CallNoteDetailsScreen = ({ route }) => {
             value={notes}
             onChangeText={setNotes}
           />
-          <Text style={styles.characterCount}>{notes.length}/120</Text>
+          <Text style={styles.characterCount}>{notes.length}/500</Text>
           <TouchableOpacity 
-            style={[styles.submitButton, notes.length === 0 && styles.submitButtonDisabled]}
-            disabled={notes.length === 0}
+            style={[styles.submitButton, (notes.length === 0 || isSaving) && styles.submitButtonDisabled]}
+            disabled={notes.length === 0 || isSaving}
+            onPress={saveNote}
           >
-            <Text style={styles.submitButtonText}>Submit</Text>
+            <Text style={styles.submitButtonText}>
+              {isSaving ? 'Saving...' : 'Submit'}
+            </Text>
           </TouchableOpacity>
         </View>
 
@@ -113,8 +215,9 @@ const CallNoteDetailsScreen = ({ route }) => {
           </View>
           <Text style={styles.followUpText}>Follow up on this call</Text>
         </TouchableOpacity>
-      </LinearGradient>
-    </SafeAreaView>
+      </View>
+    </BDMMainLayout>
+    </AppGradient>
   );
 };
 
@@ -125,29 +228,35 @@ const styles = StyleSheet.create({
   },
   gradient: {
     flex: 1,
+    padding: 16,
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
+    borderRadius: 12,
+    backgroundColor: '#FFF',
     padding: 16,
-    paddingTop: 20,
-  },
-  backButton: {
-    padding: 8,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    marginBottom: 16,
   },
   headerContent: {
     flex: 1,
-    marginLeft: 12,
+    marginRight: 12,
   },
   headerTitle: {
     fontSize: 18,
-    fontWeight: '600',
+    fontFamily: 'LexendDeca_600SemiBold',
     color: '#333',
   },
   headerSubtitle: {
     fontSize: 14,
+    fontFamily: 'LexendDeca_400Regular',
     color: '#666',
-    marginTop: 2,
+    marginTop: 4,
   },
   playButton: {
     padding: 8,
@@ -157,22 +266,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     backgroundColor: '#FFF',
-    margin: 16,
-    padding: 16,
-    borderRadius: 8,
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-  },
-  statusText: {
-    fontSize: 16,
-    color: '#666',
-  },
-  notesContainer: {
-    backgroundColor: '#FFF',
-    margin: 16,
     padding: 16,
     borderRadius: 12,
     elevation: 2,
@@ -180,15 +273,34 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
+    marginBottom: 16,
+  },
+  statusText: {
+    fontSize: 16,
+    fontFamily: 'LexendDeca_400Regular',
+    color: '#666',
+  },
+  notesContainer: {
+    backgroundColor: '#FFF',
+    padding: 16,
+    borderRadius: 12,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    marginBottom: 16,
   },
   notesInput: {
     height: 120,
     textAlignVertical: 'top',
     fontSize: 16,
+    fontFamily: 'LexendDeca_400Regular',
     color: '#333',
   },
   characterCount: {
     alignSelf: 'flex-start',
+    fontFamily: 'LexendDeca_400Regular',
     color: '#666',
     marginTop: 8,
     marginBottom: 16,
@@ -205,12 +317,19 @@ const styles = StyleSheet.create({
   submitButtonText: {
     color: '#FFF',
     fontSize: 16,
-    fontWeight: '600',
+    fontFamily: 'LexendDeca_600SemiBold',
   },
   followUpContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    margin: 16,
+    backgroundColor: '#FFF',
+    padding: 16,
+    borderRadius: 12,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
   },
   checkbox: {
     width: 24,
@@ -223,52 +342,24 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   checkboxChecked: {
-    backgroundColor: '#FF8800',
-    borderColor: '#FF8800',
+    backgroundColor: '#FF8447',
+    borderColor: '#FF8447',
   },
   followUpText: {
     fontSize: 16,
+    fontFamily: 'LexendDeca_400Regular',
     color: '#666',
-  },
-  bottomNav: {
-    flexDirection: 'row',
-    backgroundColor: '#FFF',
-    paddingVertical: 8,
-    borderTopWidth: 1,
-    borderTopColor: '#EEE',
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-  },
-  navItem: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  centerNavItem: {
-    backgroundColor: '#FF8800',
-    marginTop: -20,
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    alignSelf: 'flex-start',
-  },
-  navText: {
-    fontSize: 12,
-    color: '#666',
-    marginTop: 4,
   },
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
     justifyContent: 'flex-start',
     paddingHorizontal: 16,
-    paddingTop: 120, // Adjust this value to position the dropdown appropriately
+    paddingTop: 120,
   },
   modalContent: {
     backgroundColor: 'white',
-    borderRadius: 8,
+    borderRadius: 12,
     elevation: 5,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
@@ -284,6 +375,7 @@ const styles = StyleSheet.create({
   },
   statusOptionText: {
     fontSize: 16,
+    fontFamily: 'LexendDeca_400Regular',
     color: '#666',
   },
 });

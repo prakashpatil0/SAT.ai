@@ -44,7 +44,7 @@ const SharedProfile: React.FC<SharedProfileProps> = ({ role, MainLayout }) => {
   });
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [profileImage, setProfileImage] = useState<ProfileImage>({ 
-    default: require("@/assets/images/girlprofile.png") 
+    default: require("@/assets/images/girl.png") 
   });
 
   // Animation for profile image

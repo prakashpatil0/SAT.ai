@@ -11,22 +11,21 @@ import {
   Animated,
   ActivityIndicator,
   Dimensions,
-  Switch,
   TouchableWithoutFeedback
 } from "react-native";
 import DateTimePicker from "@react-native-community/datetimepicker";
-import { MaterialIcons, MaterialCommunityIcons, Ionicons } from "@expo/vector-icons";
+import { MaterialIcons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import * as ImagePicker from 'expo-image-picker';
 import { Camera } from 'expo-camera';
-import TelecallerMainLayout from "@/app/components/TelecallerMainLayout";
+import BDMMainLayout from "@/app/components/BDMMainLayout";
 import { auth, db, storage } from "@/firebaseConfig";
 import { doc, setDoc, getDoc, serverTimestamp } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { LinearGradient } from 'expo-linear-gradient';
-import AppGradient from "@/app/components/AppGradient";
 import { useProfile } from '@/app/context/ProfileContext';
 import FormInput from "@/app/components/FormInput";
+import AppGradient from "@/app/components/AppGradient";
 
 const { width } = Dimensions.get('window');
 
@@ -54,7 +53,7 @@ interface DateTimePickerEvent {
   };
 }
 
-const ProfileScreen = () => {
+const BDMProfile = () => {
   const navigation = useNavigation();
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -84,9 +83,8 @@ const ProfileScreen = () => {
   // Animation refs
   const scaleAnim = useRef(new Animated.Value(1)).current;
   const scrollY = useRef(new Animated.Value(0)).current;
-  const profileOpacity = useRef(new Animated.Value(1)).current;
   
-  // Calculated values
+  // Calculated animation values
   const headerHeight = scrollY.interpolate({
     inputRange: [0, 100],
     outputRange: [250, 150],
@@ -289,7 +287,7 @@ const ProfileScreen = () => {
     }
     
     if (Platform.OS === 'ios') {
-      setShowDatePicker(false);
+    setShowDatePicker(false);
     }
   };
 
@@ -300,7 +298,7 @@ const ProfileScreen = () => {
       { text: "Cancel", style: "cancel" },
     ]);
   };
-  
+
   const handleImagePicker = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== "granted") {
@@ -333,7 +331,7 @@ const ProfileScreen = () => {
       ]).start();
     }
   };
-  
+
   const handleOpenCamera = async () => {
     // Request camera permission
     const { status } = await Camera.requestCameraPermissionsAsync();
@@ -341,9 +339,31 @@ const ProfileScreen = () => {
       Alert.alert("Permission Denied", "You need to allow access to the camera.");
       return;
     }
-    
-    // Navigate to camera screen
-    navigation.navigate('CameraScreen' as never);
+  
+    // Use Image Picker camera instead of navigating to camera screen
+    let result = await ImagePicker.launchCameraAsync({
+      allowsEditing: true,
+      aspect: [4, 4],
+      quality: 1,
+    });
+
+    if (!result.canceled && result.assets.length > 0) {
+      setProfileImage({ uri: result.assets[0].uri });
+      
+      // Animate the profile image
+      Animated.sequence([
+        Animated.timing(scaleAnim, {
+      toValue: 1.1,
+          duration: 200,
+      useNativeDriver: true,
+        }),
+        Animated.timing(scaleAnim, {
+      toValue: 1,
+          duration: 200,
+      useNativeDriver: true,
+        }),
+      ]).start();
+    }
   };
 
   const formatDate = (date: Date) => {
@@ -357,17 +377,16 @@ const ProfileScreen = () => {
 
   if (isLoading) {
     return (
-      <TelecallerMainLayout title="Profile" showBackButton>
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#FF8447" />
           <Text style={styles.loadingText}>Loading profile...</Text>
         </View>
-      </TelecallerMainLayout>
     );
   }
 
   return (
-    <TelecallerMainLayout title="Profile" showBackButton>
+    <AppGradient>
+    <BDMMainLayout title="Profile" showBackButton showDrawer={true}>
       <Animated.ScrollView
         contentContainerStyle={styles.scrollContainer}
         showsVerticalScrollIndicator={false}
@@ -426,8 +445,8 @@ const ProfileScreen = () => {
             <View style={styles.sectionHeader}>
               <MaterialIcons name="person" size={22} color="#FF8447" />
               <Text style={styles.sectionTitle}>Personal Information</Text>
-            </View>
-            
+      </View>
+
             <View style={styles.formContainer}>
               <FormInput
                 label="Full Name"
@@ -480,9 +499,9 @@ const ProfileScreen = () => {
                   </View>
                   <MaterialIcons name="arrow-drop-down" size={24} color="#FF8447" />
                 </View>
-              </TouchableOpacity>
-              
-              {showDatePicker && (
+      </TouchableOpacity>
+
+      {showDatePicker && (
                 <DateTimePicker
                   value={formData.dateOfBirth}
                   mode="date"
@@ -491,8 +510,8 @@ const ProfileScreen = () => {
                   maximumDate={new Date()}
                   minimumDate={new Date(1950, 0, 1)}
                 />
-              )}
-            </View>
+      )}
+      </View>
           </View>
           
           {/* Save Button */}
@@ -510,15 +529,16 @@ const ProfileScreen = () => {
               {isSaving ? (
                 <ActivityIndicator size="small" color="#FFFFFF" />
               ) : (
-                <Text style={styles.saveButtonText}>Save Changes</Text>
+        <Text style={styles.saveButtonText}>Save Changes</Text>
               )}
             </LinearGradient>
-          </TouchableOpacity>
+      </TouchableOpacity>
           
           <View style={styles.spacer} />
         </View>
       </Animated.ScrollView>
-    </TelecallerMainLayout>
+    </BDMMainLayout>
+    </AppGradient>
   );
 };
 
@@ -674,6 +694,6 @@ const styles = StyleSheet.create({
   spacer: {
     height: 40,
   },
-})
+});
 
-export default ProfileScreen;
+export default BDMProfile;

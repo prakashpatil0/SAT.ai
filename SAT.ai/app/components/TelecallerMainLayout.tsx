@@ -1,11 +1,12 @@
 import React from 'react';
-import { View, StyleSheet, TouchableOpacity, Image, Text } from 'react-native';
+import { View, StyleSheet, TouchableOpacity, Image, Text, SafeAreaView } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useNavigation, DrawerActions } from '@react-navigation/native';
 import { useProfile } from '@/app/context/ProfileContext';
 import { LinearGradient } from 'expo-linear-gradient';
 import TelecallerBottomTabs from '@/app/components/TelecallerBottomTabs';
 import AppGradient from './AppGradient';
+import { DEFAULT_PROFILE_IMAGE } from '@/app/utils/profileStorage';
 
 type TelecallerMainLayoutProps = {
   children: React.ReactNode;
@@ -13,7 +14,7 @@ type TelecallerMainLayoutProps = {
   showBackButton?: boolean;
   showDrawer?: boolean;
   showBottomTabs?: boolean;
-
+  rightIcon?: React.ReactNode;
 };
 
 const TelecallerMainLayout: React.FC<TelecallerMainLayoutProps> = ({
@@ -22,74 +23,108 @@ const TelecallerMainLayout: React.FC<TelecallerMainLayoutProps> = ({
   showBackButton = true,
   showDrawer = true,
   showBottomTabs = true,
+  rightIcon,
 }) => {
   const navigation = useNavigation();
-  const { userProfile } = useProfile();
+  const { userProfile, profilePhotoUri } = useProfile();
+
+  // Get the profile image from multiple possible sources
+  const profileImage = userProfile?.profileImageUrl || profilePhotoUri || DEFAULT_PROFILE_IMAGE;
 
   return (
-    <View style={styles.container}>
-      <View style={styles.headerContainer}>
-        {/* Top Row - Drawer Menu and Profile */}
-        <View style={styles.topRow}>
-          {showDrawer && (
-            <TouchableOpacity 
-              onPress={() => navigation.dispatch(DrawerActions.openDrawer())}
-              style={styles.iconButton}
-            >
-              <MaterialIcons name="menu" size={24} color="#333" />
-            </TouchableOpacity>
-          )}
-          <TouchableOpacity 
-            onPress={() => navigation.navigate('Profile' as never)}
-            style={styles.profileButton}
-          >
-            <Image 
-              source={userProfile?.profileImageUrl ? { uri: userProfile.profileImageUrl } : require('@/assets/images/girlprofile.png')} 
-              style={styles.profileImage}
-            />
-          </TouchableOpacity>
-        </View>
-
-        {/* Bottom Row - Back Button and Title */}
-        <View style={styles.bottomRow}>
-          <View style={styles.leftContainer}>
-            {showBackButton && (
+    <SafeAreaView style={styles.safeArea}>
+      <View style={styles.container}>
+        <View style={styles.headerContainer}>
+          {/* Top Row - Drawer Menu and Profile */}
+          <View style={styles.topRow}>
+            {showDrawer && (
               <TouchableOpacity 
-                onPress={() => navigation.goBack()}
-                style={styles.backButton}
+                onPress={() => navigation.dispatch(DrawerActions.openDrawer())}
+                style={styles.iconButton}
               >
-                <MaterialIcons name="arrow-back" size={24} color="#333" />
+                <MaterialIcons name="menu" size={24} color="#333" />
               </TouchableOpacity>
             )}
+            <TouchableOpacity 
+              onPress={() => navigation.navigate('Profile' as never)}
+              style={styles.profileButton}
+            >
+              <Image 
+                source={typeof profileImage === 'string' ? { uri: profileImage } : require('@/assets/images/girl.png')} 
+                style={styles.profileImage}
+              />
+            </TouchableOpacity>
           </View>
-          {title && (
-            <Text style={styles.title}>{title}</Text>
-          )}
-          <View style={styles.rightPlaceholder} />
+
+          {/* Bottom Row - Back Button and Title */}
+          <View style={styles.bottomRow}>
+            <View style={styles.leftContainer}>
+              {showBackButton && (
+                <TouchableOpacity 
+                  onPress={() => navigation.goBack()}
+                  style={styles.backButton}
+                >
+                  <MaterialIcons name="arrow-back" size={24} color="#333" />
+                </TouchableOpacity>
+              )}
+            </View>
+            {title && (
+              <Text style={styles.title}>{title}</Text>
+            )}
+            <View style={styles.rightContainer}>
+              {rightIcon}
+            </View>
+          </View>
         </View>
+
+        <View style={styles.contentContainer}>
+          <AppGradient style={styles.gradientContainer}>
+            {children}
+          </AppGradient>
+        </View>
+
+        {showBottomTabs && (
+          <View style={styles.bottomTabsContainer}>
+            <TelecallerBottomTabs />
+          </View>
+        )}
       </View>
-
-      <AppGradient>
-        {children}
-      </AppGradient>
-
-      {showBottomTabs && <TelecallerBottomTabs />}
-    </View>
+    </SafeAreaView>
   );
 };
 
-// Same styles as BDMMainLayout
+// Same styles as BDMMainLayout but with fixed bottom tabs
 const styles = StyleSheet.create({
+  safeArea: {
+    flex: 1,
+    backgroundColor: 'transparent',
+  },
   container: {
     flex: 1,
   },
   headerContainer: {
-    elevation: 3,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
     paddingTop: 20,
+    backgroundColor: 'transparent',
+    zIndex: 10,
+  },
+  contentContainer: {
+    flex: 1,
+  },
+  gradientContainer: {
+    flex: 1,
+  },
+  bottomTabsContainer: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: '#F8F8F8',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 8,
+    zIndex: 10,
   },
   topRow: {
     flexDirection: 'row',
@@ -108,8 +143,10 @@ const styles = StyleSheet.create({
   leftContainer: {
     width: 40,
   },
-  rightPlaceholder: {
+  rightContainer: {
     width: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   iconButton: {
     padding: 4,

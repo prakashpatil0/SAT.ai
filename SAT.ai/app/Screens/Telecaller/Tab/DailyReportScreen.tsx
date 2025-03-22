@@ -17,8 +17,10 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Chip, Button } from 'react-native-paper'; 
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 import { auth } from '@/firebaseConfig';
-import { api } from '@/app/services/api';
+import api from '@/app/services/api';
 import AppGradient from "@/app/components/AppGradient";
+import { getTargets } from '@/app/services/targetService';
+import { format } from 'date-fns';
 
 const PRODUCT_LIST = [
   { label: 'Car Insurance', value: 'car_insurance' },
@@ -54,6 +56,8 @@ const ReportScreen: React.FC = () => {
   }]);
   const [totalClosingAmount, setTotalClosingAmount] = useState(0);
   const [dropdownVisible, setDropdownVisible] = useState<number | null>(null); // Track which dropdown is open
+  const currentDate = new Date();
+  const formattedDate = format(currentDate, 'dd MMMM (EEEE)');
 
   const handleSubmit = async () => {
     try {
@@ -78,6 +82,31 @@ const ReportScreen: React.FC = () => {
         return;
       }
 
+      // Parse the meeting duration to extract hours and minutes
+      const durationStr = meetingDuration;
+      const hourMatch = durationStr.match(/(\d+)\s*hr/);
+      const minMatch = durationStr.match(/(\d+)\s*min/);
+      
+      const hours = hourMatch ? parseInt(hourMatch[1]) : 0;
+      const mins = minMatch ? parseInt(minMatch[1]) : 0;
+      
+      const durationInHours = hours + (mins / 60);
+
+      // Calculate percentage achievement based on targets
+      const targets = getTargets();
+      const positiveLeadsPercentage = (parseInt(positiveLeads) / targets.positiveLeads) * 100;
+      const numCallsPercentage = (parseInt(numMeetings) / targets.numCalls) * 100;
+      const durationPercentage = (durationInHours / targets.callDuration) * 100;
+      const closingPercentage = (totalClosingAmount / targets.closingAmount) * 100;
+      
+      // Calculate overall achievement percentage
+      const percentageAchieved = (
+        positiveLeadsPercentage + 
+        numCallsPercentage + 
+        durationPercentage + 
+        closingPercentage
+      ) / 4;
+
       // Format data for database
       const reportData = {
         userId: auth.currentUser.uid,
@@ -91,9 +120,17 @@ const ReportScreen: React.FC = () => {
           amount: parseInt(detail.amount.replace(/[^0-9]/g, '')),
           description: detail.description
         })),
-        totalClosingAmount
+        totalClosingAmount,
+        durationInHours, // Store parsed duration in hours
+        // Store achievement percentages
+        positiveLeadsPercentage: parseFloat(positiveLeadsPercentage.toFixed(1)),
+        numCallsPercentage: parseFloat(numCallsPercentage.toFixed(1)),
+        durationPercentage: parseFloat(durationPercentage.toFixed(1)),
+        closingPercentage: parseFloat(closingPercentage.toFixed(1)),
+        percentageAchieved: parseFloat(percentageAchieved.toFixed(1))
       };
 
+      // Set loading state or show spinner here if needed
       const result = await api.saveDailyReport(auth.currentUser.uid, reportData);
       
       if (result.success) {
@@ -112,6 +149,13 @@ const ReportScreen: React.FC = () => {
             showOtherInput: false
           }]);
           setTotalClosingAmount(0);
+          
+          // Alert user that data will be reflected in reports after processing
+          Alert.alert(
+            'Report Submitted',
+            'Your data has been saved. It may take a moment to reflect in your target and report screens.',
+            [{ text: 'OK' }]
+          );
         }, 3000);
       }
     } catch (error) {
@@ -188,8 +232,8 @@ const ReportScreen: React.FC = () => {
           </View>
 
           <View style={styles.inputContainer}>
-            <Text style={styles.dateText}>23 January (Thursday)</Text>
-            <Text style={styles.label}>Number of Meetings</Text>
+            <Text style={styles.dateText}>{formattedDate}</Text>
+            <Text style={styles.label}>Number of Calls</Text>
             <TextInput
               style={styles.input}
               value={numMeetings}
@@ -198,7 +242,7 @@ const ReportScreen: React.FC = () => {
               placeholder="12"
             />
 
-            <Text style={styles.label}>Meeting Duration</Text>
+            <Text style={styles.label}>Call Duration</Text>
             <TextInput
               style={styles.input}
               value={meetingDuration}
@@ -305,14 +349,19 @@ const ReportScreen: React.FC = () => {
             </View>
 
             {/* Submit Button */}
-            <Button
-              mode="contained"
+            <TouchableOpacity
               onPress={handleSubmit}
               style={styles.submitButton}
-              labelStyle={styles.submitText}
             >
-              Submit
-            </Button>
+              <LinearGradient
+                colors={['#FF8447', '#FF6D24']}
+                style={styles.submitGradient}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+              >
+                <Text style={styles.submitText}>Submit Report</Text>
+              </LinearGradient>
+            </TouchableOpacity>
           </View>
 
           {/* Popup Modal */}
@@ -413,18 +462,29 @@ const styles = StyleSheet.create({
     backgroundColor: "#f9f9f9",
   },
   submitButton: {
-    backgroundColor: "#FF8447",
-    borderRadius: 8,
-    marginTop: 30,
-    alignItems: "center",
-    width: 150,
-    height: 40,
+    marginTop: 20,
+    marginBottom: 40,
+    width: '100%',
     alignSelf: "center",
+    borderRadius: 12,
+    elevation: 4,
+    shadowColor: '#FF8447',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.3,
+    shadowRadius: 5,
+    height: 56,
+  },
+  submitGradient: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   submitText: {
-    fontSize: 16,
+    fontSize: 18,
     color: "#fff",
-    fontFamily: "Poppins_600SemiBold",
+    fontFamily: "LexendDeca_600SemiBold",
     textAlign: "center",
   },
   modalOverlay: {

@@ -24,6 +24,7 @@ const BDMNotesDetailScreen = ({ route }) => {
   };
 
   return (
+    
     <ScrollView style={styles.container}>
       <BDMScreenHeader title=" " />
       <View style={styles.header}>

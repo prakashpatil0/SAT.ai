@@ -6,7 +6,8 @@ import MapView, { Marker } from 'react-native-maps';
 import BDMScreenHeader from '@/app/Screens/BDM/BDMScreenHeader';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useNavigation } from '@react-navigation/native';
-import MainLayout from '@/app/components/MainLayout';
+import BDMMainLayout from '@/app/components/BDMMainLayout';
+import AppGradient from '@/app/components/AppGradient';
 type AttendanceRecord = {
   date: number;
   day: string;
@@ -73,7 +74,8 @@ const BDMAttendanceScreen = () => {
   };
 
   return (
-    <MainLayout 
+    <AppGradient>
+    <BDMMainLayout 
       title="Attendance"
       showBackButton
       showDrawer={true}
@@ -168,7 +170,9 @@ const BDMAttendanceScreen = () => {
           </View>
         ))}
       </ScrollView>
-    </MainLayout>
+    </BDMMainLayout>
+    </AppGradient>
+   
   );
 };
 

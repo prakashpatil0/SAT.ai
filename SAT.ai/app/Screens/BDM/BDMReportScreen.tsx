@@ -13,7 +13,9 @@ import Ionicons from "react-native-vector-icons/Ionicons";
 import { Image } from "expo-image";
 import BDMScreenHeader from '@/app/Screens/BDM/BDMScreenHeader';
 import { LinearGradient } from "expo-linear-gradient";
-import MainLayout from '@/app/components/MainLayout';
+import BDMMainLayout from '@/app/components/BDMMainLayout';
+import App from "@/app";
+import AppGradient from "@/app/components/AppGradient";
 
 
 const BDMReportScreen = () => {
@@ -26,7 +28,8 @@ const BDMReportScreen = () => {
   };
 
   return (
-    <MainLayout title="Daily Report" showBackButton>
+    <AppGradient>
+    <BDMMainLayout title="Daily Report" showBackButton>
     <ScrollView contentContainerStyle={styles.scrollContainer}>
       <LinearGradient colors={['#FFF8F0', '#FFF']} style={styles.container}>
         {/* <BDMScreenHeader title="Daily Report" /> */}
@@ -99,7 +102,8 @@ const BDMReportScreen = () => {
         </Modal>
       </LinearGradient>
     </ScrollView>
-    </MainLayout>
+    </BDMMainLayout>
+    </AppGradient>
   );
 };
 

@@ -4,6 +4,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import BDMScreenHeader from '@/app/Screens/BDM/BDMScreenHeader';
 import { useNavigation } from "@react-navigation/native";
+import AppGradient from '@/app/components/AppGradient';
 
 type Meeting = {
   startTime: string;
@@ -111,6 +112,7 @@ const BDMMyScheduleScreen = () => {
   );
 
   return (
+    <AppGradient>
     <View style={styles.container}>
       <BDMScreenHeader title="My Schedule" />
 
@@ -161,6 +163,7 @@ const BDMMyScheduleScreen = () => {
         </View>
       </Modal>
     </View>
+    </AppGradient>
   );
 };
 

@@ -4,6 +4,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useNavigation } from '@react-navigation/native';
 import BDMScreenHeader from "@/app/Screens/BDM/BDMScreenHeader";
+import AppGradient from '@/app/components/AppGradient';
 
 
 type BDMPersonNoteProps = {
@@ -23,6 +24,7 @@ const BDMPersonNote = ({ route }: BDMPersonNoteProps) => {
   const { name, time, duration, type, notes } = route.params;
 
   return (
+    <AppGradient>
     <LinearGradient colors={['#f0f4f8', '#fcf1e8']} style={styles.container}>
       <BDMScreenHeader title={name} />
       <View style={styles.header}>
@@ -50,6 +52,7 @@ const BDMPersonNote = ({ route }: BDMPersonNoteProps) => {
         </Text>
       </View>
     </LinearGradient>
+    </AppGradient>
   );
 };
 

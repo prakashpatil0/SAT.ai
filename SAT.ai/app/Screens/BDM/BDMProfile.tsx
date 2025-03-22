@@ -21,6 +21,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { saveProfilePhoto, getProfilePhoto, DEFAULT_PROFILE_IMAGE } from '@/app/utils/profileStorage';
 import { useProfile } from '@/app/context/ProfileContext';
 import MainLayout from '@/app/components/MainLayout';
+import AppGradient from "@/app/components/AppGradient";
 
 const BDMProfile = () => {
   const navigation = useNavigation();
@@ -137,6 +138,7 @@ const BDMProfile = () => {
   };
 
   return (
+    <AppGradient>
     <MainLayout 
       title="Profile"
       showBackButton
@@ -178,6 +180,7 @@ const BDMProfile = () => {
         <Text style={styles.saveButtonText}>Save Changes</Text>
       </TouchableOpacity>
     </MainLayout>
+    </AppGradient>
   );
 };
 

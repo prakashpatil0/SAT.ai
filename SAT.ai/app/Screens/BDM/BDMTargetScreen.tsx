@@ -4,11 +4,14 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
 import BDMMainLayout from '@/app/components/BDMMainLayout';
+import App from '@/app';
+import AppGradient from '@/app/components/AppGradient';
 
 const BDMTargetScreen = () => {
   const navigation = useNavigation();
 
   return (
+    <AppGradient>
     <BDMMainLayout title="Weekly Target" showBackButton showDrawer={true} showBottomTabs={true}>
       <View style={styles.container}>
         <LinearGradient colors={['#FFF8F0', '#FFF']} style={styles.container}>
@@ -101,6 +104,7 @@ const BDMTargetScreen = () => {
         </LinearGradient>
       </View>
     </BDMMainLayout>
+    </AppGradient>
   );
 };
 

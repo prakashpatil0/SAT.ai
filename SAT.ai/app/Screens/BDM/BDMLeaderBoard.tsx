@@ -5,6 +5,7 @@ import * as Animatable from 'react-native-animatable';
 import BDMScreenHeader from '@/app/Screens/BDM/BDMScreenHeader';
 import { MaterialIcons } from '@expo/vector-icons';
 import Icon from "react-native-vector-icons/MaterialCommunityIcons";
+import AppGradient from '@/app/components/AppGradient';
 
 
 const BDMLeaderBoard = () => {
@@ -45,6 +46,7 @@ const BDMLeaderBoard = () => {
     }).start();
   }, [fadeAnim]);
     return (
+      <AppGradient>
       <View style={styles.podiumContainer}>
         {/* Second Place */}
         <View style={[styles.podiumBlock, styles.secondPlace]}>
@@ -74,10 +76,12 @@ const BDMLeaderBoard = () => {
           </View>
         </View>
       </View>
+      </AppGradient>
     );
   };
 
   return (
+    <AppGradient>
     <LinearGradient colors={['#f0f4f8', '#fcf1e8']} style={styles.container}>
       <BDMScreenHeader title="Leaderboard" />
       <View style={styles.mainContent}>
@@ -99,6 +103,7 @@ const BDMLeaderBoard = () => {
         </ScrollView>
       </View>
     </LinearGradient>
+    </AppGradient>
   );
 };
 

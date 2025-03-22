@@ -7,6 +7,7 @@ import { useNavigation } from '@react-navigation/native';
 import { DrawerContentComponentProps } from '@react-navigation/drawer';
 import { getAuth, signOut } from 'firebase/auth';
 import { BDMStackParamList } from '@/app/index';
+import AppGradient from '@/app/components/AppGradient';
 
 const BDMDrawer = (props: DrawerContentComponentProps) => {
   const navigation = useNavigation();
@@ -41,6 +42,7 @@ const BDMDrawer = (props: DrawerContentComponentProps) => {
   };
 
   return (
+    <AppGradient>
     <View style={styles.container}>
       <DrawerContentScrollView {...props} contentContainerStyle={styles.drawerContent}>
         {/* Header Section */}
@@ -105,6 +107,7 @@ const BDMDrawer = (props: DrawerContentComponentProps) => {
         <Text style={styles.logoutText}>Logout</Text>
       </TouchableOpacity>
     </View>
+    </AppGradient>
   );
 };
 

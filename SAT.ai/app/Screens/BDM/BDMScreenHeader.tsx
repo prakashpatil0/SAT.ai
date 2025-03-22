@@ -11,6 +11,7 @@ const BDMScreenHeader = ({ title }: BDMScreenHeaderProps) => {
   const navigation = useNavigation();
 
   return (
+    
     <View style={styles.container}>
       {/* Top Row - Drawer Menu */}
       <TouchableOpacity 

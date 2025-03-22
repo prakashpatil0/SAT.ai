@@ -3,6 +3,9 @@ import { View, Text, StyleSheet, TouchableOpacity, Dimensions } from 'react-nati
 import { LineChart } from 'react-native-chart-kit';
 import { LinearGradient } from 'expo-linear-gradient';
 import BDMScreenHeader from '@/app/Screens/BDM/BDMScreenHeader';
+import BDMMainLayout from '@/app/components/BDMMainLayout';
+import App from '@/app';
+import AppGradient from '@/app/components/AppGradient';
 
 const BDMViewFullReport = () => {
   const [selectedPeriod, setSelectedPeriod] = useState('Weekly');
@@ -37,8 +40,10 @@ const BDMViewFullReport = () => {
   };
 
   return (
+    <AppGradient>
+    <BDMMainLayout showBottomTab={true} title="Weekly Target">
     <LinearGradient colors={['#FFF8F0', '#FFF']} style={styles.container}>
-      <BDMScreenHeader title="Weekly Target" />
+      {/* <BDMScreenHeader title="Weekly Target" /> */}
 
       {/* Period Selection */}
       <View style={styles.periodContainer}>
@@ -62,7 +67,7 @@ const BDMViewFullReport = () => {
       </View>
 
       {/* Graph */}
-      <View style={styles.graphContainer}>
+      <View style={styles.graphContainer}>  
         <LineChart
           data={chartData[selectedPeriod as keyof typeof chartData]}
           width={Dimensions.get('window').width - 32}
@@ -108,6 +113,8 @@ const BDMViewFullReport = () => {
         />
       </View>
     </LinearGradient>
+    </BDMMainLayout>
+    </AppGradient>
   );
 };
 

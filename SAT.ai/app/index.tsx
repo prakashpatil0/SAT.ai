@@ -469,6 +469,11 @@ function BDMStackNavigator() {
         component={BDMPersonNote}
         options={{ headerShown: false }}
       />
+      <BDMStack.Screen 
+        name="BDMViewFullReport" 
+        component={BDMViewFullReport}
+        options={{ headerShown: false }}
+      />
     </BDMStack.Navigator>
   );
 }
@@ -488,6 +493,7 @@ const RootStack = () => {
       <Stack.Screen name="VerifyEmail" component={VerifyEmail} />
       <Stack.Screen name="SetNewPassword" component={SetNewPassword} />
       <Stack.Screen name="MainApp" component={DrawerNavigator} />
+     
       <Stack.Screen 
         name="BDMStack" 
         component={BDMStackNavigator}

@@ -9,6 +9,7 @@ import { useProfile } from '@/app/context/ProfileContext';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BDMStackParamList, RootStackParamList } from '@/app/index';
 import BDMMainLayout from '@/app/components/BDMMainLayout';
+import AppGradient from "@/app/components/AppGradient";
 
 const BDMHomeScreen = () => {
   const [expandedCardId, setExpandedCardId] = useState<string | null>(null);
@@ -109,6 +110,7 @@ const BDMHomeScreen = () => {
   }, []);
 
   return (
+    <AppGradient>
     <BDMMainLayout showBackButton={false} showBottomTabs>
       <View style={styles.content}>
         {/* Welcome Section */}
@@ -206,6 +208,7 @@ const BDMHomeScreen = () => {
         />
       </View>
     </BDMMainLayout>
+    </AppGradient>
   );
 };
 

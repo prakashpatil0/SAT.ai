@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useMemo, useCallback } from 'react';
 import { auth } from '@/firebaseConfig';
 import api from '@/app/services/api';
 
@@ -31,11 +31,11 @@ export const ProfileProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [isLoading, setIsLoading] = useState(true);
   const [profilePhotoUri, setProfilePhotoUri] = useState<string | null>(null);
 
-  const updateProfile = (profile: UserProfile) => {
+  const updateProfile = useCallback((profile: UserProfile) => {
     setUserProfile(profile);
-  };
+  }, []);
 
-  const refreshProfile = async () => {
+  const refreshProfile = useCallback(async () => {
     try {
       setIsLoading(true);
       const userId = auth.currentUser?.uid;
@@ -50,10 +50,11 @@ export const ProfileProvider: React.FC<{ children: React.ReactNode }> = ({ child
     } finally {
       setIsLoading(false);
     }
-  };
+  }, []);
 
-  // Initial profile fetch
+  // Initial profile fetch with debounce
   useEffect(() => {
+    let isMounted = true;
     const fetchInitialProfile = async () => {
       try {
         const userId = auth.currentUser?.uid;
@@ -63,43 +64,51 @@ export const ProfileProvider: React.FC<{ children: React.ReactNode }> = ({ child
         }
 
         const userData = await api.getUserProfile(userId);
-        if (userData) {
+        if (userData && isMounted) {
           setUserProfile(userData);
         }
       } catch (error) {
         console.error('Error fetching initial profile:', error);
       } finally {
-        setIsLoading(false);
+        if (isMounted) {
+          setIsLoading(false);
+        }
       }
     };
 
-    // Listen for auth state changes
+    const timeoutId = setTimeout(fetchInitialProfile, 100); // Small delay to prevent race conditions
     const unsubscribe = auth.onAuthStateChanged((user) => {
-      if (user) {
+      if (user && isMounted) {
         fetchInitialProfile();
-      } else {
+      } else if (isMounted) {
         setUserProfile(null);
         setIsLoading(false);
       }
     });
 
-    return () => unsubscribe();
+    return () => {
+      isMounted = false;
+      clearTimeout(timeoutId);
+      unsubscribe();
+    };
   }, []);
 
+  const contextValue = useMemo(() => ({
+    userProfile,
+    updateProfile,
+    refreshProfile,
+    isLoading,
+    profileImage: userProfile?.profileImageUrl || null,
+    updateProfileImage: (url: string) => {
+      if (userProfile) {
+        setUserProfile({ ...userProfile, profileImageUrl: url });
+      }
+    },
+    profilePhotoUri
+  }), [userProfile, isLoading, profilePhotoUri, updateProfile, refreshProfile]);
+
   return (
-    <ProfileContext.Provider value={{ 
-      userProfile, 
-      updateProfile, 
-      refreshProfile, 
-      isLoading,
-      profileImage: userProfile?.profileImageUrl || null,
-      updateProfileImage: (url: string) => {
-        if (userProfile) {
-          setUserProfile({ ...userProfile, profileImageUrl: url });
-        }
-      },
-      profilePhotoUri
-    }}>
+    <ProfileContext.Provider value={contextValue}>
       {children}
     </ProfileContext.Provider>
   );

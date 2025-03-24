@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "SAT.ai",
-    "slug": "SAT.ai",
+    "slug": "SATai",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -37,6 +37,14 @@
     ],
     "experiments": {
       "typedRoutes": true
+    },
+    "extra": {
+      "router": {
+        "origin": false
+      },
+      "eas": {
+        "projectId": "a6277431-bb44-4cb3-a68a-8e623ece653c"
+      }
     }
   }
 }

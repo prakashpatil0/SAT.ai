@@ -247,78 +247,6 @@ const CustomAlertButton = ({ children, onPress }: { children: React.ReactNode; o
   </TouchableOpacity>
 );
 
-// const BottomTabNavigator = () => {
-//   return (
-//     <Tab.Navigator
-//       screenOptions={{
-//         header: () => null,
-//         tabBarActiveTintColor: "#FF8447",
-//         tabBarInactiveTintColor: "#8E8E93",
-//         tabBarStyle: { backgroundColor: "#F8F8F8", height: 65 },
-//         tabBarLabelStyle: { 
-//           fontSize: 12,
-//           fontFamily: "LexendDeca_400Regular",
-//           marginBottom: 8,
-//           textAlign: "center",
-//           width: 70,
-//           flexWrap: "wrap",
-//         },
-//       }}
-//     >
-//       <Tab.Screen
-//         name="Home"
-//         component={HomeScreen}
-//         options={{
-//           tabBarLabel: "Home",
-//           tabBarIcon: ({ color, size }) => <MaterialIcons name="home" color={color} size={size} />,
-//         }}
-//       />
-//       <Tab.Screen
-//         name="Target"
-//         component={TargetScreen}
-//         options={{
-//           tabBarLabel: "Target",
-//           tabBarIcon: ({ color, size }) => <MaterialIcons name="flag" color={color} size={size} />,
-//         }}
-//       />
-//       <Tab.Screen
-//         name="Alert"
-//         component={AlertScreenComponent}
-//         options={{
-//           tabBarLabel: "",
-//           tabBarButton: (props) => {
-//             const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-//             return (
-//               <CustomAlertButton
-//                 {...props}
-//                 onPress={() => navigation.navigate("AlertScreen")}
-//               >
-//                 <MaterialIcons name="notifications-active" size={30} color="white" />
-//               </CustomAlertButton>
-//             );
-//           },
-//         }}
-//       />
-//       <Tab.Screen
-//         name="Attendance"
-//         component={AttendanceScreen}
-//         options={{
-//           tabBarLabel: "Attendance",
-//           tabBarIcon: ({ color, size }) => <MaterialIcons name="event" color={color} size={size} />,
-//         }}
-//       />
-//       <Tab.Screen
-//         name="Report"
-//         component={ReportScreen}
-//         options={{
-//           tabBarLabel: "Report",
-//           tabBarIcon: ({ color, size }) => <MaterialIcons name="description" color={color} size={size} />,
-//         }}
-//       />
-//     </Tab.Navigator>
-//   );
-// };
-
 const DrawerNavigator = () => {
   return (
     <Drawer.Navigator
@@ -568,7 +496,7 @@ const RootStack = () => {
 };
 
 export default function App() {
-  const [fontsLoaded] = useFonts({
+  const [fontsLoaded, fontError] = useFonts({
     LexendDeca_400Regular,
     LexendDeca_500Medium,
     LexendDeca_600SemiBold,
@@ -583,11 +511,24 @@ export default function App() {
   const [permissionsGranted, setPermissionsGranted] = useState(false);
 
   useEffect(() => {
-    if (fontsLoaded) {
-      SplashScreen.hideAsync();
-      setAppIsReady(true);
+    async function prepare() {
+      try {
+        await SplashScreen.preventAutoHideAsync();
+        // Preload other assets here if needed
+      } catch (e) {
+        console.warn('Error preparing app:', e);
+      } finally {
+        setAppIsReady(true);
+      }
     }
-  }, [fontsLoaded]);
+    prepare();
+  }, []);
+
+  useEffect(() => {
+    if (appIsReady && (fontsLoaded || fontError)) {
+      SplashScreen.hideAsync();
+    }
+  }, [appIsReady, fontsLoaded, fontError]);
 
   useEffect(() => {
     const checkConnection = async () => {
@@ -605,7 +546,7 @@ export default function App() {
     checkConnection();
   }, []);
 
-  if (!appIsReady) {
+  if (!appIsReady || (!fontsLoaded && !fontError)) {
     return null;
   }
 

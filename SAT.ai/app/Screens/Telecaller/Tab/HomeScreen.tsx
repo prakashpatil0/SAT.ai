@@ -1086,7 +1086,7 @@ const HomeScreen = () => {
         <View style={styles.container}>
           {/* Welcome Section */}
           <View style={styles.welcomeSection}>
-            <Text style={styles.welcomeText}>Welcome,👋👋</Text>
+            <Text style={styles.welcomeText}>Welcome,👋</Text>
             {isLoading ? (
               <ActivityIndicator size="small" color="#FF8447" />
             ) : (

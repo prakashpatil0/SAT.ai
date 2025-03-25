@@ -165,7 +165,7 @@ const BDMDrawer = (props: DrawerContentComponentProps) => {
           />
           
           <DrawerItem
-            label="My Notes"
+            label="My Scripts"
             icon={({ size }) => <MaterialCommunityIcons name="note-text-outline" size={size} color="#09142D" />}
             labelStyle={styles.menuText}
             style={styles.drawerItem}

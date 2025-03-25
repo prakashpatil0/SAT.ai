@@ -16,6 +16,7 @@ import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
 import { auth, db } from "@/firebaseConfig";
 import TelecallerMainLayout from "@/app/components/TelecallerMainLayout";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import AppGradient from "@/app/components/AppGradient";
 
 interface SettingsData {
   notificationsEnabled: boolean;
@@ -247,16 +248,19 @@ const TelecallerSettings = () => {
 
   if (isLoading) {
     return (
+      <AppGradient>
       <TelecallerMainLayout title="Settings" showBackButton>
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#FF8447" />
           <Text style={styles.loadingText}>Loading settings...</Text>
         </View>
       </TelecallerMainLayout>
+    </AppGradient>
     );
   }
 
   return (
+    <AppGradient>
     <TelecallerMainLayout title="Settings" showBackButton>
       <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer}>
         {/* General Settings Section */}
@@ -265,7 +269,7 @@ const TelecallerSettings = () => {
           
           <View style={styles.settingsContainer}>
             {renderSwitchItem("notifications", "Push Notifications", "notificationsEnabled")}
-            {renderSwitchItem("dark-mode", "Dark Mode", "darkModeEnabled")}
+            {/* {renderSwitchItem("dark-mode", "Dark Mode", "darkModeEnabled")} */}
             {renderSwitchItem("volume-up", "Sound Effects", "soundEnabled")}
             
             {renderOptionItem("language", "Language", settings.language, () => 
@@ -292,7 +296,7 @@ const TelecallerSettings = () => {
           
           <View style={styles.settingsContainer}>
             {renderSwitchItem("location-on", "Location Services", "locationEnabled")}
-            {renderSwitchItem("fingerprint", "Biometric Login", "biometricsEnabled")}
+            {/* {renderSwitchItem("fingerprint", "Biometric Login", "biometricsEnabled")} */}
             
             {renderOptionItem("lock", "Change Password", "Secure your account", () => 
               Alert.alert("Change Password", "Password change feature coming soon!")
@@ -327,7 +331,7 @@ const TelecallerSettings = () => {
             )}
             
             {renderOptionItem("help", "Help & Support", "Get assistance", () => 
-              Alert.alert("Help & Support", "Contact us at support@sat.ai")
+              Alert.alert("Help & Support", "Contact us at it@policyplanner.com")
             )}
             
             <TouchableOpacity style={[styles.optionItem, styles.logoutItem]} onPress={handleLogout}>
@@ -361,17 +365,18 @@ const TelecallerSettings = () => {
         
         <View style={styles.versionContainer}>
           <Text style={styles.versionText}>Version 1.0.0</Text>
-          <Text style={styles.buildText}>Build 2023.10.25</Text>
+          <Text style={styles.buildText}>Build 2025.04.07</Text>
         </View>
       </ScrollView>
     </TelecallerMainLayout>
+    </AppGradient>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
+    backgroundColor: 'transparent',
   },
   contentContainer: {
     paddingVertical: 16,
@@ -489,6 +494,7 @@ const styles = StyleSheet.create({
     color: '#999',
     fontFamily: 'LexendDeca_400Regular',
     marginTop: 4,
+    marginBottom: 40,
   },
 });
 

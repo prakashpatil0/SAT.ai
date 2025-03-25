@@ -65,12 +65,31 @@ const BDMReportScreen = () => {
   // Product options
   const productOptions = [
     "Health Insurance",
-    "Life Insurance",
+    "Bike Insurance",
     "Car Insurance",
-    "Property Insurance",
+    "Term Insurance",
+    "Saving Plans",
     "Travel Insurance",
-    "Investment Plans",
-    "Mutual Funds",
+    "Group Mediclaim",
+    "Group Personal Accident",
+    "Group Term Life",
+    "Group Credit Life",
+    "Workmen Compensation",
+    "Group Gratuity",
+    "Fire & Burglary Insurance",
+    "Shop Owner Insurance",
+    "Motor Fleet Insurance",
+    "Marine Single Transit",
+    "Marine Open Policy",
+    "Marine Sales Turnover",
+    "Directors & Officers Insurance",
+    "General Liability Insurance",
+    "Product Liability Insurance",
+    "Professional Indemnity for Doctors",
+    "Professional Indemnity for Companies",
+    "Cyber Insurance",
+    "Office Package Policy",
+    "Crime Insurance",
     "Other"
   ];
   
@@ -79,7 +98,7 @@ const BDMReportScreen = () => {
 
   // Selected products for multi-select UI
   const [selectedProducts, setSelectedProducts] = useState<{[key: number]: string[]}>({
-    0: ["Health Insurance"] // Default product selection for first closing detail
+    0: ["Health Insurance"]
   });
 
   // Add new state for product dropdown
@@ -121,30 +140,75 @@ const BDMReportScreen = () => {
     setCurrentDate(`${day} ${month} (${dayOfWeek})`);
   }, []);
 
-  // Validate form
+  // Add storage keys
+  const STORAGE_KEYS = {
+    DRAFT_REPORT: 'bdm_report_draft',
+    LAST_REPORT: 'bdm_last_report'
+  };
+
+  // Load draft data on mount
+  useEffect(() => {
+    loadDraftData();
+  }, []);
+
+  // Save draft data
+  const saveDraftData = async () => {
+    try {
+      const draftData = {
+        numMeetings,
+        meetingDuration,
+        positiveLeads,
+        closingDetails,
+        totalAmount
+      };
+      await AsyncStorage.setItem(STORAGE_KEYS.DRAFT_REPORT, JSON.stringify(draftData));
+    } catch (error) {
+      console.error('Error saving draft:', error);
+    }
+  };
+
+  // Load draft data
+  const loadDraftData = async () => {
+    try {
+      const draftDataString = await AsyncStorage.getItem(STORAGE_KEYS.DRAFT_REPORT);
+      if (draftDataString) {
+        const draftData = JSON.parse(draftDataString);
+        setNumMeetings(draftData.numMeetings || '');
+        setMeetingDuration(draftData.meetingDuration || '');
+        setPositiveLeads(draftData.positiveLeads || '');
+        setClosingDetails(draftData.closingDetails || [{
+          productType: ["Health Insurance"],
+          closingAmount: 0,
+          description: ""
+        }]);
+        setTotalAmount(draftData.totalAmount || 0);
+      }
+    } catch (error) {
+      console.error('Error loading draft:', error);
+    }
+  };
+
+  // Update validateForm function
   const validateForm = (): boolean => {
     const newErrors: {[key: string]: string} = {};
     
-    // Validate number of meetings
     if (!numMeetings.trim()) {
       newErrors.numMeetings = "Number of meetings is required";
     } else if (isNaN(Number(numMeetings)) || Number(numMeetings) < 0) {
       newErrors.numMeetings = "Please enter a valid number";
     }
 
-    // Validate meeting duration
     if (!meetingDuration.trim()) {
       newErrors.meetingDuration = "Meeting duration is required";
     }
 
-    // Validate positive leads
     if (!positiveLeads.trim()) {
       newErrors.positiveLeads = "Positive leads is required";
     } else if (isNaN(Number(positiveLeads)) || Number(positiveLeads) < 0) {
-      newErrors.positiveLeads = "Please enter a valid positive number";
+      newErrors.positiveLeads = "Please enter a valid number";
     }
     
-    // Validate each closing detail
+    // Existing closing detail validations
     closingDetails.forEach((detail, index) => {
       if (!detail.closingAmount) {
         newErrors[`closing_${index}_closingAmount`] = "Amount is required";
@@ -159,7 +223,7 @@ const BDMReportScreen = () => {
     return Object.keys(newErrors).length === 0;
   };
 
-  // Handle form submission
+  // Update handleSubmit function
   const handleSubmit = async () => {
     if (!validateForm()) {
       Alert.alert("Validation Error", "Please fill in all required fields");
@@ -173,7 +237,7 @@ const BDMReportScreen = () => {
       if (!userId) {
         throw new Error("User not authenticated");
       }
-      
+
       const now = new Date();
       const reportData = {
         userId,
@@ -187,16 +251,21 @@ const BDMReportScreen = () => {
         updatedAt: Timestamp.fromDate(now)
       };
       
-      // Add report to Firebase
+      // Save to Firebase
       const docRef = await addDoc(collection(db, 'bdm_reports'), reportData);
+      
+      // Save as last report in AsyncStorage
+      await AsyncStorage.setItem(STORAGE_KEYS.LAST_REPORT, JSON.stringify(reportData));
+      
+      // Clear draft after successful submission
+      await AsyncStorage.removeItem(STORAGE_KEYS.DRAFT_REPORT);
       
       console.log("Report submitted with ID:", docRef.id);
       
-      // Show success modal
       setModalVisible(true);
       setTimeout(() => {
         setModalVisible(false);
-        // Clear form after successful submission
+        // Clear form
         setNumMeetings("");
         setMeetingDuration("");
         setPositiveLeads("");
@@ -212,6 +281,12 @@ const BDMReportScreen = () => {
       setIsLoading(false);
     }
   };
+
+  // Add auto-save functionality
+  useEffect(() => {
+    const autoSaveTimer = setTimeout(saveDraftData, 1000);
+    return () => clearTimeout(autoSaveTimer);
+  }, [numMeetings, meetingDuration, positiveLeads, closingDetails, totalAmount]);
 
   // Add new closing detail
   const addClosingDetail = () => {
@@ -249,7 +324,7 @@ const BDMReportScreen = () => {
     setShowProductDropdown(showProductDropdown === index ? null : index);
   };
 
-  // Toggle product selection in multi-select
+  // Update toggleProductSelection function
   const toggleProductSelection = (index: number, product: string) => {
     const currentProducts = selectedProducts[index] || [];
     const newProducts = currentProducts.includes(product)
@@ -262,6 +337,25 @@ const BDMReportScreen = () => {
     });
 
     // Update closing details with new product selection
+    const newClosingDetails = [...closingDetails];
+    newClosingDetails[index] = {
+      ...newClosingDetails[index],
+      productType: newProducts
+    };
+    setClosingDetails(newClosingDetails);
+  };
+
+  // Add function to remove product directly from selected list
+  const removeProduct = (index: number, product: string) => {
+    const currentProducts = selectedProducts[index] || [];
+    const newProducts = currentProducts.filter(p => p !== product);
+    
+    setSelectedProducts({
+      ...selectedProducts,
+      [index]: newProducts
+    });
+
+    // Update closing details
     const newClosingDetails = [...closingDetails];
     newClosingDetails[index] = {
       ...newClosingDetails[index],
@@ -331,12 +425,12 @@ const BDMReportScreen = () => {
                 <Text style={styles.label}>
                   Prospective No. of Meetings <Text style={styles.requiredStar}>*</Text>
                 </Text>
-            <TextInput
+                <TextInput
                   style={[
                     styles.input,
                     errors.positiveLeads ? styles.inputError : null
                   ]}
-              placeholder="0"
+                  placeholder="0"
                   value={positiveLeads}
                   onChangeText={(text) => {
                     setPositiveLeads(text);
@@ -346,8 +440,8 @@ const BDMReportScreen = () => {
                       setErrors(newErrors);
                     }
                   }}
-              keyboardType="numeric"
-            />
+                  keyboardType="numeric"
+                />
                 {errors.positiveLeads && (
                   <Text style={styles.errorText}>{errors.positiveLeads}</Text>
                 )}
@@ -375,13 +469,30 @@ const BDMReportScreen = () => {
                       Type of Product <Text style={styles.requiredStar}>*</Text>
                     </Text>
                     
+                    {/* Selected Products Display */}
+                    <View style={styles.selectedProductsContainer}>
+                      {selectedProducts[index]?.map((product, productIndex) => (
+                        <View key={productIndex} style={styles.selectedProductChip}>
+                          <Text style={styles.selectedProductText}>{product}</Text>
+                          <TouchableOpacity
+                            onPress={() => removeProduct(index, product)}
+                            style={styles.removeProductButton}
+                          >
+                            <MaterialIcons name="close" size={16} color="#FFFFFF" />
+                          </TouchableOpacity>
+                        </View>
+                      ))}
+                    </View>
+                    
                     {/* Product Dropdown Button */}
                     <TouchableOpacity 
                       style={styles.dropdownButton}
                       onPress={() => toggleProductDropdown(index)}
                     >
                       <Text style={styles.dropdownButtonText}>
-                        {selectedProducts[index]?.join(', ') || 'Select products'}
+                        {selectedProducts[index]?.length > 0
+                          ? `${selectedProducts[index].length} product(s) selected`
+                          : 'Select products'}
                       </Text>
                       <MaterialIcons 
                         name={showProductDropdown === index ? "arrow-drop-up" : "arrow-drop-down"} 
@@ -426,7 +537,11 @@ const BDMReportScreen = () => {
                                 {item}
                               </Text>
                               {(selectedProducts[index] || []).includes(item) && (
-                                <MaterialIcons name="check" size={18} color="#FF8447" />
+                                <MaterialIcons 
+                                  name="check" 
+                                  size={20} 
+                                  color="#FFFFFF" 
+                                />
                               )}
                             </TouchableOpacity>
                           )}
@@ -448,7 +563,7 @@ const BDMReportScreen = () => {
                     </Text>
                     <View style={styles.amountInputContainer}>
                       <Text style={styles.currencySymbol}>₹</Text>
-            <TextInput
+                      <TextInput
                         style={[
                           styles.amountInput,
                           errors[`closing_${index}_closingAmount`] ? styles.inputError : null
@@ -458,8 +573,8 @@ const BDMReportScreen = () => {
                         onChangeText={(text) => 
                           updateClosingDetail(index, 'closingAmount', text)
                         }
-              keyboardType="numeric"
-            />
+                        keyboardType="numeric"
+                      />
                     </View>
                     {errors[`closing_${index}_closingAmount`] && (
                       <Text style={styles.errorText}>
@@ -473,7 +588,7 @@ const BDMReportScreen = () => {
                         styles.textArea,
                         errors[`closing_${index}_description`] ? styles.inputError : null
                       ]}
-                      placeholder="Enter description"
+                      placeholder="Enter description product wise, if multiple products are selected"
                       value={detail.description}
                       onChangeText={(text) => 
                         updateClosingDetail(index, 'description', text)
@@ -810,10 +925,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     marginBottom: 15,
     elevation: 3,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
+    maxHeight: 300,
   },
   searchContainer: {
     flexDirection: 'row',
@@ -836,20 +948,21 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     padding: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F0F0F0',
+    borderRadius: 8,
+    marginVertical: 4,
+    marginHorizontal: 8,
   },
   dropdownItemSelected: {
-    backgroundColor: '#FFF8F0',
+    backgroundColor: '#FFF5E6',
   },
   dropdownItemText: {
     fontSize: 16,
     color: '#333',
     fontFamily: 'LexendDeca_400Regular',
+    flex: 1,
   },
   dropdownItemTextSelected: {
     color: '#FF8447',
-    fontFamily: 'LexendDeca_500Medium',
   },
   noResultsText: {
     padding: 16,
@@ -881,6 +994,33 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#666',
     fontFamily: 'LexendDeca_400Regular',
+  },
+  closeIcon: {
+    marginLeft: 8,
+  },
+  selectedProductsContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginBottom: 10,
+  },
+  selectedProductChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FF8447',
+    borderRadius: 16,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    marginRight: 8,
+    marginBottom: 8,
+  },
+  selectedProductText: {
+    fontSize: 14,
+    color: '#FFFFFF',
+    fontFamily: 'LexendDeca_500Medium',
+    marginRight: 6,
+  },
+  removeProductButton: {
+    padding: 2,
   },
 });
 

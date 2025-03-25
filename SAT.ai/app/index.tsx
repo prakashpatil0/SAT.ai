@@ -8,15 +8,8 @@ import { MaterialIcons } from "@expo/vector-icons";
 import * as SplashScreen from 'expo-splash-screen';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
-import { 
-  useFonts, 
-  LexendDeca_400Regular, 
-  LexendDeca_500Medium, 
-  LexendDeca_600SemiBold, 
-  LexendDeca_700Bold 
-} from '@expo-google-fonts/lexend-deca';
-
-import { Inter_400Regular, Inter_600SemiBold } from "@expo-google-fonts/inter"; 
+import { useFonts, LexendDeca_400Regular, LexendDeca_500Medium, LexendDeca_600SemiBold, LexendDeca_700Bold } from '@expo-google-fonts/lexend-deca';
+import { Inter_400Regular, Inter_600SemiBold } from "@expo-google-fonts/inter";
 import { Poppins_500Medium, Poppins_600SemiBold } from "@expo-google-fonts/poppins";
 
 // Import Screens
@@ -249,6 +242,7 @@ const CustomAlertButton = ({ children, onPress }: { children: React.ReactNode; o
 
 const DrawerNavigator = () => {
   return (
+    <IdleTimerProvider>
     <Drawer.Navigator
       drawerContent={(props) => <CustomDrawerContent {...props} />}
       screenOptions={{
@@ -281,6 +275,7 @@ const DrawerNavigator = () => {
       <Drawer.Screen name="ContactBook" component={ContactBook} />
       <Drawer.Screen name="TelecallerCallNoteDetails" component={TelecallerCallNoteDetails} />
     </Drawer.Navigator>
+    </IdleTimerProvider>
   );
 };
 
@@ -561,9 +556,7 @@ export default function App() {
   return ( 
       // <BackendProvider>
         <ProfileProvider>
-          <IdleTimerProvider>
             <RootStack />
-          </IdleTimerProvider>
         </ProfileProvider>
       // </BackendProvider>
   );

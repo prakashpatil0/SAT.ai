@@ -464,7 +464,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'white',
     borderRadius: 10,
     padding: 16,
-    marginBottom: 20,
+    marginBottom: 50,
   },
   input: {
     borderWidth: 1,

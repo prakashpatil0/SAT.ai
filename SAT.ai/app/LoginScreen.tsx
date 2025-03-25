@@ -44,64 +44,52 @@ const LoginScreen = () => {
     }
     try {
       setLoading(true);
-      console.log('Attempting login with email:', email);
-      
       const auth = getAuth();
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
-      console.log('Firebase Auth successful, user ID:', userCredential.user.uid);
       
       // Get user role from Firestore
       const db = getFirestore();
       const userDoc = await getDoc(doc(db, 'users', userCredential.user.uid));
       
       if (!userDoc.exists()) {
-        console.log('User document not found in Firestore');
         Alert.alert('Error', 'User data not found');
         return;
       }
 
       const userData = userDoc.data();
-      console.log('User data from Firestore:', userData);
 
       if (!userData.role) {
-        console.log('User role not found in Firestore document');
         Alert.alert('Error', 'User role not found');
         return;
       }
 
       // Store user role in AsyncStorage for future reference
       await AsyncStorage.setItem('userRole', userData.role.toLowerCase());
-      console.log('User role stored in AsyncStorage:', userData.role.toLowerCase());
 
       // Navigate based on role
       switch (userData.role.toLowerCase()) {
         case 'telecaller':
-          console.log('Navigating to MainApp');
           navigation.reset({
             index: 0,
             routes: [{ name: 'MainApp' }],
           });
           break;
         case 'bdm':
-          console.log('Navigating to BDMStack');
           navigation.reset({
             index: 0,
             routes: [{ name: 'BDMStack' }],
           });
           break;
         case 'admin':
-          console.log('Navigating to AdminDrawer');
           navigation.reset({
             index: 0,
             routes: [{ name: 'AdminDrawer' }],
           });
           break;
         default:
-          console.log('Invalid role:', userData.role);
           Alert.alert('Error', 'Invalid user role');
       }
     } catch (error: any) {
-      console.error('Login error:', error);
       let errorMessage = 'Failed to login';
       
       if (error.code === 'auth/user-not-found') {
@@ -116,7 +104,7 @@ const LoginScreen = () => {
         errorMessage = error.message;
       }
       
-      Alert.alert('Error', errorMessage);
+      Alert.alert('Login Error', errorMessage);
     } finally {
       setLoading(false);
     }

@@ -82,16 +82,25 @@ const BDMViewFullReport = () => {
     const now = new Date();
     let startDate = new Date();
     let labels: string[] = [];
+    let lastDayOfMonth: Date;
 
     // Set date range based on period
     switch (period) {
       case 'Weekly':
-        startDate.setDate(now.getDate() - 7);
-        labels = Array.from({ length: 7 }, (_, i) => {
-          const date = new Date(startDate);
-          date.setDate(startDate.getDate() + i);
-          return date.toLocaleDateString('en-US', { weekday: 'short' });
-        });
+        // Get the first day of the current month
+        const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+        // Get the last day of the current month
+        lastDayOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+        
+        // Calculate number of weeks in the current month
+        const totalDays = lastDayOfMonth.getDate();
+        const totalWeeks = Math.ceil(totalDays / 7);
+        
+        // Generate week labels
+        labels = Array.from({ length: totalWeeks }, (_, i) => `Week ${i + 1}`);
+        
+        // Set start date to first day of current month
+        startDate = firstDayOfMonth;
         break;
       case 'Quarterly':
         startDate.setMonth(now.getMonth() - 3);
@@ -126,8 +135,13 @@ const BDMViewFullReport = () => {
       const intervalEnd = new Date(startDate);
 
       if (period === 'Weekly') {
-        intervalStart.setDate(startDate.getDate() + index);
-        intervalEnd.setDate(intervalStart.getDate() + 1);
+        // Calculate start and end dates for each week
+        intervalStart.setDate(startDate.getDate() + (index * 7));
+        intervalEnd.setDate(intervalStart.getDate() + 6);
+        // Ensure we don't go beyond the last day of the month
+        if (intervalEnd > lastDayOfMonth) {
+          intervalEnd.setDate(lastDayOfMonth.getDate());
+        }
       } else if (period === 'Quarterly') {
         intervalStart.setMonth(startDate.getMonth() + index);
         intervalEnd.setMonth(intervalStart.getMonth() + 1);
@@ -263,6 +277,8 @@ const BDMViewFullReport = () => {
             fromZero={true}
             yAxisLabel=""
             yAxisSuffix="%"
+            formatYLabel={(value) => `${Math.round(Number(value))}`}
+            formatXLabel={(value) => value}
           />
         </View>
 

@@ -48,7 +48,7 @@ const ContactInfo: React.FC<Props> = ({ route }) => {
       nameParts.push(contact.firstName.trim());
     }
     if (contact.lastName && contact.lastName.trim()) {
-      nameParts.push(contact.lastName.trim());
+      nameParts.push(contact.phoneNumber.trim());
     }
     
     return nameParts.length > 0 ? nameParts.join(' ') : contact.phoneNumber;
@@ -438,7 +438,7 @@ const styles = StyleSheet.create({
     marginHorizontal: 16,
     borderRadius: 12,
     padding: 16,
-    marginBottom: 24,
+    marginBottom: 60,
     elevation: 2,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },

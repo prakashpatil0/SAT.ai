@@ -197,20 +197,6 @@ const BDMLeaderBoard = () => {
           rank: index + 1
         }));
 
-      // Add current user if not in top 10
-      if (currentUserId && userProfile && !sortedUsers.some(user => user.userId === currentUserId)) {
-        const currentUserProgress = sortedUsers.find(user => user.userId === currentUserId);
-        const currentUserEntry: LeaderboardUser = {
-          userId: currentUserId,
-          name: userProfile.name || userNameMap[currentUserId] || 'You',
-          profileImage: userProfile.profileImageUrl || null,
-          percentageAchieved: currentUserProgress?.percentageAchieved || 0,
-          rank: sortedUsers.length + 1,
-          isNotRanked: true
-        };
-        sortedUsers.push(currentUserEntry);
-      }
-
       // Fill remaining positions with placeholder data if needed
       const topUsers = sortedUsers.slice(0, 10);
       const remainingPlaceholders = placeholderData

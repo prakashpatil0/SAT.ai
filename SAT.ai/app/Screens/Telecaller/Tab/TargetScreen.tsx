@@ -118,12 +118,6 @@ const WeeklyTargetScreen = () => {
   </View>
 
   <View style={styles.tableRow}>
-    <Text style={[styles.tableCell, { flex: 2 }]}>Positive Leads</Text>
-    <Text style={[styles.tableCell, { flex: 1, textAlign: 'right' }]}>{achievements.positiveLeads}</Text>
-    <Text style={[styles.targetCell, { flex: 1, textAlign: 'right' }]}>{targets.positiveLeads}</Text>
-  </View>
-
-  <View style={styles.tableRow}>
     <Text style={[styles.tableCell, { flex: 2 }]}>No. of Calls</Text>
     <Text style={[styles.tableCell, { flex: 1, textAlign: 'right' }]}>{achievements.numCalls}</Text>
     <Text style={[styles.targetCell, { flex: 1, textAlign: 'right' }]}>{targets.numCalls}</Text>
@@ -133,6 +127,12 @@ const WeeklyTargetScreen = () => {
     <Text style={[styles.tableCell, { flex: 2 }]}>Call Duration</Text>
     <Text style={[styles.tableCell, { flex: 1, textAlign: 'right' }]}>{achievements.callDuration} hrs</Text>
     <Text style={[styles.targetCell, { flex: 1, textAlign: 'right' }]}>{targets.callDuration} hrs</Text>
+  </View>
+
+  <View style={styles.tableRow}>
+    <Text style={[styles.tableCell, { flex: 2 }]}>Positive Leads</Text>
+    <Text style={[styles.tableCell, { flex: 1, textAlign: 'right' }]}>{achievements.positiveLeads}</Text>
+    <Text style={[styles.targetCell, { flex: 1, textAlign: 'right' }]}>{targets.positiveLeads}</Text>
   </View>
 
   <View style={styles.tableRow}>

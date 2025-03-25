@@ -1,5 +1,8 @@
-import { Stack } from "expo-router";
+import React from 'react';
+import AppNavigator from './index';
 
-export default function RootLayout() {
-  return <Stack screenOptions={{ headerShown: false }} />;
-}
+const App = () => {
+  return <AppNavigator />;
+};
+
+export default App;

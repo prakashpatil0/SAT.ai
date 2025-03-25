@@ -48,12 +48,17 @@ interface WeekDay {
 }
 
 const EIGHT_HOURS_IN_MS = 8 * 60 * 60 * 1000; // 8 hours in milliseconds
+const PUNCH_IN_DEADLINE = '09:45'; // 9:45 AM
+const PUNCH_OUT_MINIMUM = '18:25'; // 6:25 PM
+const NEXT_DAY_PUNCH_TIME = '08:45'; // 8:45 AM
 
 const AttendanceScreen = () => {
   const navigation = useNavigation<AttendanceScreenNavigationProp>();
   const route = useRoute<RouteProp<RootStackParamList, 'AttendanceScreen'>>();
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedMonth, setSelectedMonth] = useState(format(new Date(), 'MMMM'));
+  const [selectedStatus, setSelectedStatus] = useState<AttendanceStatus | null>(null);
+  const [filteredHistory, setFilteredHistory] = useState<AttendanceRecord[]>([]);
   const months = ['January','February','March','April','May','June', 'July', 'August', 'September', 'October','November','December'];
   const [punchInTime, setPunchInTime] = useState('');
   const [punchOutTime, setPunchOutTime] = useState('');
@@ -64,6 +69,7 @@ const AttendanceScreen = () => {
     'Half Day': 0,
     'On Leave': 0
   });
+  const [isPunchButtonDisabled, setIsPunchButtonDisabled] = useState(false);
 
   const [weekDays, setWeekDays] = useState<WeekDay[]>([
     { day: 'M', date: '', status: 'On Leave' },
@@ -80,8 +86,73 @@ const AttendanceScreen = () => {
     'On Leave': '#F44336',
   };
 
+  const checkPunchAvailability = () => {
+    const now = new Date();
+    const currentTime = format(now, 'HH:mm');
+    const tomorrow = new Date(now);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    tomorrow.setHours(8, 45, 0, 0); // Set to 8:45 AM next day
+
+    // If user has punched out today, disable punch button until tomorrow 8:45 AM
+    if (punchOutTime) {
+      setIsPunchButtonDisabled(now < tomorrow);
+      return;
+    }
+
+    // For punch in, check if it's before deadline
+    if (!punchInTime) {
+      const [currentHour, currentMinute] = currentTime.split(':').map(Number);
+      const [deadlineHour, deadlineMinute] = PUNCH_IN_DEADLINE.split(':').map(Number);
+      
+      const currentMinutes = currentHour * 60 + currentMinute;
+      const deadlineMinutes = deadlineHour * 60 + deadlineMinute;
+      
+      setIsPunchButtonDisabled(currentMinutes > deadlineMinutes);
+    }
+  };
+
+  useEffect(() => {
+    checkPunchAvailability();
+    // Check availability every minute
+    const interval = setInterval(checkPunchAvailability, 60000);
+    return () => clearInterval(interval);
+  }, [punchInTime, punchOutTime]);
+
+  const calculateStatus = (punchIn: string, punchOut: string): AttendanceStatus => {
+    if (!punchIn && !punchOut) return 'On Leave';
+    if (!punchOut) return 'Half Day';
+    
+    // Convert time strings to minutes for easier comparison
+    const [punchInHours, punchInMinutes] = punchIn.split(':').map(Number);
+    const [punchOutHours, punchOutMinutes] = punchOut.split(':').map(Number);
+    const [minOutHours, minOutMinutes] = PUNCH_OUT_MINIMUM.split(':').map(Number);
+    const [maxInHours, maxInMinutes] = PUNCH_IN_DEADLINE.split(':').map(Number);
+    
+    const punchInMins = punchInHours * 60 + punchInMinutes;
+    const punchOutMins = punchOutHours * 60 + punchOutMinutes;
+    const minOutMins = minOutHours * 60 + minOutMinutes;
+    const maxInMins = maxInHours * 60 + maxInMinutes;
+    
+    // If punch in is after deadline (9:45 AM) or punch out is before minimum time (6:25 PM), mark as Half Day
+    if (punchInMins > maxInMins || punchOutMins < minOutMins) {
+      return 'Half Day';
+    }
+    
+    return 'Present';
+  };
+
   const handlePunchInOut = async (isPunchIn: boolean) => {
     try {
+      // Check if punch in/out is allowed
+      if (isPunchButtonDisabled) {
+        if (!punchInTime) {
+          Alert.alert('Punch In Not Allowed', 'You can only punch in before 9:45 AM for a full day. Punching in after 9:45 AM will be counted as a half day.');
+        } else {
+          Alert.alert('Punch Out Not Allowed', 'You can punch in again tomorrow at 8:45 AM.');
+        }
+        return;
+      }
+
       const { status } = await Camera.requestCameraPermissionsAsync();
       if (status === 'granted') {
         navigation.navigate('CameraScreen', { isPunchIn });
@@ -91,26 +162,6 @@ const AttendanceScreen = () => {
     } catch (err) {
       console.log('Error:', err);
     }
-  };
-
-  const calculateStatus = (punchIn: string, punchOut: string): AttendanceStatus => {
-    if (!punchIn && !punchOut) return 'On Leave';
-    if (!punchOut) return 'Half Day';
-    
-    // Convert time strings to Date objects
-    const [punchInHours, punchInMinutes] = punchIn.split(':').map(Number);
-    const [punchOutHours, punchOutMinutes] = punchOut.split(':').map(Number);
-    
-    const punchInDate = new Date();
-    punchInDate.setHours(punchInHours, punchInMinutes, 0, 0);
-    
-    const punchOutDate = new Date();
-    punchOutDate.setHours(punchOutHours, punchOutMinutes, 0, 0);
-    
-    // Calculate time difference in milliseconds
-    const timeDiff = punchOutDate.getTime() - punchInDate.getTime();
-    
-    return timeDiff >= EIGHT_HOURS_IN_MS ? 'Present' : 'Half Day';
   };
 
   const fetchAttendanceHistory = async () => {
@@ -295,6 +346,26 @@ const AttendanceScreen = () => {
     }
   }, [attendanceHistory]);
 
+  useEffect(() => {
+    if (attendanceHistory.length > 0) {
+      let filtered = [...attendanceHistory];
+      
+      // Filter by month
+      filtered = filtered.filter(record => {
+        const recordDate = new Date(record.timestamp);
+        return format(recordDate, 'MMMM') === selectedMonth;
+      });
+
+      // Filter by status if selected
+      if (selectedStatus) {
+        filtered = filtered.filter(record => record.status === selectedStatus);
+      }
+
+      setFilteredHistory(filtered);
+      calculateStatusCounts(filtered);
+    }
+  }, [selectedMonth, selectedStatus, attendanceHistory]);
+
   const updateWeekDays = () => {
     const today = new Date();
     const startOfWeek = new Date(today);
@@ -319,11 +390,30 @@ const AttendanceScreen = () => {
   };
 
   const renderStatusBadge = (status: AttendanceStatus) => {
+    const isSelected = selectedStatus === status;
     return (
-      <View style={[styles.statusBadge, { borderColor: statusColors[status] }]}>
-        <Text style={[styles.statusText, { color: statusColors[status] }]}>{status}</Text>
-        <Text style={styles.daysText}>{statusCounts[status]} days</Text>
-      </View>
+      <TouchableOpacity 
+        onPress={() => setSelectedStatus(isSelected ? null : status)}
+        style={[
+          styles.statusBadge, 
+          { borderColor: statusColors[status] },
+          isSelected && { backgroundColor: statusColors[status] }
+        ]}
+      >
+        <Text style={[
+          styles.statusText, 
+          { color: statusColors[status] },
+          isSelected && { color: '#FFFFFF' }
+        ]}>
+          {status}
+        </Text>
+        <Text style={[
+          styles.daysText,
+          isSelected && { color: '#FFFFFF' }
+        ]}>
+          {statusCounts[status]} days
+        </Text>
+      </TouchableOpacity>
     );
   };
 
@@ -338,17 +428,33 @@ const AttendanceScreen = () => {
                 <Text style={styles.punchTitle}>Take Attendance</Text>
                 {!punchInTime ? (
                   <TouchableOpacity
-                    style={[styles.punchButton, styles.punchInButton]}
+                    style={[
+                      styles.punchButton,
+                      styles.punchInButton,
+                      isPunchButtonDisabled && styles.disabledButton
+                    ]}
                     onPress={() => handlePunchInOut(true)}
+                    disabled={isPunchButtonDisabled}
                   >
-                    <Text style={styles.punchInText}>Punch In</Text>
+                    <Text style={[
+                      styles.punchInText,
+                      isPunchButtonDisabled && styles.disabledButtonText
+                    ]}>Punch In</Text>
                   </TouchableOpacity>
                 ) : isPunchedIn && !punchOutTime ? (
                   <TouchableOpacity
-                    style={[styles.punchButton, styles.punchOutButton]}
+                    style={[
+                      styles.punchButton,
+                      styles.punchOutButton,
+                      isPunchButtonDisabled && styles.disabledButton
+                    ]}
                     onPress={() => handlePunchInOut(false)}
+                    disabled={isPunchButtonDisabled}
                   >
-                    <Text style={styles.punchOutText}>Punch Out</Text>
+                    <Text style={[
+                      styles.punchOutText,
+                      isPunchButtonDisabled && styles.disabledButtonText
+                    ]}>Punch Out</Text>
                   </TouchableOpacity>
                 ) : null}
               </View>
@@ -406,7 +512,10 @@ const AttendanceScreen = () => {
                 <TouchableOpacity
                   key={index}
                   onPress={() => setSelectedMonth(month)}
-                  style={styles.monthButton}
+                  style={[
+                    styles.monthButton,
+                    selectedMonth === month && styles.selectedMonthButton
+                  ]}
                 >
                   <Text style={[
                     styles.monthText,
@@ -427,7 +536,7 @@ const AttendanceScreen = () => {
 
             {/* Attendance History */}
             <View style={styles.historyContainer}>
-              {attendanceHistory.map((item, index) => (
+              {filteredHistory.map((item, index) => (
                 <View key={index} style={styles.historyCard}>
                   <View style={styles.dateBlock}>
                     <Text style={styles.dateNumber}>{item.date}</Text>
@@ -451,6 +560,12 @@ const AttendanceScreen = () => {
                   </View>
                 </View>
               ))}
+              {filteredHistory.length === 0 && (
+                <Text style={styles.noHistoryText}>
+                  No attendance records found for {selectedMonth}
+                  {selectedStatus ? ` with status ${selectedStatus}` : ''}
+                </Text>
+              )}
             </View>
           </View>
         </ScrollView>
@@ -687,6 +802,25 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderRadius: 8,
     alignItems: "center",
+  },
+  disabledButton: {
+    opacity: 0.5,
+    backgroundColor: '#CCCCCC',
+    borderColor: '#CCCCCC',
+  },
+  disabledButtonText: {
+    color: '#666666',
+  },
+  selectedMonthButton: {
+    borderBottomWidth: 2,
+    borderBottomColor: '#FF8447',
+  },
+  noHistoryText: {
+    textAlign: 'center',
+    color: '#666',
+    fontFamily: 'LexendDeca_400Regular',
+    fontSize: 14,
+    marginTop: 20,
   },
 });
 

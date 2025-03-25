@@ -5,7 +5,6 @@ import { useNavigation } from "@react-navigation/native";
 import { MaterialIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import TelecallerMainLayout from '@/app/components/TelecallerMainLayout';
-import { LinearGradient } from 'expo-linear-gradient';
 import * as Linking from 'expo-linking';
 import AppGradient from "@/app/components/AppGradient";
 import { Audio } from 'expo-av';
@@ -26,7 +25,16 @@ type RootStackParamList = {
   TelecallerCallNoteDetails: { meeting: CallLog };
   AddContactModal: { phone: string };
   CallHistory: { call: CallLog };
-  ContactInfo: { contact: CallLog & { isNewContact: boolean } };
+  ContactInfo: { 
+    contact: {
+      id: string;
+      firstName: string;
+      lastName: string;
+      phoneNumber: string;
+      isNewContact: boolean;
+      email?: string;
+    } 
+  };
   TelecallerIdleTimer: undefined;
 };
 
@@ -113,6 +121,7 @@ const HomeScreen = () => {
     percentageAchieved: 0,
     isLoading: true
   });
+  const [isFirstTimeUser, setIsFirstTimeUser] = useState(true);
   const panResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
@@ -166,7 +175,26 @@ const HomeScreen = () => {
     loadSavedContacts();
   }, []);
 
-  // Add this useEffect to fetch user details
+  // Update the checkFirstTimeUser function
+  const checkFirstTimeUser = async () => {
+    try {
+      const isFirstTime = await AsyncStorage.getItem('isFirstTimeUser');
+      if (isFirstTime === null) {
+        // First time user
+        await AsyncStorage.setItem('isFirstTimeUser', 'false');
+        setIsFirstTimeUser(true);
+        return true;
+      }
+      setIsFirstTimeUser(false);
+      return false;
+    } catch (error) {
+      console.error('Error checking first time user:', error);
+      setIsFirstTimeUser(false);
+      return false;
+    }
+  };
+
+  // Update useEffect for user details
   useEffect(() => {
     const fetchUserDetails = async () => {
       try {
@@ -175,6 +203,9 @@ const HomeScreen = () => {
           console.log('No user ID found');
           return;
         }
+
+        // Check if first time user first
+        await checkFirstTimeUser();
 
         // First try to get from context
         if (userProfile?.firstName) {
@@ -771,13 +802,24 @@ const HomeScreen = () => {
         <TouchableOpacity onPress={() => handleCardClick(item.id)}>
           <View style={styles.callCard}>
             <View style={styles.callInfo}>
-              <View style={styles.avatarContainer}>
+              <TouchableOpacity 
+                style={styles.avatarContainer}
+                onPress={() => navigation.navigate('ContactInfo', {
+                  contact: {
+                    id: item.id,
+                    firstName: item.contactName || '',
+                    lastName: '',
+                    phoneNumber: item.phoneNumber,
+                    isNewContact: !isNumberSaved
+                  }
+                })}
+              >
                 <MaterialIcons 
                   name="person" 
                   size={24} 
                   color="#FF8447"
                 />
-              </View>
+              </TouchableOpacity>
               <View style={styles.callDetails}>
                 <View style={styles.nameContainer}>
                   <Text style={[
@@ -1086,7 +1128,9 @@ const HomeScreen = () => {
         <View style={styles.container}>
           {/* Welcome Section */}
           <View style={styles.welcomeSection}>
-            <Text style={styles.welcomeText}>Welcome,👋👋</Text>
+            <Text style={styles.welcomeText}>
+              {isFirstTimeUser ? 'Welcome,👋👋' : 'Hi,👋'}
+            </Text>
             {isLoading ? (
               <ActivityIndicator size="small" color="#FF8447" />
             ) : (

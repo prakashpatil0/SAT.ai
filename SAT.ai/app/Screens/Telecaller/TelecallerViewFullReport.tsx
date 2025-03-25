@@ -231,7 +231,7 @@ const styles = StyleSheet.create({
   legendItem: { flexDirection: "row", alignItems: "center", marginHorizontal: 16 },
   legendDot: { width: 8, height: 8, borderRadius: 4, marginRight: 8 },
   legendText: { fontSize: 12, fontFamily: "LexendDeca_400Regular", color: "#666" },
-  statsContainer: { flexDirection: "row", justifyContent: "space-between", marginTop: 20 },
+  statsContainer: { flexDirection: "row", justifyContent: "space-between", marginTop: 20 , marginBottom: 60},
   statCard: {
     flex: 1,
     backgroundColor: "white",

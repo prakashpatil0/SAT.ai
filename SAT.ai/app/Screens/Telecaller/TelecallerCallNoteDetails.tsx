@@ -175,13 +175,13 @@ const TelecallerCallNoteDetails = () => {
 
   return (
     <AppGradient>
-      <TelecallerMainLayout showDrawer showBackButton={true} showBottomTabs={true}>
+      <TelecallerMainLayout showDrawer showBackButton={true} showBottomTabs={true} title={meeting.contactName || meeting.phoneNumber}>
         <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
           {/* Header Section */}
           <View style={styles.headerSection}>
             <View style={styles.titleRow}>
               <Text style={styles.headerTitle}>
-                {meeting.contactName || meeting.phoneNumber}
+                {meeting.phoneNumber}
               </Text>
               <Text style={styles.timeText}>
                 {format(new Date(meeting.timestamp), 'hh:mm a')} • {formatDuration(meeting.duration)}

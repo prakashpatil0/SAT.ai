@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, StyleSheet, KeyboardAvoidingView, Platform, Alert, TouchableOpacity, Modal } from 'react-native';
+import { View, StyleSheet, KeyboardAvoidingView, Platform, Alert, TouchableOpacity, Modal, ViewStyle, TextStyle, StyleProp } from 'react-native';
 import { TextInput, Button, Text, HelperText } from 'react-native-paper';
 import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
@@ -20,6 +20,55 @@ type RootStackParamList = {
 };
 
 type SignUpScreenNavigationProp = StackNavigationProp<RootStackParamList, 'SignUpScreen'>;
+
+type CustomTextStyle = {
+  marginBottom: number;
+  backgroundColor: string;
+  fontSize: number;
+};
+
+type Styles = {
+  container: ViewStyle;
+  innerContainer: ViewStyle;
+  title: TextStyle;
+  input: ViewStyle;
+  inputWithError: ViewStyle;
+  errorText: TextStyle;
+  inputContent: ViewStyle;
+  inputOutline: ViewStyle;
+  signupButton: ViewStyle;
+  buttonContent: ViewStyle;
+  buttonLabel: TextStyle;
+  loginContainer: ViewStyle;
+  loginWrapper: ViewStyle;
+  loginText: TextStyle;
+  loginButton: ViewStyle;
+  loginButtonText: TextStyle;
+  roleSelector: ViewStyle;
+  modalContainer: ViewStyle;
+  modalContent: ViewStyle;
+  roleOption: ViewStyle;
+  roleText: TextStyle;
+  dropdownTrigger: ViewStyle;
+  textInput: ViewStyle;
+  textInputContent: TextStyle;
+  textInputWithError: TextStyle;
+  inputContainer: ViewStyle;
+  inputContainerWithError: ViewStyle;
+  formField: ViewStyle;
+  formFieldWithError: ViewStyle;
+}
+
+interface FormFieldProps {
+  children: React.ReactNode;
+  hasError?: boolean;
+}
+
+const FormField: React.FC<FormFieldProps> = ({ children, hasError }) => (
+  <View style={[styles.formField, hasError && styles.formFieldWithError]}>
+    {children}
+  </View>
+);
 
 const SignUpScreen = () => {
   const navigation = useNavigation<SignUpScreenNavigationProp>();
@@ -233,96 +282,101 @@ const SignUpScreen = () => {
             contentStyle={styles.inputContent}
           />
 
-          <TextInput
-            label="Email ID"
-            value={formData.email}
-            onChangeText={validateEmail}
-            mode="outlined"
-            style={styles.input}
-            keyboardType="email-address"
-            error={!!errors.email}
-            left={<TextInput.Icon icon="email" color="#B1B1B1"/>}
-            theme={{
-              roundness: 10,
-              colors: {
-                primary: "#FF8447",
-                text: "#333",
-                placeholder: "#999",
-                error: "#DC3545",
-              },
-            }}
-          />
-          <HelperText type="error" visible={!!errors.email}>
-            {errors.email}
-          </HelperText>
-
-          <TextInput
-            label="Phone Number"
-            value={formData.phone}
-            onChangeText={(text) => setFormData({ ...formData, phone: text })}
-            mode="outlined"
-            style={styles.input}
-            keyboardType="phone-pad"
-            left={<TextInput.Icon icon="phone" color="#B1B1B1"/>}
-            theme={{
-              roundness: 10,
-              colors: {
-                primary: "#FF8447",
-                text: "#333",
-                placeholder: "#999",
-              },
-              fonts: {
-                regular: {
-                  fontFamily: "LexendDeca_400Regular",
+          <FormField hasError={!!errors.email}>
+            <TextInput
+              label="Email ID"
+              value={formData.email}
+              onChangeText={validateEmail}
+              mode="outlined"
+              keyboardType="email-address"
+              error={!!errors.email}
+              left={<TextInput.Icon icon="email" color="#B1B1B1"/>}
+              theme={{
+                roundness: 10,
+                colors: {
+                  primary: "#FF8447",
+                  text: "#333",
+                  placeholder: "#999",
+                  error: "#DC3545",
                 },
-              },
-              animation: {
-                scale: 1,
-              },
-            }}
-            outlineStyle={styles.inputOutline}
-            contentStyle={styles.inputContent}
-          />
+              }}
+            />
+            {errors.email ? (
+              <HelperText type="error" style={styles.errorText}>
+                {errors.email}
+              </HelperText>
+            ) : null}
+          </FormField>
 
-          <TextInput
-            label="Create Password"
-            value={formData.password}
-            onChangeText={validatePassword}
-            mode="outlined"
-            style={styles.input}
-            secureTextEntry={!showPassword}
-            error={!!errors.password}
-            left={<TextInput.Icon icon="lock" color="#B1B1B1"/>}
-            right={
-              <TextInput.Icon
-                icon={showPassword ? "eye-off" : "eye"}
-                color="#FF8447"
-                onPress={() => setShowPassword(!showPassword)}
-              />
-            }
-            theme={{
-              roundness: 10,
-              colors: {
-                primary: "#FF8447",
-                text: "#333",
-                placeholder: "#999",
-                error: "#DC3545",
-              },
-              fonts: {
-                regular: {
-                  fontFamily: "LexendDeca_400Regular",
+          <FormField>
+            <TextInput
+              label="Phone Number"
+              value={formData.phone}
+              onChangeText={(text) => setFormData({ ...formData, phone: text })}
+              mode="outlined"
+              keyboardType="phone-pad"
+              left={<TextInput.Icon icon="phone" color="#B1B1B1"/>}
+              theme={{
+                roundness: 10,
+                colors: {
+                  primary: "#FF8447",
+                  text: "#333",
+                  placeholder: "#999",
                 },
-              },
-              animation: {
-                scale: 1,
-              },
-            }}
-            outlineStyle={styles.inputOutline}
-            contentStyle={styles.inputContent}
-          />
-          <HelperText type="error" visible={!!errors.password}>
-            {errors.password}
-          </HelperText>
+                fonts: {
+                  regular: {
+                    fontFamily: "LexendDeca_400Regular",
+                  },
+                },
+                animation: {
+                  scale: 1,
+                },
+              }}
+              outlineStyle={styles.inputOutline}
+            />
+          </FormField>
+
+          <FormField hasError={!!errors.password}>
+            <TextInput
+              label="Create Password"
+              value={formData.password}
+              onChangeText={validatePassword}
+              mode="outlined"
+              secureTextEntry={!showPassword}
+              error={!!errors.password}
+              left={<TextInput.Icon icon="lock" color="#B1B1B1"/>}
+              right={
+                <TextInput.Icon
+                  icon={showPassword ? "eye-off" : "eye"}
+                  color="#FF8447"
+                  onPress={() => setShowPassword(!showPassword)}
+                />
+              }
+              theme={{
+                roundness: 10,
+                colors: {
+                  primary: "#FF8447",
+                  text: "#333",
+                  placeholder: "#999",
+                  error: "#DC3545",
+                },
+                fonts: {
+                  regular: {
+                    fontFamily: "LexendDeca_400Regular",
+                  },
+                },
+                animation: {
+                  scale: 1,
+                },
+              }}
+              outlineStyle={styles.inputOutline}
+            />
+            {errors.password ? (
+              <HelperText type="error" style={styles.errorText}>
+                {errors.password}
+              </HelperText>
+            ) : null}
+          </FormField>
 
           <TextInput
             label="Confirm Password"
@@ -435,7 +489,7 @@ const SignUpScreen = () => {
   );
 };
 
-const styles = StyleSheet.create({
+const styles = StyleSheet.create<Styles>({
   container: {
     flex: 1,
   },
@@ -461,19 +515,28 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   input: {
-    marginBottom: 4,
+    marginBottom: 12,
     backgroundColor: '#FFFFFF',
     fontSize: 16,
-  },
+  } as ViewStyle,
   inputContent: {
     paddingVertical: 12,
     paddingHorizontal: 16,
     height: 56,
-  },
+  } as ViewStyle,
   inputOutline: {
     borderRadius: 10,
     borderWidth: 1.5,
+  } as ViewStyle,
+  inputWithError: {
+    marginBottom: 0,
   },
+  errorText: {
+    marginBottom: 12,
+    marginTop: 2,
+    fontSize: 12,
+    color: '#DC3545',
+  } as TextStyle,
   signupButton: {
     marginTop: 24,
     backgroundColor: '#FF8447',
@@ -560,6 +623,37 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+  },
+  textInput: {
+    width: '100%',
+  } as ViewStyle,
+  textInputContent: {
+    marginBottom: 12,
+    backgroundColor: '#FFFFFF',
+    fontSize: 16,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    height: 56,
+  } as TextStyle,
+  textInputWithError: {
+    marginBottom: 0,
+    backgroundColor: '#FFFFFF',
+    fontSize: 16,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    height: 56,
+  } as TextStyle,
+  inputContainer: {
+    marginBottom: 12,
+  } as ViewStyle,
+  inputContainerWithError: {
+    marginBottom: 0,
+  } as ViewStyle,
+  formField: {
+    marginBottom: 12,
+  },
+  formFieldWithError: {
+    marginBottom: 0,
   },
 });
 

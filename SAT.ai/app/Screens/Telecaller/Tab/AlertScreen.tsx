@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from "react";
-import { View, Text, StyleSheet, Alert, Vibration, TouchableWithoutFeedback } from "react-native";
+import { View, Text, StyleSheet, Vibration, TouchableWithoutFeedback } from "react-native";
 import Svg, { G, Text as SvgText, Line } from "react-native-svg";
 import { Audio } from "expo-av";
-import * as ScreenOrientation from "expo-screen-orientation";
 import { useNavigation } from "@react-navigation/native";
 import TelecallerMainLayout from "@/app/components/TelecallerMainLayout";
 import AppGradient from "@/app/components/AppGradient";
@@ -12,7 +11,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 const AlertScreen = () => {
   const navigation = useNavigation();
   const { resetIdleTimer, isTimerActive } = useIdleTimer();
-  const initialTime = 600; // 10 minutes in seconds
+  const initialTime = 900; // 15 minutes in seconds
   const [secondsRemaining, setSecondsRemaining] = useState(initialTime);
   const [isRinging, setIsRinging] = useState(false);
   const [sound, setSound] = useState(null);
@@ -90,11 +89,13 @@ const AlertScreen = () => {
   };
 
   const formatTime = (totalSeconds: number) => {
-    const minutes = Math.floor(totalSeconds / 60)
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+    
+    return `${hours.toString().padStart(2, "0")}:${minutes
       .toString()
-      .padStart(2, "0");
-    const seconds = (totalSeconds % 60).toString().padStart(2, "0");
-    return `${minutes}:${seconds}`;
+      .padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
   };
 
   return (
@@ -105,8 +106,8 @@ const AlertScreen = () => {
             <View style={styles.svgContainer}>
               <Svg height="300" width="300" viewBox="0 0 200 200">
                 <G rotation="-90" origin="100, 100">
-                  {[...Array(dashCount)].map((_, index) => {
-                    const angle = (index * dashAngle * Math.PI) / 180;
+                  {[...Array(60)].map((_, index) => {
+                    const angle = (index * 6 * Math.PI) / 180;
                     const x1 = 100 + radius * Math.cos(angle);
                     const y1 = 100 + radius * Math.sin(angle);
                     const x2 = 100 + (radius + 10) * Math.cos(angle);
@@ -119,7 +120,7 @@ const AlertScreen = () => {
                         y1={y1}
                         x2={x2}
                         y2={y2}
-                        stroke={index < (initialTime - secondsRemaining) / 10 ? "#FF8447" : "#E0E0E0"}
+                        stroke={index < (initialTime - secondsRemaining) / 15 ? "#FF8447" : "#E0E0E0"}
                         strokeWidth={strokeWidth}
                         strokeLinecap="round"
                       />
@@ -132,7 +133,7 @@ const AlertScreen = () => {
                   y="50%"
                   textAnchor="middle"
                   dy=".3em"
-                  fontSize="30"
+                  fontSize="24"
                   fontFamily="LexendDeca_400Regular"
                   fill="#FF8447"
                 >
@@ -147,7 +148,7 @@ const AlertScreen = () => {
                   fontFamily="LexendDeca_400Regular"
                   fill="#FF8447"
                 >
-                  Total 10 minutes
+                  Total 15 minutes
                 </SvgText>
               </Svg>
             </View>
@@ -158,20 +159,12 @@ const AlertScreen = () => {
 
             <View style={styles.instructionsContainer}>
               <Text style={styles.instructionsHeader}>Idle Timer Instructions</Text>
+              <Text style={styles.instructionsText}>• The idle timer will ring after 15 minutes of inactivity.</Text>
               <Text style={styles.instructionsText}>• The idle timer will ring a total of three times.</Text>
               <Text style={styles.instructionsText}>• On the third ring, your phone will automatically lock.</Text>
-              <Text style={styles.instructionsText}>
-                • Once locked, please visit management to have your phone unlocked.
-              </Text>
-              <Text style={styles.instructionsText}>
-                • Timer resets when you interact with the screen.
-              </Text>
-              <Text style={styles.instructionsText}>
-                • Timer restarts after 5 minutes of inactivity.
-              </Text>
-              <Text style={styles.instructionsText}>
-                • Total idle timeouts: {idleCount}
-              </Text>
+              <Text style={styles.instructionsText}>• Timer resets when you interact with the screen.</Text>
+              <Text style={styles.instructionsText}>• Timer restarts after 15 minutes of inactivity.</Text>
+              <Text style={styles.instructionsText}>• Total idle timeouts: {idleCount}</Text>
             </View>
           </View>
         </TouchableWithoutFeedback>
@@ -210,6 +203,7 @@ const styles = StyleSheet.create({
   instructionsContainer: {
     marginTop: 20,
     width: "100%",
+    marginBottom: 60,
   },
   instructionsHeader: {
     fontSize: 16,

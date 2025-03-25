@@ -17,6 +17,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { MaterialIcons } from '@expo/vector-icons';
 import TelecallerAddContactModal from '@/app/Screens/Telecaller/TelecallerAddContactModal';
 import TelecallerMainLayout from '../TelecallerMainLayout';
+import AppGradient from '../AppGradient';
 
 interface Contact {
   id: string;
@@ -377,6 +378,7 @@ const ContactBook = () => {
   );
 
   return (
+    <AppGradient>
     <TelecallerMainLayout showBackButton={true} title="Contact Book">
       <View style={styles.searchContainer}>
         <MaterialIcons name="search" size={24} color="#999" style={styles.searchIcon} />
@@ -538,6 +540,7 @@ const ContactBook = () => {
         editingContact={editingContact}
       />
     </TelecallerMainLayout>
+    </AppGradient>
   );
 };
 

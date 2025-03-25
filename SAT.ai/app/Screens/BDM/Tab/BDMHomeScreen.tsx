@@ -24,7 +24,7 @@ import { useProfile } from '@/app/context/ProfileContext';
 import { BDMStackParamList, RootStackParamList } from '@/app/index';
 import BDMMainLayout from '@/app/components/BDMMainLayout';
 import CallLog from 'react-native-call-log';
-import { collection, query, where, getDocs, doc, getDoc, setDoc, orderBy, limit, serverTimestamp } from 'firebase/firestore';
+import { collection, query, where, getDocs, doc, getDoc, setDoc, orderBy, limit, serverTimestamp, Timestamp } from 'firebase/firestore';
 import { db, auth } from '@/firebaseConfig';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import AppGradient from "@/app/components/AppGradient";
@@ -156,6 +156,8 @@ const BDMHomeScreen = () => {
   const [contacts, setContacts] = useState<Record<string, Contact>>({});
   const [userName, setUserName] = useState("User");
   const [expandedCardId, setExpandedCardId] = useState<string | null>(null);
+  const [isFirstTimeUser, setIsFirstTimeUser] = useState(true);
+  const [showWelcomeModal, setShowWelcomeModal] = useState(false);
   
   const navigation = useNavigation<StackNavigationProp<RootStackParamList>>();
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -172,7 +174,18 @@ const BDMHomeScreen = () => {
       try {
         setIsLoading(true);
         
-        // Set user name - no need to wait for this
+        // Check if user is first time
+        const isFirstTime = await AsyncStorage.getItem('isFirstTimeUser');
+        if (isFirstTime === null) {
+          // First time user
+          await AsyncStorage.setItem('isFirstTimeUser', 'false');
+          setIsFirstTimeUser(true);
+          setShowWelcomeModal(true);
+        } else {
+          setIsFirstTimeUser(false);
+        }
+        
+        // Set user name
         if (userProfile?.name) {
           setUserName(userProfile.name);
         } else if (userProfile?.firstName) {
@@ -187,6 +200,9 @@ const BDMHomeScreen = () => {
           fetchCallLogs(),
           fetchWeeklyAchievement()
         ]);
+
+        // Mark as visited
+        await AsyncStorage.setItem('has_visited_bdm_home', 'true');
       } catch (error) {
         console.error("Error loading initial data:", error);
       } finally {
@@ -199,7 +215,7 @@ const BDMHomeScreen = () => {
     // Animation
     Animated.timing(fadeAnim, {
       toValue: 1,
-      duration: 500, // Reduced from 1000ms to 500ms
+      duration: 500,
       useNativeDriver: true,
     }).start();
     
@@ -459,24 +475,9 @@ const BDMHomeScreen = () => {
 
   const fetchWeeklyAchievement = async () => {
     try {
-      // Check if we have cached achievements
-      const cachedAchievements = await AsyncStorage.getItem(ACHIEVEMENT_STORAGE_KEY);
-      const now = Date.now();
-      
-      // If we have cached data from today, use it
-      if (cachedAchievements) {
-        const { data, timestamp } = JSON.parse(cachedAchievements);
-        // If cache is from today, use it
-        if (new Date(timestamp).toDateString() === new Date().toDateString()) {
-          setProgress(data.progress);
-          setProgressText(data.progressText);
-          return;
-        }
-      }
-      
       const userId = auth.currentUser?.uid;
       if (!userId) return;
-      
+
       // Get current week's targets and achievements
       const today = new Date();
       const startOfWeek = new Date(today);
@@ -486,48 +487,53 @@ const BDMHomeScreen = () => {
       const endOfWeek = new Date(startOfWeek);
       endOfWeek.setDate(startOfWeek.getDate() + 6);
       endOfWeek.setHours(23, 59, 59, 999);
-      
-      // Fetch targets from Firestore
-      const targetsRef = doc(db, 'targets', userId);
-      const targetsDoc = await getDoc(targetsRef);
-      
-      if (targetsDoc.exists()) {
-        const targetData = targetsDoc.data();
-        const weeklyTarget = targetData.weeklyTarget || 100;
+
+      // Fetch reports for current week
+      const reportsRef = collection(db, 'bdm_reports');
+      const q = query(
+        reportsRef,
+        where('userId', '==', userId),
+        where('createdAt', '>=', Timestamp.fromDate(startOfWeek)),
+        where('createdAt', '<=', Timestamp.fromDate(endOfWeek))
+      );
+
+      const querySnapshot = await getDocs(q);
+      let totalMeetings = 0;
+      let totalAttendedMeetings = 0;
+      let totalDuration = 0;
+      let totalClosing = 0;
+
+      querySnapshot.forEach(doc => {
+        const data = doc.data();
+        totalMeetings += data.numMeetings || 0;
+        totalAttendedMeetings += data.numMeetings || 0;
         
-        // Fetch achievements
-        const achievementsRef = collection(db, 'achievements');
-        const q = query(
-          achievementsRef,
-          where('userId', '==', userId),
-          where('date', '>=', startOfWeek),
-          where('date', '<=', endOfWeek)
-        );
-        
-        const achievementsSnapshot = await getDocs(q);
-        let totalAchieved = 0;
-        
-        achievementsSnapshot.forEach((doc) => {
-          const data = doc.data();
-          totalAchieved += data.value || 0;
-        });
-        
-        // Calculate progress
-        const calculatedProgress = Math.min(totalAchieved / weeklyTarget, 1);
-        const progressPercentage = Math.round(calculatedProgress * 100);
-        
-        setProgress(calculatedProgress);
-        setProgressText(`${progressPercentage}%`);
-        
-        // Cache the results
-        await AsyncStorage.setItem(ACHIEVEMENT_STORAGE_KEY, JSON.stringify({
-          data: {
-            progress: calculatedProgress,
-            progressText: `${progressPercentage}%`
-          },
-          timestamp: now
-        }));
-      }
+        const durationStr = data.meetingDuration || '';
+        const hrMatch = durationStr.match(/(\d+)\s*hr/);
+        const minMatch = durationStr.match(/(\d+)\s*min/);
+        const hours = (hrMatch ? parseInt(hrMatch[1]) : 0) +
+                     (minMatch ? parseInt(minMatch[1]) / 60 : 0);
+        totalDuration += hours;
+
+        totalClosing += data.totalClosingAmount || 0;
+      });
+
+      // Calculate progress percentages
+      const progressPercentages = [
+        (totalMeetings / 30) * 100,
+        (totalAttendedMeetings / 30) * 100,
+        (totalDuration / 20) * 100,
+        (totalClosing / 50000) * 100
+      ];
+
+      const avgProgress = Math.min(
+        Math.round(progressPercentages.reduce((a, b) => a + b, 0) / progressPercentages.length),
+        100
+      );
+
+      setProgress(avgProgress / 100);
+      setProgressText(`${avgProgress}%`);
+
     } catch (error) {
       console.error('Error fetching weekly achievement:', error);
     }
@@ -878,7 +884,9 @@ const BDMHomeScreen = () => {
           <>
             {/* Welcome Section */}
             <View style={styles.welcomeSection}>
-              <Text style={styles.welcomeText}>Welcome, 👋</Text>
+              <Text style={styles.welcomeText}>
+                {isFirstTimeUser ? "Welcome, 👋" : "Hi, 👋"}
+              </Text>
               <Text style={styles.nameText}>{userName}</Text>
               
               {/* Progress Section */}

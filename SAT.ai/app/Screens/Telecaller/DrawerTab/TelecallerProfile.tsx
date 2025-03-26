@@ -367,6 +367,7 @@ const ProfileScreen = () => {
   }
 
   return (
+    <AppGradient>
     <TelecallerMainLayout title="Profile" showBackButton>
       <Animated.ScrollView
         contentContainerStyle={styles.scrollContainer}
@@ -519,6 +520,7 @@ const ProfileScreen = () => {
         </View>
       </Animated.ScrollView>
     </TelecallerMainLayout>
+    </AppGradient>
   );
 };
 

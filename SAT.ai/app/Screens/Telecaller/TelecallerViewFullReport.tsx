@@ -3,6 +3,8 @@ import { View, Text, StyleSheet, TouchableOpacity, Dimensions, ScrollView, Activ
 import { LineChart } from 'react-native-chart-kit';
 import { useNavigation } from '@react-navigation/native';
 import { auth } from '@/firebaseConfig';
+import { MaterialIcons } from '@expo/vector-icons';
+import { format, addMonths, subMonths, startOfMonth, endOfMonth } from 'date-fns';
 
 import TelecallerMainLayout from '../../components/TelecallerMainLayout';
 import AppGradient from '@/app/components/AppGradient';
@@ -16,64 +18,164 @@ import targetService, {
 
 const screenWidth = Dimensions.get('window').width - 40;
 
+interface ChartData {
+  labels: string[];
+  datasets: Array<{
+    data: number[];
+  }>;
+}
+
+interface ReportData {
+  labels: string[];
+  data: number[];
+}
+
 const ViewFullReport = () => {
   const navigation = useNavigation();
   const [selectedPeriod, setSelectedPeriod] = useState('Weekly');
   const periods = ['Weekly', 'Quarterly', 'Half Yearly'];
+  const [currentDate, setCurrentDate] = useState(new Date());
+  const [timeOffset, setTimeOffset] = useState(0);
 
   const [isLoading, setIsLoading] = useState(true);
-  const [weeklyChartData, setWeeklyChartData] = useState({ labels: ['Week 1', 'Week 2', 'Week 3', 'Week 4', 'Week 5'], datasets: [{ data: [0, 0, 0, 0, 0] }] });
-  const [quarterlyChartData, setQuarterlyChartData] = useState({ labels: ['Jan', 'Feb', 'Mar'], datasets: [{ data: [0, 0, 0] }] });
-  const [halfYearlyChartData, setHalfYearlyChartData] = useState({ labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'], datasets: [{ data: [0, 0, 0, 0, 0, 0] }] });
+  const [weeklyChartData, setWeeklyChartData] = useState<ChartData>({ 
+    labels: ['Week 1', 'Week 2', 'Week 3', 'Week 4', 'Week 5'], 
+    datasets: [{ data: [0, 0, 0, 0, 0] }] 
+  });
+  const [quarterlyChartData, setQuarterlyChartData] = useState<ChartData>({ 
+    labels: ['Q1', 'Q2', 'Q3', 'Q4'], 
+    datasets: [{ data: [0, 0, 0, 0] }] 
+  });
+  const [halfYearlyChartData, setHalfYearlyChartData] = useState<ChartData>({ 
+    labels: [], 
+    datasets: [{ data: [] }] 
+  });
   const [highestAchievement, setHighestAchievement] = useState(0);
   const [averageAchievement, setAverageAchievement] = useState(0);
 
-  useEffect(() => {
-    const fetchData = async () => {
-      if (!auth.currentUser) {
-        return;
-      }
+  const getCurrentQuarter = (date: Date) => {
+    const month = date.getMonth();
+    // Map months to quarters (0-11 to 1-3)
+    if (month >= 0 && month <= 3) return 1;
+    if (month >= 4 && month <= 7) return 2;
+    return 3;
+  };
 
-      try {
-        setIsLoading(true);
-
-        // Get weekly data
-        const weeklyData = await getWeeklyReportData(auth.currentUser.uid);
-        setWeeklyChartData({
-          labels: weeklyData.labels,
-          datasets: [{ data: weeklyData.data }]
-        });
-
-        // Get quarterly data
-        const quarterlyData = await getQuarterlyReportData(auth.currentUser.uid);
-        setQuarterlyChartData({
-          labels: quarterlyData.labels,
-          datasets: [{ data: quarterlyData.data }]
-        });
-
-        // Get half yearly data
-        const halfYearlyData = await getHalfYearlyReportData(auth.currentUser.uid);
-        setHalfYearlyChartData({
-          labels: halfYearlyData.labels,
-          datasets: [{ data: halfYearlyData.data }]
-        });
-
-        // Get highest achievement
-        const highest = await getHighestAchievement(auth.currentUser.uid);
-        setHighestAchievement(highest);
-
-        // Get average achievement
-        const average = await getAverageAchievement(auth.currentUser.uid);
-        setAverageAchievement(average);
-      } catch (error) {
-        console.error('Error fetching report data:', error);
-      } finally {
-        setIsLoading(false);
-      }
+  const getQuarterMonths = (date: Date) => {
+    const currentMonth = date.getMonth();
+    const currentYear = date.getFullYear();
+    
+    // Calculate start and end months for the current quarter
+    let startMonth, endMonth;
+    if (currentMonth >= 0 && currentMonth <= 3) {
+      startMonth = 0; // January
+      endMonth = 3;   // April
+    } else if (currentMonth >= 4 && currentMonth <= 7) {
+      startMonth = 4; // May
+      endMonth = 7;   // August
+    } else {
+      startMonth = 8; // September
+      endMonth = 11;  // December
+    }
+    
+    return {
+      start: new Date(currentYear, startMonth, 1),
+      end: new Date(currentYear, endMonth, 31)
     };
+  };
 
-    fetchData();
-  }, []);
+  const getHalfYearMonths = (date: Date) => {
+    const currentMonth = date.getMonth();
+    const currentYear = date.getFullYear();
+    const labels = [];
+    
+    // Generate labels for next 6 months starting from current month
+    for (let i = 0; i < 6; i++) {
+      const monthDate = new Date(currentYear, currentMonth + i, 1);
+      labels.push(format(monthDate, 'MMM'));
+    }
+    
+    return {
+      labels,
+      start: new Date(currentYear, currentMonth, 1),
+      end: new Date(currentYear, currentMonth + 5, 31)
+    };
+  };
+
+  const handleTimeNavigation = (direction: 'prev' | 'next') => {
+    const newOffset = direction === 'next' ? timeOffset + 1 : timeOffset - 1;
+    setTimeOffset(newOffset);
+    fetchPeriodData(selectedPeriod, newOffset);
+  };
+
+  const fetchPeriodData = async (period: string, offset: number) => {
+    if (!auth.currentUser) return;
+
+    try {
+      setIsLoading(true);
+      const userId = auth.currentUser.uid;
+
+      switch (period) {
+        case 'Weekly':
+          const weeklyData = await getWeeklyReportData(userId);
+          setWeeklyChartData({
+            labels: weeklyData.labels,
+            datasets: [{ data: weeklyData.data }]
+          });
+          break;
+
+        case 'Quarterly': {
+          const { start: qStart, end: qEnd } = getQuarterMonths(currentDate);
+          const quarterlyData = await getQuarterlyReportData(userId);
+          
+          // Create labels based on current month
+          const currentMonth = currentDate.getMonth();
+          let labels = ['Q1', 'Q2', 'Q3'];
+          
+          // Highlight current quarter
+          const currentQuarter = getCurrentQuarter(currentDate);
+          const data = Array(3).fill(0);
+          data[currentQuarter - 1] = quarterlyData.data[currentQuarter - 1] || 0;
+
+          setQuarterlyChartData({
+            labels,
+            datasets: [{ data }]
+          });
+          break;
+        }
+
+        case 'Half Yearly': {
+          const { labels: hLabels, start: hStart, end: hEnd } = getHalfYearMonths(currentDate);
+          const halfYearlyData = await getHalfYearlyReportData(userId);
+          
+          // Ensure data array has exactly 6 elements
+          const data = Array(6).fill(0);
+          halfYearlyData.data.forEach((value, index) => {
+            if (index < 6) data[index] = value;
+          });
+
+          setHalfYearlyChartData({
+            labels: hLabels,
+            datasets: [{ data }]
+          });
+          break;
+        }
+      }
+
+      const highest = await getHighestAchievement(userId);
+      const average = await getAverageAchievement(userId);
+      setHighestAchievement(highest);
+      setAverageAchievement(average);
+    } catch (error) {
+      console.error('Error fetching report data:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchPeriodData(selectedPeriod, timeOffset);
+  }, [selectedPeriod]);
 
   const getActiveData = () => {
     switch (selectedPeriod) {
@@ -83,6 +185,22 @@ const ViewFullReport = () => {
         return halfYearlyChartData;
       default:
         return weeklyChartData;
+    }
+  };
+
+  const getPeriodLabel = () => {
+    switch (selectedPeriod) {
+      case 'Quarterly':
+        const currentQuarter = getCurrentQuarter(currentDate);
+        const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 
+                          'July', 'August', 'September', 'October', 'November', 'December'];
+        const currentMonth = currentDate.getMonth();
+        return `${monthNames[currentMonth]} (Q${currentQuarter})`;
+      case 'Half Yearly':
+        const { start: hStart, end: hEnd } = getHalfYearMonths(currentDate);
+        return `${format(hStart, 'MMMM yyyy')} - ${format(hEnd, 'MMMM yyyy')}`;
+      default:
+        return 'This Week';
     }
   };
 
@@ -105,7 +223,6 @@ const ViewFullReport = () => {
     <AppGradient>
       <TelecallerMainLayout showDrawer showBackButton title="Weekly Report">
         <View style={styles.container}>
-          
           <ScrollView contentContainerStyle={styles.scrollContainer}>
             {/* Period Selection */}
             <View style={styles.periodContainer}>
@@ -116,7 +233,10 @@ const ViewFullReport = () => {
                     styles.periodButton,
                     selectedPeriod === period && styles.selectedPeriodButton,
                   ]}
-                  onPress={() => setSelectedPeriod(period)}
+                  onPress={() => {
+                    setSelectedPeriod(period);
+                    setTimeOffset(0);
+                  }}
                 >
                   <Text
                     style={[
@@ -129,6 +249,9 @@ const ViewFullReport = () => {
                 </TouchableOpacity>
               ))}
             </View>
+
+            {/* Period Label */}
+            <Text style={styles.periodLabel}>{getPeriodLabel()}</Text>
 
             {/* Graph Section */}
             <View style={styles.graphCard}>
@@ -164,6 +287,15 @@ const ViewFullReport = () => {
                   marginVertical: 8,
                   borderRadius: 16,
                 }}
+                segments={selectedPeriod === 'Half Yearly' ? 5 : 4}
+                withInnerLines={true}
+                withOuterLines={true}
+                withVerticalLines={true}
+                withHorizontalLines={true}
+                withDots={true}
+                withVerticalLabels={true}
+                withHorizontalLabels={true}
+                withShadow={false}
               />
             </View>
 
@@ -247,6 +379,27 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontFamily: 'LexendDeca_500Medium',
     color: '#666',
+  },
+  timeNavigation: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 20,
+    paddingHorizontal: 20,
+  },
+  navButton: {
+    padding: 8,
+    borderRadius: 20,
+    backgroundColor: 'white',
+    elevation: 2,
+  },
+  periodLabel: {
+    fontSize: 16,
+    fontFamily: 'LexendDeca_600SemiBold',
+    color: '#333',
+    marginHorizontal: 16,
+    minWidth: 150,
+    textAlign: 'center',
   },
 });
 

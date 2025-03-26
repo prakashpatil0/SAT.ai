@@ -70,6 +70,7 @@ const AttendanceScreen = () => {
     'On Leave': 0
   });
   const [isPunchButtonDisabled, setIsPunchButtonDisabled] = useState(false);
+  const [isNewUser, setIsNewUser] = useState(true);
 
   const [weekDays, setWeekDays] = useState<WeekDay[]>([
     { day: 'M', date: '', status: 'On Leave' },
@@ -196,6 +197,9 @@ const AttendanceScreen = () => {
           setIsPunchedIn(!!data.punchIn && !data.punchOut);
         }
       });
+
+      // Set isNewUser based on attendance history
+      setIsNewUser(history.length === 0);
 
       const sortedHistory = history.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
       setAttendanceHistory(sortedHistory);
@@ -407,12 +411,14 @@ const AttendanceScreen = () => {
         ]}>
           {status}
         </Text>
-        <Text style={[
-          styles.daysText,
-          isSelected && { color: '#FFFFFF' }
-        ]}>
-          {statusCounts[status]} days
-        </Text>
+        {!isNewUser && (
+          <Text style={[
+            styles.daysText,
+            isSelected && { color: '#FFFFFF' }
+          ]}>
+            {statusCounts[status]} days
+          </Text>
+        )}
       </TouchableOpacity>
     );
   };
@@ -471,102 +477,111 @@ const AttendanceScreen = () => {
             </View>
 
             {/* Calendar Card */}
-            <View style={styles.calendarCard}>
-              <Text style={styles.dateHeader}>
-                {format(currentDate, 'dd MMMM (EEEE)')}
-              </Text>
+            {!isNewUser && (
+              <View style={styles.calendarCard}>
+                <Text style={styles.dateHeader}>
+                  {format(currentDate, 'dd MMMM (EEEE)')}
+                </Text>
 
-              <View style={styles.weekDays}>
-                {weekDays.map((item, index) => (
-                  <View key={index} style={styles.dayContainer}>
-                    <View style={[
-                      styles.dayCircle,
-                      { backgroundColor: item.status === 'Present' ? '#4CAF50' :
-                                      item.status === 'Half Day' ? '#FF9800' :
-                                      item.status === 'On Leave' ? '#F44336' : 'white' }
-                    ]}>
-                      {item.status === 'Present' && (
-                        <MaterialIcons name="check" size={20} color="#FFF" />
-                      )}
-                      {item.status === 'Half Day' && (
-                        <MaterialIcons name="remove" size={20} color="#FFF" />
-                      )}
-                      {item.status === 'On Leave' && (
-                        <MaterialIcons name="close" size={20} color="#FFF" />
-                      )}
+                <View style={styles.weekDays}>
+                  {weekDays.map((item, index) => (
+                    <View key={index} style={styles.dayContainer}>
+                      <View style={[
+                        styles.dayCircle,
+                        { backgroundColor: item.status === 'Present' ? '#4CAF50' :
+                                        item.status === 'Half Day' ? '#FF9800' :
+                                        item.status === 'On Leave' ? '#F44336' : 'white' }
+                      ]}>
+                        {item.status === 'Present' && (
+                          <MaterialIcons name="check" size={20} color="#FFF" />
+                        )}
+                        {item.status === 'Half Day' && (
+                          <MaterialIcons name="remove" size={20} color="#FFF" />
+                        )}
+                        {item.status === 'On Leave' && (
+                          <MaterialIcons name="close" size={20} color="#FFF" />
+                        )}
+                      </View>
+                      <Text style={styles.weekName}>{item.day}</Text>
+                      <Text style={styles.dateNumber}>{item.date}</Text>
                     </View>
-                    <Text style={styles.weekName}>{item.day}</Text>
-                    <Text style={styles.dateNumber}>{item.date}</Text>
-                  </View>
-                ))}
+                  ))}
+                </View>
               </View>
-            </View>
+            )}
 
             {/* Month Selector */}
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              style={styles.monthSelector}
-            >
-              {months.map((month, index) => (
-                <TouchableOpacity
-                  key={index}
-                  onPress={() => setSelectedMonth(month)}
-                  style={[
-                    styles.monthButton,
-                    selectedMonth === month && styles.selectedMonthButton
-                  ]}
-                >
-                  <Text style={[
-                    styles.monthText,
-                    selectedMonth === month && styles.selectedMonthText
-                  ]}>
-                    {month}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
+            {!isNewUser && (
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                style={styles.monthSelector}
+              >
+                {months.map((month, index) => (
+                  <TouchableOpacity
+                    key={index}
+                    onPress={() => setSelectedMonth(month)}
+                    style={[
+                      styles.monthButton,
+                      selectedMonth === month && styles.selectedMonthButton
+                    ]}
+                  >
+                    <Text style={[
+                      styles.monthText,
+                      selectedMonth === month && styles.selectedMonthText
+                    ]}>
+                      {month}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            )}
 
             {/* Status Badges */}
-            <View style={styles.statusContainer}>
+            <View style={[
+              styles.statusContainer,
+              isNewUser && styles.newUserStatusContainer
+            ]}>
               {renderStatusBadge('Present')}
               {renderStatusBadge('Half Day')}
               {renderStatusBadge('On Leave')}
             </View>
 
             {/* Attendance History */}
-            <View style={styles.historyContainer}>
-              {filteredHistory.map((item, index) => (
-                <View key={index} style={styles.historyCard}>
-                  <View style={styles.dateBlock}>
-                    <Text style={styles.dateNumber}>{item.date}</Text>
-                    <Text style={styles.dateDay}>{item.day}</Text>
-                  </View>
-                  <View style={styles.timeBlock}>
-                    <View>
-                      <Text style={styles.timeLabel}>Punch In</Text>
-                      <Text style={styles.timeValue}>{item.punchIn}</Text>
+            {!isNewUser && (
+              <View style={styles.historyContainer}>
+                {filteredHistory.map((item, index) => (
+                  <View key={index} style={styles.historyCard}>
+                    <View style={styles.dateBlock}>
+                      <Text style={styles.dateNumber}>{item.date}</Text>
+                      <Text style={styles.dateDay}>{item.day}</Text>
                     </View>
-                    <View>
-                      <Text style={styles.timeLabel}>Punch Out</Text>
-                      <Text style={styles.timeValue}>{item.punchOut}</Text>
+                    <View style={styles.timeBlock}>
+                      <View>
+                        <Text style={styles.timeLabel}>Punch In</Text>
+                        <Text style={styles.timeValue}>{item.punchIn}</Text>
+                      </View>
+                      <View>
+                        <Text style={styles.timeLabel}>Punch Out</Text>
+                        <Text style={styles.timeValue}>{item.punchOut}</Text>
+                      </View>
+                    </View>
+                    <View style={[
+                      styles.statusBlock,
+                      { backgroundColor: getStatusColor(item.status) }
+                    ]}>
+                      <Text style={styles.statusText}>{item.status}</Text>
                     </View>
                   </View>
-                  <View style={[
-                    styles.statusBlock,
-                    { backgroundColor: getStatusColor(item.status) }
-                  ]}>
-                    <Text style={styles.statusText}>{item.status}</Text>
-                  </View>
-                </View>
-              ))}
-              {filteredHistory.length === 0 && (
-                <Text style={styles.noHistoryText}>
-                  No attendance records found for {selectedMonth}
-                  {selectedStatus ? ` with status ${selectedStatus}` : ''}
-                </Text>
-              )}
-            </View>
+                ))}
+                {filteredHistory.length === 0 && (
+                  <Text style={styles.noHistoryText}>
+                    No attendance records found for {selectedMonth}
+                    {selectedStatus ? ` with status ${selectedStatus}` : ''}
+                  </Text>
+                )}
+              </View>
+            )}
           </View>
         </ScrollView>
       </TelecallerMainLayout>
@@ -821,6 +836,12 @@ const styles = StyleSheet.create({
     fontFamily: 'LexendDeca_400Regular',
     fontSize: 14,
     marginTop: 20,
+  },
+  newUserStatusContainer: {
+    marginTop: 32,
+    marginBottom: 32,
+    justifyContent: 'center',
+    gap: 20,
   },
 });
 

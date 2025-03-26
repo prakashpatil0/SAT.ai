@@ -1,16 +1,27 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Modal, ActivityIndicator, Dimensions } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Modal, ActivityIndicator, Dimensions, Platform } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { SegmentedButtons, Button, IconButton, Surface } from 'react-native-paper';
-import { format, addDays, isToday, isTomorrow, startOfWeek, isWithinInterval, subDays, startOfDay, endOfDay } from 'date-fns';
+import { format, addDays, isToday, isTomorrow, startOfWeek, isWithinInterval, subDays, startOfDay, endOfDay, addHours, subHours, addMinutes } from 'date-fns';
+import * as Notifications from 'expo-notifications';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import BDMMainLayout from '@/app/components/BDMMainLayout';
 import { useNavigation } from "@react-navigation/native";
 import * as Haptics from 'expo-haptics';
-import { collection, query, where, getDocs } from 'firebase/firestore';
+import { collection, query, where, getDocs, addDoc, Timestamp } from 'firebase/firestore';
 import { db } from '@/firebaseConfig';
 import { getAuth } from 'firebase/auth';
 import AppGradient from '@/app/components/AppGradient';
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
+
+// Configure notifications
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: true,
+    shouldSetBadge: true,
+  }),
+});
 
 interface Event {
   id: string;
@@ -27,6 +38,13 @@ interface Event {
   color?: string;
 }
 
+interface NotificationData {
+  followUpId: string;
+  title: string;
+  body: string;
+  triggerDate: Date;
+}
+
 const BDMMyScheduleScreen = () => {
   const navigation = useNavigation();
   const [view, setView] = useState<'day' | '3days' | 'week'>('day');
@@ -36,6 +54,7 @@ const BDMMyScheduleScreen = () => {
   const [isFollowUpModalVisible, setIsFollowUpModalVisible] = useState(false);
   const [followUps, setFollowUps] = useState<Event[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [notificationIds, setNotificationIds] = useState<string[]>([]);
 
   // Fixed daily schedule template with meetings and break times
   const dailyScheduleTemplate = [
@@ -404,12 +423,10 @@ const BDMMyScheduleScreen = () => {
 
       querySnapshot.forEach((doc) => {
         const data = doc.data();
-        // Convert Firestore timestamp to Date
         const followupDate = data.date.toDate();
         
-        // Only add follow-ups for the current view period
         if (isDateInCurrentView(followupDate)) {
-          fetchedFollowUps.push({
+          const followUp: Event = {
             id: doc.id,
             title: data.title || 'Follow Up',
             startTime: data.startTime,
@@ -420,7 +437,12 @@ const BDMMyScheduleScreen = () => {
             contactName: data.contactName,
             phoneNumber: data.phoneNumber,
             status: data.status
-          });
+          };
+          
+          fetchedFollowUps.push(followUp);
+          
+          // Schedule notifications for this follow-up
+          scheduleFollowUpNotifications(followUp);
         }
       });
 
@@ -429,6 +451,119 @@ const BDMMyScheduleScreen = () => {
       console.error('Error fetching follow-ups:', error);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const scheduleFollowUpNotifications = async (followUp: Event) => {
+    try {
+      // Cancel any existing notifications for this follow-up
+      const existingIds = await AsyncStorage.getItem(`notifications_${followUp.id}`);
+      if (existingIds) {
+        const ids = JSON.parse(existingIds);
+        await Promise.all(ids.map((id: string) => Notifications.cancelScheduledNotificationAsync(id)));
+      }
+
+      const notifications: NotificationData[] = [];
+      const followUpDate = new Date(followUp.date);
+      const followUpTime = followUp.startTime.split(':');
+      followUpDate.setHours(parseInt(followUpTime[0]), parseInt(followUpTime[1]));
+
+      // One day before notification
+      const oneDayBefore = subDays(followUpDate, 1);
+      oneDayBefore.setHours(9, 0); // Set to 9 AM
+      if (oneDayBefore > new Date()) {
+        notifications.push({
+          followUpId: followUp.id,
+          title: 'Follow-up Tomorrow',
+          body: `Reminder: You have a follow-up with ${followUp.contactName} tomorrow at ${followUp.startTime}`,
+          triggerDate: oneDayBefore
+        });
+      }
+
+      // Two hours before notification
+      const twoHoursBefore = subHours(followUpDate, 2);
+      if (twoHoursBefore > new Date()) {
+        notifications.push({
+          followUpId: followUp.id,
+          title: 'Follow-up in 2 Hours',
+          body: `Upcoming follow-up with ${followUp.contactName} in 2 hours`,
+          triggerDate: twoHoursBefore
+        });
+      }
+
+      // One hour before notification
+      const oneHourBefore = subHours(followUpDate, 1);
+      if (oneHourBefore > new Date()) {
+        notifications.push({
+          followUpId: followUp.id,
+          title: 'Follow-up in 1 Hour',
+          body: `Upcoming follow-up with ${followUp.contactName} in 1 hour`,
+          triggerDate: oneHourBefore
+        });
+      }
+
+      // Schedule all notifications
+      const notificationIds = await Promise.all(
+        notifications.map(async notification => {
+          const id = await Notifications.scheduleNotificationAsync({
+            content: {
+              title: notification.title,
+              body: notification.body,
+              data: { followUpId: notification.followUpId },
+              sound: true,
+            },
+            trigger: {
+              seconds: Math.floor((notification.triggerDate.getTime() - Date.now()) / 1000),
+              repeats: false,
+              type: 'timeInterval'
+            },
+          });
+          return id;
+        })
+      );
+
+      // Store notification IDs for later management
+      await AsyncStorage.setItem(`notifications_${followUp.id}`, JSON.stringify(notificationIds));
+      setNotificationIds(prev => [...prev, ...notificationIds]);
+
+    } catch (error) {
+      console.error('Error scheduling notifications:', error);
+    }
+  };
+
+  // Add notification listener for snooze action
+  useEffect(() => {
+    const subscription = Notifications.addNotificationResponseReceivedListener(response => {
+      const followUpId = response.notification.request.content.data.followUpId;
+      if (response.actionIdentifier === 'SNOOZE') {
+        handleSnoozeNotification(followUpId);
+      }
+    });
+
+    return () => subscription.remove();
+  }, []);
+
+  const handleSnoozeNotification = async (followUpId: string) => {
+    try {
+      const followUp = followUps.find(f => f.id === followUpId);
+      if (followUp) {
+        // Schedule a new notification for 15 minutes later
+        const snoozeTime = addMinutes(new Date(), 15);
+        await Notifications.scheduleNotificationAsync({
+          content: {
+            title: 'Snoozed Follow-up',
+            body: `Follow-up with ${followUp.contactName}`,
+            data: { followUpId },
+          },
+          trigger: {
+            seconds: 15 * 60, // 15 minutes in seconds
+            repeats: false,
+            type: 'timeInterval'
+          },
+        });
+      }
+    } catch (error) {
+      console.error('Error snoozing notification:', error);
     }
   };
 
@@ -485,6 +620,29 @@ const BDMMyScheduleScreen = () => {
   useEffect(() => {
     fetchFollowUps();
   }, [selectedDate, view]);
+
+  useEffect(() => {
+    registerForPushNotificationsAsync();
+  }, []);
+
+  const registerForPushNotificationsAsync = async () => {
+    try {
+      const { status: existingStatus } = await Notifications.getPermissionsAsync();
+      let finalStatus = existingStatus;
+      
+      if (existingStatus !== 'granted') {
+        const { status } = await Notifications.requestPermissionsAsync();
+        finalStatus = status;
+      }
+      
+      if (finalStatus !== 'granted') {
+        alert('Failed to get push token for push notification!');
+        return;
+      }
+    } catch (error) {
+      console.error('Error setting up notifications:', error);
+    }
+  };
 
   return (
     <AppGradient>

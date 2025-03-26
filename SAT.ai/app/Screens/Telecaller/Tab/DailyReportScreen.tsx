@@ -18,12 +18,12 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Chip } from 'react-native-paper';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 import { auth, db } from '@/firebaseConfig';
-import { collection, addDoc, Timestamp } from 'firebase/firestore';
+import { collection, addDoc, Timestamp, query, where, getDocs } from 'firebase/firestore';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import api from '@/app/services/api';
 import AppGradient from "@/app/components/AppGradient";
 import { getTargets } from '@/app/services/targetService';
-import { format } from 'date-fns';
+import { format, startOfDay, endOfDay } from 'date-fns';
 
 const PRODUCT_LIST = [
   { label: 'Health Insurance', value: 'health_insurance' },
@@ -101,6 +101,8 @@ const ReportScreen: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [filteredProducts, setFilteredProducts] = useState(PRODUCT_LIST);
   const [errors, setErrors] = useState<{[key: string]: string}>({});
+  const [todayCalls, setTodayCalls] = useState(0);
+  const [todayDuration, setTodayDuration] = useState(0);
 
   // Filter products based on search
   useEffect(() => {
@@ -124,6 +126,98 @@ const ReportScreen: React.FC = () => {
     const autoSaveTimer = setTimeout(saveDraftData, 1000);
     return () => clearTimeout(autoSaveTimer);
   }, [numMeetings, meetingDuration, positiveLeads, rejectedLeads, notAttendedCalls, closingLeads, closingDetails]);
+
+  // Add function to fetch today's call data
+  const fetchTodayCallData = async () => {
+    try {
+      const userId = auth.currentUser?.uid;
+      if (!userId) {
+        console.log('No user ID found');
+        return;
+      }
+
+      const today = new Date();
+      const startOfToday = startOfDay(today);
+      const endOfToday = endOfDay(today);
+
+      console.log('Fetching calls between:', {
+        start: startOfToday.toISOString(),
+        end: endOfToday.toISOString()
+      });
+
+      const callLogsRef = collection(db, 'callLogs');
+      const q = query(
+        callLogsRef,
+        where('userId', '==', userId),
+        where('timestamp', '>=', startOfToday),
+        where('timestamp', '<=', endOfToday)
+      );
+
+      const querySnapshot = await getDocs(q);
+      console.log('Total documents found:', querySnapshot.size);
+
+      let totalCalls = 0;
+      let totalDuration = 0;
+
+      querySnapshot.forEach((doc) => {
+        const data = doc.data();
+        console.log('Call log data:', {
+          id: doc.id,
+          status: data.status,
+          duration: data.duration,
+          timestamp: data.timestamp?.toDate?.()?.toISOString()
+        });
+
+        // Only count completed calls
+        if (data.status === 'completed') {
+          totalCalls++;
+          // Add duration if it exists
+          if (data.duration) {
+            totalDuration += Number(data.duration);
+          }
+        }
+      });
+
+      console.log('Calculated totals:', {
+        totalCalls,
+        totalDuration,
+        formattedDuration: formatDuration(totalDuration)
+      });
+
+      // Update state with fetched data
+      setTodayCalls(totalCalls);
+      setTodayDuration(totalDuration);
+      setNumMeetings(totalCalls.toString());
+      setMeetingDuration(formatDuration(totalDuration));
+
+    } catch (error) {
+      console.error('Error fetching today\'s call data:', error);
+      Alert.alert('Error', 'Failed to fetch today\'s call data');
+    }
+  };
+
+  // Add useEffect to fetch call data on mount and periodically
+  useEffect(() => {
+    // Fetch immediately on mount
+    fetchTodayCallData();
+    
+    // Set up interval to fetch every 30 seconds
+    const interval = setInterval(fetchTodayCallData, 30000);
+    
+    // Cleanup interval on unmount
+    return () => clearInterval(interval);
+  }, []);
+
+  // Format duration to HH:mm:ss format
+  const formatDuration = (seconds: number) => {
+    if (!seconds) return '00:00:00';
+    
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const remainingSeconds = seconds % 60;
+    
+    return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${remainingSeconds.toString().padStart(2, '0')}`;
+  };
 
   const saveDraftData = async () => {
     try {
@@ -289,15 +383,22 @@ const ReportScreen: React.FC = () => {
     }
   };
 
-  const toggleProductSelection = (index: number, productValue: string) => {
+  const toggleProductSelection = (index: number, productValue: string, isDeselect: boolean = false) => {
     const newClosingDetails = [...closingDetails];
     const selectedProducts = [...newClosingDetails[index].selectedProducts];
-    const productIndex = selectedProducts.indexOf(productValue);
-
-    if (productIndex === -1) {
-      selectedProducts.push(productValue);
+    
+    if (isDeselect) {
+      const productIndex = selectedProducts.indexOf(productValue);
+      if (productIndex !== -1) {
+        selectedProducts.splice(productIndex, 1);
+      }
     } else {
-      selectedProducts.splice(productIndex, 1);
+      const productIndex = selectedProducts.indexOf(productValue);
+      if (productIndex === -1) {
+        selectedProducts.push(productValue);
+      } else {
+        selectedProducts.splice(productIndex, 1);
+      }
     }
 
     newClosingDetails[index] = {
@@ -321,28 +422,17 @@ const ReportScreen: React.FC = () => {
             <View style={styles.inputContainer}>
               <Text style={styles.dateText}>{format(new Date(), 'dd MMMM (EEEE)')}</Text>
               
+              {/* Number of Calls - Read Only */}
               <Text style={styles.label}>Number of Calls</Text>
-              <TextInput
-                style={[styles.input, errors.numMeetings && styles.inputError]}
-                value={numMeetings}
-                onChangeText={setNumMeetings}
-                keyboardType="numeric"
-                placeholder="12"
-              />
-              {errors.numMeetings && (
-                <Text style={styles.errorText}>{errors.numMeetings}</Text>
-              )}
+              <View style={styles.readOnlyInput}>
+                <Text style={styles.readOnlyText}>{todayCalls}</Text>
+              </View>
 
+              {/* Call Duration - Read Only */}
               <Text style={styles.label}>Call Duration</Text>
-              <TextInput
-                style={[styles.input, errors.meetingDuration && styles.inputError]}
-                value={meetingDuration}
-                onChangeText={setMeetingDuration}
-                placeholder="1 hr 20 mins"
-              />
-              {errors.meetingDuration && (
-                <Text style={styles.errorText}>{errors.meetingDuration}</Text>
-              )}
+              <View style={styles.readOnlyInput}>
+                <Text style={styles.readOnlyText}>{formatDuration(todayDuration)}</Text>
+              </View>
 
               <Text style={styles.label}>Positive Leads</Text>
               <TextInput
@@ -454,7 +544,7 @@ const ReportScreen: React.FC = () => {
                                 <TouchableOpacity
                                   onPress={(e) => {
                                     e.stopPropagation();
-                                    toggleProductSelection(index, item.value);
+                                    toggleProductSelection(index, item.value, true);
                                   }}
                                   style={styles.closeIcon}
                                 >
@@ -633,8 +723,9 @@ const styles = StyleSheet.create({
   errorText: {
     color: "#FF5252",
     fontSize: 12,
-    marginTop: -12,
+    marginTop: 4,
     marginBottom: 8,
+    marginLeft: 4,
   },
   section: {
     marginTop: 20,
@@ -824,6 +915,19 @@ const styles = StyleSheet.create({
     fontFamily: "LexendDeca_400Regular",
     textAlign: "center",
     marginTop: 10,
+  },
+  readOnlyInput: {
+    borderWidth: 1,
+    borderColor: "#ddd",
+    borderRadius: 8,
+    padding: 10,
+    marginBottom: 16,
+    backgroundColor: "#f5f5f5",
+  },
+  readOnlyText: {
+    fontSize: 16,
+    color: "#333",
+    fontFamily: "LexendDeca_500Medium",
   },
 });
 

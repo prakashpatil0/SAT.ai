@@ -9,7 +9,7 @@ import * as Linking from 'expo-linking';
 import AppGradient from "@/app/components/AppGradient";
 import { Audio } from 'expo-av';
 import { getAuth } from 'firebase/auth';
-import { getFirestore, collection, addDoc, query, where, orderBy, onSnapshot, getDocs, getDoc, doc, setDoc, updateDoc } from 'firebase/firestore';
+import { getFirestore, collection, addDoc, query, where, orderBy, onSnapshot, getDocs, getDoc, doc, setDoc, updateDoc, writeBatch } from 'firebase/firestore';
 import { Alert } from 'react-native';
 import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { auth, db } from "@/firebaseConfig";
@@ -19,6 +19,8 @@ import api from '@/app/services/api';
 import { useProfile } from '@/app/context/ProfileContext';
 import TelecallerAddContactModal from '@/app/Screens/Telecaller/TelecallerAddContactModal';
 import { getCurrentWeekAchievements } from "@/app/services/targetService";
+import { startOfDay, endOfDay } from 'date-fns';
+import { Timestamp } from 'firebase/firestore';
 
 // Define navigation types
 type RootStackParamList = {
@@ -478,6 +480,11 @@ const HomeScreen = () => {
   const fetchDeviceCallLogs = async () => {
     try {
       setIsLoadingSimLogs(true);
+      const userId = auth.currentUser?.uid;
+      if (!userId) {
+        console.log('No user ID found');
+        return;
+      }
 
       // Check last update time
       const lastUpdate = await AsyncStorage.getItem(CALL_LOGS_LAST_UPDATE);
@@ -536,19 +543,24 @@ const HomeScreen = () => {
     }
   };
 
-  // Update the fetchFreshLogs function to handle device call logs better
+  // Update the fetchFreshLogs function to save to Firebase
   const fetchFreshLogs = async () => {
     if (Platform.OS === 'android') {
       const hasPermission = await requestCallLogPermission();
       
       if (hasPermission) {
+        const userId = auth.currentUser?.uid;
+        if (!userId) {
+          console.log('No user ID found');
+          return;
+        }
+
         const logs = await CallLog.loadAll();
         console.log('Device call logs:', logs);
 
         const formattedLogs = logs.map((log: any) => ({
           id: String(log.timestamp),
           phoneNumber: log.phoneNumber,
-          // Only use name if it exists and isn't "Unknown"
           contactName: log.name && log.name !== "Unknown" ? log.name : log.phoneNumber,
           timestamp: new Date(parseInt(log.timestamp)),
           duration: parseInt(log.duration) || 0,
@@ -559,6 +571,42 @@ const HomeScreen = () => {
         // Store logs in AsyncStorage
         await AsyncStorage.setItem(CALL_LOGS_STORAGE_KEY, JSON.stringify(formattedLogs));
         await AsyncStorage.setItem(CALL_LOGS_LAST_UPDATE, String(Date.now()));
+
+        // Save logs to Firebase
+        const callLogsRef = collection(db, 'callLogs');
+        const batch = writeBatch(db);
+
+        // Get existing logs for today to avoid duplicates
+        const today = new Date();
+        const startOfToday = startOfDay(today);
+        const endOfToday = endOfDay(today);
+
+        const existingLogsQuery = query(
+          callLogsRef,
+          where('userId', '==', userId),
+          where('timestamp', '>=', startOfToday),
+          where('timestamp', '<=', endOfToday)
+        );
+
+        const existingLogsSnapshot = await getDocs(existingLogsQuery);
+        const existingLogIds = new Set(existingLogsSnapshot.docs.map(doc => doc.data().id));
+
+        // Add new logs to Firebase
+        formattedLogs.forEach(log => {
+          if (!existingLogIds.has(log.id)) {
+            const docRef = doc(callLogsRef);
+            batch.set(docRef, {
+              ...log,
+              userId,
+              timestamp: Timestamp.fromDate(log.timestamp),
+              createdAt: Timestamp.now(),
+              updatedAt: Timestamp.now()
+            });
+          }
+        });
+
+        // Commit the batch
+        await batch.commit();
 
         // Group the logs by phone number
         const groupedLogs = groupCallLogs(formattedLogs);

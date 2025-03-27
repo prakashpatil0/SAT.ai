@@ -8,7 +8,33 @@ import { LinearGradient } from 'expo-linear-gradient';
 import AppGradient from "@/app/components/AppGradient";
 import { auth } from '@/firebaseConfig';
 import targetService, { getTargets, getCurrentWeekAchievements, getPreviousWeekAchievement } from "@/app/services/targetService";
-import { differenceInDays, endOfWeek } from 'date-fns';
+import { differenceInDays, endOfWeek, startOfWeek, startOfDay, endOfDay } from 'date-fns';
+import { collection, query, where, orderBy, limit, getDocs, Timestamp, addDoc, updateDoc } from 'firebase/firestore';
+import { db } from '@/firebaseConfig';
+
+// Define types for achievements and targets
+interface Achievements {
+  numCalls: number;
+  callDuration: number;
+  positiveLeads: number;
+  closingAmount: number;
+}
+
+interface Targets {
+  numCalls: number;
+  callDuration: number;
+  positiveLeads: number;
+  closingAmount: number;
+}
+
+interface DailyReport {
+  numCalls: number;
+  callDuration: number;
+  positiveLeads: number;
+  closingAmount: number;
+  createdAt: Timestamp;
+  userId: string;
+}
 
 const WeeklyTargetScreen = () => {
   const navigation = useNavigation();
@@ -39,20 +65,171 @@ const WeeklyTargetScreen = () => {
       try {
         setLoading(true);
         
-        // Calculate days remaining in the week
+        // Calculate current week range
         const today = new Date();
         const weekEnd = endOfWeek(today, { weekStartsOn: 1 });
+        const weekStart = startOfWeek(today, { weekStartsOn: 1 });
         const daysLeft = differenceInDays(weekEnd, today);
         setDaysRemaining(daysLeft);
+
+        // Fetch daily reports for current week
+        const reportsRef = collection(db, 'telecaller_reports');
+        const reportsQuery = query(
+          reportsRef,
+          where('userId', '==', auth.currentUser.uid),
+          where('createdAt', '>=', Timestamp.fromDate(weekStart)),
+          where('createdAt', '<=', Timestamp.fromDate(weekEnd)),
+          orderBy('createdAt', 'desc')
+        );
+
+        const reportsSnapshot = await getDocs(reportsQuery);
         
-        // Get current achievements
-        const currentAchievements = await getCurrentWeekAchievements(auth.currentUser.uid);
-        console.log("Current achievements:", currentAchievements); // Debug log
-        setAchievements(currentAchievements);
+        // Initialize totals
+        let totalCalls = 0;
+        let totalDuration = 0;
+        let totalPositiveLeads = 0;
+        let totalClosingAmount = 0;
+
+        // Aggregate data from all reports
+        reportsSnapshot.docs.forEach(doc => {
+          const report = doc.data() as DailyReport;
+          totalCalls += report.numCalls || 0;
+          totalDuration += report.callDuration || 0;
+          totalPositiveLeads += report.positiveLeads || 0;
+          totalClosingAmount += report.closingAmount || 0;
+        });
+
+        // Get weekly targets
+        const weeklyTargets = getTargets();
+        setTargets(weeklyTargets);
+
+        // Calculate achievement percentage
+        const achievementPercentage = calculatePercentage(
+          {
+            numCalls: totalCalls,
+            callDuration: totalDuration,
+            positiveLeads: totalPositiveLeads,
+            closingAmount: totalClosingAmount
+          },
+          weeklyTargets
+        );
+
+        // Update achievements state with all metrics
+        setAchievements({
+          numCalls: totalCalls,
+          callDuration: totalDuration,
+          positiveLeads: totalPositiveLeads,
+          closingAmount: totalClosingAmount,
+          percentageAchieved: Math.round(achievementPercentage * 10) / 10
+        });
+
+        // Store weekly achievement in Firebase
+        const achievementsRef = collection(db, 'telecaller_achievements');
+        const achievementData = {
+          userId: auth.currentUser.uid,
+          weekStart: Timestamp.fromDate(weekStart),
+          weekEnd: Timestamp.fromDate(weekEnd),
+          numCalls: totalCalls,
+          callDuration: totalDuration,
+          positiveLeads: totalPositiveLeads,
+          closingAmount: totalClosingAmount,
+          percentageAchieved: Math.round(achievementPercentage * 10) / 10,
+          createdAt: Timestamp.fromDate(new Date()),
+          updatedAt: Timestamp.fromDate(new Date())
+        };
+
+        // Check if achievement record exists for this week
+        const weeklyAchievementQuery = query(
+          achievementsRef,
+          where('userId', '==', auth.currentUser.uid),
+          where('weekStart', '==', Timestamp.fromDate(weekStart)),
+          where('weekEnd', '==', Timestamp.fromDate(weekEnd))
+        );
+
+        const weeklyAchievementSnapshot = await getDocs(weeklyAchievementQuery);
         
-        // Get previous week's achievement percentage
-        const prevAchievement = await getPreviousWeekAchievement(auth.currentUser.uid);
-        setPreviousAchievement(prevAchievement);
+        if (weeklyAchievementSnapshot.empty) {
+          // Create new achievement record
+          await addDoc(achievementsRef, achievementData);
+        } else {
+          // Update existing achievement record
+          const docRef = weeklyAchievementSnapshot.docs[0].ref;
+          await updateDoc(docRef, {
+            ...achievementData,
+            updatedAt: Timestamp.fromDate(new Date())
+          });
+        }
+
+        // Fetch previous week's data for comparison
+        const prevWeekEnd = startOfDay(weekStart);
+        const prevWeekStart = startOfWeek(prevWeekEnd, { weekStartsOn: 1 });
+
+        const prevWeekQuery = query(
+          reportsRef,
+          where('userId', '==', auth.currentUser.uid),
+          where('createdAt', '>=', Timestamp.fromDate(prevWeekStart)),
+          where('createdAt', '<', Timestamp.fromDate(weekStart)),
+          orderBy('createdAt', 'desc')
+        );
+
+        const prevWeekSnapshot = await getDocs(prevWeekQuery);
+        
+        // Calculate previous week's totals
+        let prevTotalCalls = 0;
+        let prevTotalDuration = 0;
+        let prevTotalPositiveLeads = 0;
+        let prevTotalClosingAmount = 0;
+
+        prevWeekSnapshot.docs.forEach(doc => {
+          const report = doc.data() as DailyReport;
+          prevTotalCalls += report.numCalls || 0;
+          prevTotalDuration += report.callDuration || 0;
+          prevTotalPositiveLeads += report.positiveLeads || 0;
+          prevTotalClosingAmount += report.closingAmount || 0;
+        });
+
+        // Calculate previous week's achievement percentage
+        const prevAchievementPercentage = calculatePercentage(
+          {
+            numCalls: prevTotalCalls,
+            callDuration: prevTotalDuration,
+            positiveLeads: prevTotalPositiveLeads,
+            closingAmount: prevTotalClosingAmount
+          },
+          weeklyTargets
+        );
+
+        setPreviousAchievement(Math.round(prevAchievementPercentage * 10) / 10);
+
+        // Store previous week's achievement in Firebase
+        const prevAchievementData = {
+          userId: auth.currentUser.uid,
+          weekStart: Timestamp.fromDate(prevWeekStart),
+          weekEnd: Timestamp.fromDate(prevWeekEnd),
+          numCalls: prevTotalCalls,
+          callDuration: prevTotalDuration,
+          positiveLeads: prevTotalPositiveLeads,
+          closingAmount: prevTotalClosingAmount,
+          percentageAchieved: Math.round(prevAchievementPercentage * 10) / 10,
+          createdAt: Timestamp.fromDate(new Date()),
+          updatedAt: Timestamp.fromDate(new Date())
+        };
+
+        // Check if previous week's achievement record exists
+        const prevWeekAchievementQuery = query(
+          achievementsRef,
+          where('userId', '==', auth.currentUser.uid),
+          where('weekStart', '==', Timestamp.fromDate(prevWeekStart)),
+          where('weekEnd', '==', Timestamp.fromDate(prevWeekEnd))
+        );
+
+        const prevWeekAchievementSnapshot = await getDocs(prevWeekAchievementQuery);
+        
+        if (prevWeekAchievementSnapshot.empty) {
+          // Create new achievement record for previous week
+          await addDoc(achievementsRef, prevAchievementData);
+        }
+
       } catch (error) {
         console.error('Error fetching target data:', error);
       } finally {
@@ -62,6 +239,16 @@ const WeeklyTargetScreen = () => {
     
     fetchData();
   }, []);
+
+  // Helper function to calculate percentage
+  const calculatePercentage = (achievements: Achievements, targets: Targets): number => {
+    const numCallsPercentage = (achievements.numCalls / targets.numCalls) * 100;
+    const callDurationPercentage = (achievements.callDuration / targets.callDuration) * 100;
+    const positiveLeadsPercentage = (achievements.positiveLeads / targets.positiveLeads) * 100;
+    const closingAmountPercentage = (achievements.closingAmount / targets.closingAmount) * 100;
+
+    return (numCallsPercentage + callDurationPercentage + positiveLeadsPercentage + closingAmountPercentage) / 4;
+  };
 
   if (loading) {
     return (
@@ -111,36 +298,36 @@ const WeeklyTargetScreen = () => {
           <Text style={styles.progressText}>{achievements.percentageAchieved.toFixed(1)}%</Text>
 
           <View style={styles.statsTable}>
-  <View style={styles.tableHeader}>
-    <Text style={[styles.tableHeaderText, { flex: 1 }]}></Text>
-    <Text style={[styles.tableHeaderText, { flex: 2, textAlign: 'right' }]}>Achieved</Text>
-    <Text style={[styles.tableHeaderText, { flex: 1, textAlign: 'right' }]}>Target</Text>
-  </View>
+            <View style={styles.tableHeader}>
+              <Text style={[styles.tableHeaderText, { flex: 1 }]}></Text>
+              <Text style={[styles.tableHeaderText, { flex: 2, textAlign: 'right' }]}>Achieved</Text>
+              <Text style={[styles.tableHeaderText, { flex: 1, textAlign: 'right' }]}>Target</Text>
+            </View>
 
-  <View style={styles.tableRow}>
-    <Text style={[styles.tableCell, { flex: 2 }]}>No. of Calls</Text>
-    <Text style={[styles.tableCell, { flex: 1, textAlign: 'right' }]}>{achievements.numCalls}</Text>
-    <Text style={[styles.targetCell, { flex: 1, textAlign: 'right' }]}>{targets.numCalls}</Text>
-  </View>
+            <View style={styles.tableRow}>
+              <Text style={[styles.tableCell, { flex: 2 }]}>No. of Calls</Text>
+              <Text style={[styles.tableCell, { flex: 1, textAlign: 'right' }]}>{achievements.numCalls}</Text>
+              <Text style={[styles.targetCell, { flex: 1, textAlign: 'right' }]}>{targets.numCalls}</Text>
+            </View>
 
-  <View style={styles.tableRow}>
-    <Text style={[styles.tableCell, { flex: 2 }]}>Call Duration</Text>
-    <Text style={[styles.tableCell, { flex: 1, textAlign: 'right' }]}>{achievements.callDuration} hrs</Text>
-    <Text style={[styles.targetCell, { flex: 1, textAlign: 'right' }]}>{targets.callDuration} hrs</Text>
-  </View>
+            <View style={styles.tableRow}>
+              <Text style={[styles.tableCell, { flex: 2 }]}>Call Duration</Text>
+              <Text style={[styles.tableCell, { flex: 1, textAlign: 'right' }]}>{achievements.callDuration} hrs</Text>
+              <Text style={[styles.targetCell, { flex: 1, textAlign: 'right' }]}>{targets.callDuration} hrs</Text>
+            </View>
 
-  <View style={styles.tableRow}>
-    <Text style={[styles.tableCell, { flex: 2 }]}>Positive Leads</Text>
-    <Text style={[styles.tableCell, { flex: 1, textAlign: 'right' }]}>{achievements.positiveLeads}</Text>
-    <Text style={[styles.targetCell, { flex: 1, textAlign: 'right' }]}>{targets.positiveLeads}</Text>
-  </View>
+            <View style={styles.tableRow}>
+              <Text style={[styles.tableCell, { flex: 2 }]}>Positive Leads</Text>
+              <Text style={[styles.tableCell, { flex: 1, textAlign: 'right' }]}>{achievements.positiveLeads}</Text>
+              <Text style={[styles.targetCell, { flex: 1, textAlign: 'right' }]}>{targets.positiveLeads}</Text>
+            </View>
 
-  <View style={styles.tableRow}>
-    <Text style={[styles.tableCell, { flex: 2 }]}>Closing</Text>
-    <Text style={[styles.tableCell, { flex: 1, textAlign: 'right' }]}>₹{achievements.closingAmount.toLocaleString()}</Text>
-    <Text style={[styles.targetCell, { flex: 1, textAlign: 'right' }]}>₹{targets.closingAmount.toLocaleString()}</Text>
-  </View>
-</View>
+            <View style={styles.tableRow}>
+              <Text style={[styles.tableCell, { flex: 2 }]}>Closing Amount</Text>
+              <Text style={[styles.tableCell, { flex: 1, textAlign: 'right' }]}>₹{achievements.closingAmount.toLocaleString()}</Text>
+              <Text style={[styles.targetCell, { flex: 1, textAlign: 'right' }]}>{targets.closingAmount.toLocaleString()}</Text>
+            </View>
+          </View>
 
         </View>
         </View>

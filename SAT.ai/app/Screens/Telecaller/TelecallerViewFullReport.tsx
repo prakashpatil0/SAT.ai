@@ -4,17 +4,13 @@ import { LineChart } from 'react-native-chart-kit';
 import { useNavigation } from '@react-navigation/native';
 import { auth } from '@/firebaseConfig';
 import { MaterialIcons } from '@expo/vector-icons';
-import { format, addMonths, subMonths, startOfMonth, endOfMonth } from 'date-fns';
+import { format, addMonths, subMonths, startOfMonth, endOfMonth, addDays, startOfWeek, endOfWeek, subWeeks, startOfQuarter, endOfQuarter, subQuarters } from 'date-fns';
+import { collection, query, where, orderBy, getDocs, Timestamp } from 'firebase/firestore';
+import { db } from '@/firebaseConfig';
+import { getTargets } from '@/app/services/targetService';
 
 import TelecallerMainLayout from '../../components/TelecallerMainLayout';
 import AppGradient from '@/app/components/AppGradient';
-import targetService, {
-  getWeeklyReportData,
-  getQuarterlyReportData,
-  getHalfYearlyReportData,
-  getHighestAchievement,
-  getAverageAchievement
-} from '@/app/services/targetService';
 
 const screenWidth = Dimensions.get('window').width - 40;
 
@@ -30,6 +26,29 @@ interface ReportData {
   data: number[];
 }
 
+interface Achievements {
+  numCalls: number;
+  callDuration: number;
+  positiveLeads: number;
+  closingAmount: number;
+}
+
+interface Targets {
+  numCalls: number;
+  callDuration: number;
+  positiveLeads: number;
+  closingAmount: number;
+}
+
+interface DailyReport {
+  numCalls: number;
+  callDuration: number;
+  positiveLeads: number;
+  closingAmount: number;
+  createdAt: Timestamp;
+  userId: string;
+}
+
 const ViewFullReport = () => {
   const navigation = useNavigation();
   const [selectedPeriod, setSelectedPeriod] = useState('Weekly');
@@ -39,12 +58,12 @@ const ViewFullReport = () => {
 
   const [isLoading, setIsLoading] = useState(true);
   const [weeklyChartData, setWeeklyChartData] = useState<ChartData>({ 
-    labels: ['Week 1', 'Week 2', 'Week 3', 'Week 4', 'Week 5'], 
-    datasets: [{ data: [0, 0, 0, 0, 0] }] 
+    labels: [], 
+    datasets: [{ data: [] }] 
   });
   const [quarterlyChartData, setQuarterlyChartData] = useState<ChartData>({ 
-    labels: ['Q1', 'Q2', 'Q3', 'Q4'], 
-    datasets: [{ data: [0, 0, 0, 0] }] 
+    labels: [], 
+    datasets: [{ data: [] }] 
   });
   const [halfYearlyChartData, setHalfYearlyChartData] = useState<ChartData>({ 
     labels: [], 
@@ -114,58 +133,211 @@ const ViewFullReport = () => {
     try {
       setIsLoading(true);
       const userId = auth.currentUser.uid;
+      const reportsRef = collection(db, 'telecaller_reports');
+      const achievementsRef = collection(db, 'telecaller_achievements');
+      const targets = getTargets();
+      const today = new Date();
+      const currentMonth = today.getMonth();
+      const currentYear = today.getFullYear();
 
       switch (period) {
-        case 'Weekly':
-          const weeklyData = await getWeeklyReportData(userId);
+        case 'Weekly': {
+          const firstDayOfMonth = new Date(currentYear, currentMonth, 1);
+          const lastDayOfMonth = new Date(currentYear, currentMonth + 1, 0);
+          const numWeeks = Math.ceil((lastDayOfMonth.getDate() - firstDayOfMonth.getDate() + 1) / 7);
+          
+          const weeklyData: { [key: string]: { total: number; count: number } } = {};
+          for (let i = 1; i <= numWeeks; i++) {
+            weeklyData[`Week ${i}`] = { total: 0, count: 0 };
+          }
+
+          const startDate = startOfMonth(new Date(currentYear, currentMonth, 1));
+          const endDate = endOfMonth(new Date(currentYear, currentMonth, lastDayOfMonth.getDate()));
+
+          // First get all reports for the month
+          const reportsQuery = query(
+            reportsRef,
+            where('userId', '==', userId),
+            where('createdAt', '>=', Timestamp.fromDate(startDate)),
+            where('createdAt', '<=', Timestamp.fromDate(endDate)),
+            orderBy('createdAt', 'asc')
+          );
+
+          const reportsSnapshot = await getDocs(reportsQuery);
+          
+          // Group reports by week and calculate achievements
+          reportsSnapshot.docs.forEach(doc => {
+            const report = doc.data() as DailyReport;
+            const percentage = calculatePercentage(
+              {
+                numCalls: report.numCalls || 0,
+                callDuration: report.callDuration || 0,
+                positiveLeads: report.positiveLeads || 0,
+                closingAmount: report.closingAmount || 0
+              },
+              targets
+            );
+            
+            const weekNumber = Math.ceil((report.createdAt.toDate().getDate()) / 7);
+            const weekKey = `Week ${weekNumber}`;
+            if (weeklyData[weekKey]) {
+              weeklyData[weekKey].total += percentage;
+              weeklyData[weekKey].count++;
+            }
+          });
+
           setWeeklyChartData({
-            labels: weeklyData.labels,
-            datasets: [{ data: weeklyData.data }]
+            labels: Object.keys(weeklyData),
+            datasets: [{ data: Object.keys(weeklyData).map(week => 
+              weeklyData[week].count > 0 
+                ? Math.round((weeklyData[week].total / weeklyData[week].count) * 10) / 10
+                : 0
+            )}]
           });
           break;
+        }
 
         case 'Quarterly': {
-          const { start: qStart, end: qEnd } = getQuarterMonths(currentDate);
-          const quarterlyData = await getQuarterlyReportData(userId);
+          const monthlyData: { [key: string]: { total: number; count: number } } = {};
           
-          // Create labels based on current month
-          const currentMonth = currentDate.getMonth();
-          let labels = ['Q1', 'Q2', 'Q3'];
-          
-          // Highlight current quarter
-          const currentQuarter = getCurrentQuarter(currentDate);
-          const data = Array(3).fill(0);
-          data[currentQuarter - 1] = quarterlyData.data[currentQuarter - 1] || 0;
+          // Get current month and next two months
+          for (let i = 0; i < 3; i++) {
+            const monthDate = new Date(currentYear, currentMonth + i, 1);
+            const monthKey = format(monthDate, 'MMM');
+            monthlyData[monthKey] = { total: 0, count: 0 };
+          }
+
+          const startDate = startOfMonth(new Date(currentYear, currentMonth, 1));
+          const endDate = endOfMonth(new Date(currentYear, currentMonth + 2, 1));
+
+          // Query reports for the quarter
+          const reportsQuery = query(
+            reportsRef,
+            where('userId', '==', userId),
+            where('createdAt', '>=', Timestamp.fromDate(startDate)),
+            where('createdAt', '<=', Timestamp.fromDate(endDate)),
+            orderBy('createdAt', 'asc')
+          );
+
+          const reportsSnapshot = await getDocs(reportsQuery);
+
+          reportsSnapshot.docs.forEach(doc => {
+            const report = doc.data() as DailyReport;
+            const percentage = calculatePercentage(
+              {
+                numCalls: report.numCalls || 0,
+                callDuration: report.callDuration || 0,
+                positiveLeads: report.positiveLeads || 0,
+                closingAmount: report.closingAmount || 0
+              },
+              targets
+            );
+            
+            const monthKey = format(report.createdAt.toDate(), 'MMM');
+            if (monthlyData[monthKey]) {
+              monthlyData[monthKey].total += percentage;
+              monthlyData[monthKey].count++;
+            }
+          });
 
           setQuarterlyChartData({
-            labels,
-            datasets: [{ data }]
+            labels: Object.keys(monthlyData),
+            datasets: [{ data: Object.keys(monthlyData).map(month => 
+              monthlyData[month].count > 0 
+                ? Math.round((monthlyData[month].total / monthlyData[month].count) * 10) / 10
+                : 0
+            )}]
           });
           break;
         }
 
         case 'Half Yearly': {
-          const { labels: hLabels, start: hStart, end: hEnd } = getHalfYearMonths(currentDate);
-          const halfYearlyData = await getHalfYearlyReportData(userId);
+          const monthlyData: { [key: string]: { total: number; count: number } } = {};
           
-          // Ensure data array has exactly 6 elements
-          const data = Array(6).fill(0);
-          halfYearlyData.data.forEach((value, index) => {
-            if (index < 6) data[index] = value;
+          // Get current month and next five months
+          for (let i = 0; i < 6; i++) {
+            const monthDate = new Date(currentYear, currentMonth + i, 1);
+            const monthKey = format(monthDate, 'MMM');
+            monthlyData[monthKey] = { total: 0, count: 0 };
+          }
+
+          const startDate = startOfMonth(new Date(currentYear, currentMonth, 1));
+          const endDate = endOfMonth(new Date(currentYear, currentMonth + 5, 1));
+
+          // Query reports for half year
+          const reportsQuery = query(
+            reportsRef,
+            where('userId', '==', userId),
+            where('createdAt', '>=', Timestamp.fromDate(startDate)),
+            where('createdAt', '<=', Timestamp.fromDate(endDate)),
+            orderBy('createdAt', 'asc')
+          );
+
+          const reportsSnapshot = await getDocs(reportsQuery);
+
+          reportsSnapshot.docs.forEach(doc => {
+            const report = doc.data() as DailyReport;
+            const percentage = calculatePercentage(
+              {
+                numCalls: report.numCalls || 0,
+                callDuration: report.callDuration || 0,
+                positiveLeads: report.positiveLeads || 0,
+                closingAmount: report.closingAmount || 0
+              },
+              targets
+            );
+            
+            const halfYearMonthKey = format(report.createdAt.toDate(), 'MMM');
+            if (monthlyData[halfYearMonthKey]) {
+              monthlyData[halfYearMonthKey].total += percentage;
+              monthlyData[halfYearMonthKey].count++;
+            }
           });
 
           setHalfYearlyChartData({
-            labels: hLabels,
-            datasets: [{ data }]
+            labels: Object.keys(monthlyData),
+            datasets: [{ data: Object.keys(monthlyData).map(month => 
+              monthlyData[month].count > 0 
+                ? Math.round((monthlyData[month].total / monthlyData[month].count) * 10) / 10
+                : 0
+            )}]
           });
           break;
         }
       }
 
-      const highest = await getHighestAchievement(userId);
-      const average = await getAverageAchievement(userId);
-      setHighestAchievement(highest);
-      setAverageAchievement(average);
+      // Calculate highest and average achievements from reports
+      const allTimeQuery = query(
+        reportsRef,
+        where('userId', '==', userId),
+        orderBy('createdAt', 'desc')
+      );
+
+      const allTimeSnapshot = await getDocs(allTimeQuery);
+      let highest = 0;
+      let total = 0;
+      let count = 0;
+
+      allTimeSnapshot.docs.forEach(doc => {
+        const report = doc.data() as DailyReport;
+        const percentage = calculatePercentage(
+          {
+            numCalls: report.numCalls || 0,
+            callDuration: report.callDuration || 0,
+            positiveLeads: report.positiveLeads || 0,
+            closingAmount: report.closingAmount || 0
+          },
+          targets
+        );
+        
+        highest = Math.max(highest, percentage);
+        total += percentage;
+        count++;
+      });
+
+      setHighestAchievement(Math.round(highest * 10) / 10);
+      setAverageAchievement(count > 0 ? Math.round((total / count) * 10) / 10 : 0);
+
     } catch (error) {
       console.error('Error fetching report data:', error);
     } finally {
@@ -173,18 +345,41 @@ const ViewFullReport = () => {
     }
   };
 
+  // Helper function to calculate percentage achievement
+  const calculatePercentage = (achievements: Achievements, targets: Targets): number => {
+    const numCallsPercentage = (achievements.numCalls / targets.numCalls) * 100;
+    const callDurationPercentage = (achievements.callDuration / targets.callDuration) * 100;
+    const positiveLeadsPercentage = (achievements.positiveLeads / targets.positiveLeads) * 100;
+    const closingAmountPercentage = (achievements.closingAmount / targets.closingAmount) * 100;
+
+    // Round to 1 decimal place
+    return Math.round(((numCallsPercentage + callDurationPercentage + positiveLeadsPercentage + closingAmountPercentage) / 4) * 10) / 10;
+  };
+
   useEffect(() => {
     fetchPeriodData(selectedPeriod, timeOffset);
   }, [selectedPeriod]);
 
   const getActiveData = () => {
+    // Ensure all data points are valid numbers
+    const sanitizeData = (data: ChartData): ChartData => {
+      return {
+        labels: data.labels,
+        datasets: [{
+          data: data.datasets[0].data.map(value => 
+            isNaN(value) ? 0 : Math.round(value * 10) / 10
+          )
+        }]
+      };
+    };
+
     switch (selectedPeriod) {
       case 'Quarterly':
-        return quarterlyChartData;
+        return sanitizeData(quarterlyChartData);
       case 'Half Yearly':
-        return halfYearlyChartData;
+        return sanitizeData(halfYearlyChartData);
       default:
-        return weeklyChartData;
+        return sanitizeData(weeklyChartData);
     }
   };
 
@@ -265,7 +460,7 @@ const ViewFullReport = () => {
                   backgroundColor: '#ffffff',
                   backgroundGradientFrom: '#ffffff',
                   backgroundGradientTo: '#ffffff',
-                  decimalPlaces: 0,
+                  decimalPlaces: 1,
                   color: (opacity = 1) => `rgba(255, 132, 71, ${opacity})`,
                   labelColor: (opacity = 1) => `rgba(128, 128, 128, ${opacity})`,
                   style: {
@@ -280,6 +475,7 @@ const ViewFullReport = () => {
                     stroke: '#E5E7EB',
                     strokeWidth: 1,
                   },
+                  formatYLabel: (value) => Math.round(parseFloat(value)).toString(),
                   useShadowColorFromDataset: false,
                 }}
                 bezier
@@ -287,7 +483,7 @@ const ViewFullReport = () => {
                   marginVertical: 8,
                   borderRadius: 16,
                 }}
-                segments={selectedPeriod === 'Half Yearly' ? 5 : 4}
+                segments={4}
                 withInnerLines={true}
                 withOuterLines={true}
                 withVerticalLines={true}
@@ -296,12 +492,13 @@ const ViewFullReport = () => {
                 withVerticalLabels={true}
                 withHorizontalLabels={true}
                 withShadow={false}
+                fromZero={true}
               />
             </View>
 
             {/* Motivational Message */}
             <View style={styles.messageContainer}>
-              <Text style={styles.messageText}>Your highest record so far is {highestAchievement}% 🎉</Text>
+              <Text style={styles.messageText}>Your highest record so far is {highestAchievement.toFixed(1)}% 🎉</Text>
               <Text style={styles.subMessageText}>Keep pushing to achieve more!</Text>
             </View>
 
@@ -321,11 +518,11 @@ const ViewFullReport = () => {
             <View style={styles.statsContainer}>
               <View style={styles.statCard}>
                 <Text style={styles.statTitle}>Average Achievement</Text>
-                <Text style={styles.statValue}>{averageAchievement}%</Text>
+                <Text style={styles.statValue}>{averageAchievement.toFixed(1)}%</Text>
               </View>
               <View style={styles.statCard}>
                 <Text style={styles.statTitle}>Highest Achievement</Text>
-                <Text style={styles.statValue}>{highestAchievement}%</Text>
+                <Text style={styles.statValue}>{highestAchievement.toFixed(1)}%</Text>
               </View>
             </View>
           </ScrollView>

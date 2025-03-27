@@ -90,25 +90,35 @@ const AttendanceScreen = () => {
   const checkPunchAvailability = () => {
     const now = new Date();
     const currentTime = format(now, 'HH:mm');
+    const [currentHour, currentMinute] = currentTime.split(':').map(Number);
+    const today = format(now, 'dd');
     const tomorrow = new Date(now);
     tomorrow.setDate(tomorrow.getDate() + 1);
-    tomorrow.setHours(8, 45, 0, 0); // Set to 8:45 AM next day
+    tomorrow.setHours(8, 30, 0, 0); // Set to 8:30 AM next day
 
-    // If user has punched out today, disable punch button until tomorrow 8:45 AM
+    // If user has punched out today, disable punch button until tomorrow 8:30 AM
     if (punchOutTime) {
       setIsPunchButtonDisabled(now < tomorrow);
       return;
     }
 
-    // For punch in, check if it's before deadline
+    // For punch in, check if it's before 2 PM
     if (!punchInTime) {
-      const [currentHour, currentMinute] = currentTime.split(':').map(Number);
-      const [deadlineHour, deadlineMinute] = PUNCH_IN_DEADLINE.split(':').map(Number);
+      const punchInDeadline = '14:00'; // 2 PM
+      const [deadlineHour, deadlineMinute] = punchInDeadline.split(':').map(Number);
       
       const currentMinutes = currentHour * 60 + currentMinute;
       const deadlineMinutes = deadlineHour * 60 + deadlineMinute;
       
       setIsPunchButtonDisabled(currentMinutes > deadlineMinutes);
+    } else if (punchInTime && !punchOutTime) {
+      // Enable punch out button at 6:15 PM
+      const punchOutEnableTime = '18:15'; // 6:15 PM
+      const [enableHour, enableMinute] = punchOutEnableTime.split(':').map(Number);
+      const enableMinutes = enableHour * 60 + enableMinute;
+      const currentMinutes = currentHour * 60 + currentMinute;
+      
+      setIsPunchButtonDisabled(currentMinutes < enableMinutes);
     }
   };
 
@@ -248,17 +258,22 @@ const AttendanceScreen = () => {
     // Get current date for comparison
     const today = format(new Date(), 'dd');
     
-    // Filter dates that are:
-    // 1. Not Sundays
-    // 2. Not attended
-    // 3. Are in the past or today
-    const onLeaveDates = allDates.filter(({ dateStr, isSunday }) => 
-      !isSunday && // Exclude Sundays
-      !attendedDates.includes(dateStr) && // Not attended
-      parseInt(dateStr) <= parseInt(today) // Past or today
-    );
-    
-    counts['On Leave'] = onLeaveDates.length;
+    // If the user is new, do not count past days as 'On Leave'
+    if (history.length === 0) {
+      counts['On Leave'] = 0;
+    } else {
+      // Filter dates that are:
+      // 1. Not Sundays
+      // 2. Not attended
+      // 3. Are in the past or today
+      const onLeaveDates = allDates.filter(({ dateStr, isSunday }) => 
+        !isSunday && // Exclude Sundays
+        !attendedDates.includes(dateStr) && // Not attended
+        parseInt(dateStr) <= parseInt(today) // Past or today
+      );
+      
+      counts['On Leave'] = onLeaveDates.length;
+    }
 
     setStatusCounts(counts);
   };

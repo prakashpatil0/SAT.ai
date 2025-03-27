@@ -140,11 +140,39 @@ const ReportScreen: React.FC = () => {
       const startOfToday = startOfDay(today);
       const endOfToday = endOfDay(today);
 
-      console.log('Fetching calls between:', {
-        start: startOfToday.toISOString(),
-        end: endOfToday.toISOString()
-      });
+      // First try to get from AsyncStorage
+      const storedLogs = await AsyncStorage.getItem('device_call_logs');
+      const lastUpdate = await AsyncStorage.getItem('call_logs_last_update');
+      const now = Date.now();
 
+      if (storedLogs && lastUpdate && (now - parseInt(lastUpdate)) < 5 * 60 * 1000) {
+        // Use stored logs if they're recent
+        const parsedLogs = JSON.parse(storedLogs);
+        const todayLogs = parsedLogs.filter((log: any) => {
+          const logDate = new Date(log.timestamp);
+          return logDate >= startOfToday && logDate <= endOfToday;
+        });
+
+        let totalCalls = 0;
+        let totalDuration = 0;
+
+        todayLogs.forEach((log: any) => {
+          if (log.status === 'completed') {
+            totalCalls++;
+            if (log.duration) {
+              totalDuration += Number(log.duration);
+            }
+          }
+        });
+
+        setTodayCalls(totalCalls);
+        setTodayDuration(totalDuration);
+        setNumMeetings(totalCalls.toString());
+        setMeetingDuration(formatDuration(totalDuration));
+        return;
+      }
+
+      // If no recent stored logs, fetch from Firebase
       const callLogsRef = collection(db, 'callLogs');
       const q = query(
         callLogsRef,
@@ -161,17 +189,8 @@ const ReportScreen: React.FC = () => {
 
       querySnapshot.forEach((doc) => {
         const data = doc.data();
-        console.log('Call log data:', {
-          id: doc.id,
-          status: data.status,
-          duration: data.duration,
-          timestamp: data.timestamp?.toDate?.()?.toISOString()
-        });
-
-        // Only count completed calls
         if (data.status === 'completed') {
           totalCalls++;
-          // Add duration if it exists
           if (data.duration) {
             totalDuration += Number(data.duration);
           }

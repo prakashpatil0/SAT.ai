@@ -12,7 +12,8 @@ import {
   ActivityIndicator,
   Dimensions,
   Switch,
-  TouchableWithoutFeedback
+  TouchableWithoutFeedback,
+  TextInput
 } from "react-native";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { MaterialIcons, MaterialCommunityIcons, Ionicons } from "@expo/vector-icons";
@@ -42,7 +43,7 @@ interface User {
   name: string;
   designation: string;
   email: string;
-  mobileNumber: string;
+  phoneNumber: string;
   dateOfBirth: Date;
   profileImageUrl: string | null;
 }
@@ -64,7 +65,7 @@ const ProfileScreen = () => {
     name: "",
     designation: "",
     email: "",
-    mobileNumber: "",
+    phoneNumber: "",
     dateOfBirth: new Date(),
     profileImageUrl: "",
   });
@@ -74,11 +75,11 @@ const ProfileScreen = () => {
   });
   const [errors, setErrors] = useState({
     name: '',
-    mobileNumber: ''
+    phoneNumber: ''
   });
   const [touched, setTouched] = useState({
     name: false, 
-    mobileNumber: false
+    phoneNumber: false
   });
   
   // Animation refs
@@ -97,6 +98,14 @@ const ProfileScreen = () => {
     inputRange: [0, 100],
     outputRange: [1, 0.8],
     extrapolate: 'clamp'
+  });
+
+  // Add new state for manual date input
+  const [showManualInput, setShowManualInput] = useState(false);
+  const [manualDate, setManualDate] = useState({
+    day: '',
+    month: '',
+    year: ''
   });
 
   // Fetch existing profile data
@@ -123,9 +132,9 @@ const ProfileScreen = () => {
         setFormData({
           id: userId,
           name: data.name || "",
-          designation: data.designation || "",
+          designation: data.role || "",
           email: data.email || auth.currentUser?.email || "",
-          mobileNumber: data.mobileNumber || "",
+          phoneNumber: data.phoneNumber || "",
           dateOfBirth: data.dateOfBirth?.toDate() || new Date(),
           profileImageUrl: data.profileImageUrl || "",
         });
@@ -182,18 +191,18 @@ const ProfileScreen = () => {
     }
   };
 
-  const validateMobileNumber = (text: string) => {
+  const validatePhoneNumber = (text: string) => {
     // Keep only numbers
     const cleaned = text.replace(/\D/g, '');
-    setFormData(prev => ({ ...prev, mobileNumber: cleaned }));
+    setFormData(prev => ({ ...prev, phoneNumber: cleaned }));
     
-    if (!touched.mobileNumber) return true;
+    if (!touched.phoneNumber) return true;
     
     if (cleaned.length < 10) {
-      setErrors(prev => ({ ...prev, mobileNumber: "Phone number must be at least 10 digits" }));
+      setErrors(prev => ({ ...prev, phoneNumber: "Phone number must be at least 10 digits" }));
       return false;
     } else {
-      setErrors(prev => ({ ...prev, mobileNumber: "" }));
+      setErrors(prev => ({ ...prev, phoneNumber: "" }));
       return true;
     }
   };
@@ -207,8 +216,8 @@ const ProfileScreen = () => {
     // Validate field on blur
     if (field === 'name') {
       validateName(formData.name);
-    } else if (field === 'mobileNumber') {
-      validateMobileNumber(formData.mobileNumber);
+    } else if (field === 'phoneNumber') {
+      validatePhoneNumber(formData.phoneNumber);
     }
   };
 
@@ -216,9 +225,9 @@ const ProfileScreen = () => {
     try {
       // Validate all fields
       const isNameValid = validateName(formData.name);
-      const isMobileValid = validateMobileNumber(formData.mobileNumber);
+      const isPhoneNumberValid = validatePhoneNumber(formData.phoneNumber);
       
-      if (!isNameValid || !isMobileValid) {
+      if (!isNameValid || !isPhoneNumberValid) {
         return;
       }
       
@@ -250,7 +259,7 @@ const ProfileScreen = () => {
       const updateData = {
         name: formData.name,
         designation: formData.designation,
-        mobileNumber: formData.mobileNumber,
+        phoneNumber: formData.phoneNumber,
         dateOfBirth: formData.dateOfBirth,
         updatedAt: serverTimestamp(),
         profileImageUrl: profileImageUrl || formData.profileImageUrl
@@ -280,17 +289,13 @@ const ProfileScreen = () => {
   };
 
   const handleDateChange = (event: DateTimePickerEvent, selectedDate?: Date) => {
-    if (Platform.OS === 'android') {
-      setShowDatePicker(false);
+    if (event.type === 'set' && selectedDate) {
+      // Ensure the selected date is not in the future
+      const maxDate = new Date();
+      const finalDate = selectedDate > maxDate ? maxDate : selectedDate;
+      setFormData(prev => ({ ...prev, dateOfBirth: finalDate }));
     }
-    
-    if (selectedDate) {
-      setFormData(prev => ({ ...prev, dateOfBirth: selectedDate }));
-    }
-    
-    if (Platform.OS === 'ios') {
-      setShowDatePicker(false);
-    }
+    setShowDatePicker(Platform.OS === 'ios');
   };
 
   const openImagePicker = () => {
@@ -353,6 +358,32 @@ const ProfileScreen = () => {
       day: 'numeric' 
     };
     return date.toLocaleDateString(undefined, options);
+  };
+
+  // Add new function to handle manual date input
+  const handleManualDateSubmit = () => {
+    const day = parseInt(manualDate.day);
+    const month = parseInt(manualDate.month) - 1; // JavaScript months are 0-based
+    const year = parseInt(manualDate.year);
+
+    if (isNaN(day) || isNaN(month) || isNaN(year)) {
+      Alert.alert('Error', 'Please enter valid date values');
+      return;
+    }
+
+    const date = new Date(year, month, day);
+    if (date.toString() === 'Invalid Date') {
+      Alert.alert('Error', 'Please enter a valid date');
+      return;
+    }
+
+    // Ensure the date is not in the future
+    const maxDate = new Date();
+    const finalDate = date > maxDate ? maxDate : date;
+    
+    setFormData(prev => ({ ...prev, dateOfBirth: finalDate }));
+    setShowManualInput(false);
+    setManualDate({ day: '', month: '', year: '' });
   };
 
   if (isLoading) {
@@ -457,11 +488,11 @@ const ProfileScreen = () => {
               />
               
               <FormInput
-                label="Mobile Number"
-                value={formData.mobileNumber}
-                onChangeText={validateMobileNumber}
-                onBlur={() => handleBlur('mobileNumber')}
-                error={touched.mobileNumber ? errors.mobileNumber : undefined}
+                label="Phone Number"
+                value={formData.phoneNumber}
+                onChangeText={validatePhoneNumber}
+                onBlur={() => handleBlur('phoneNumber')}
+                error={touched.phoneNumber ? errors.phoneNumber : undefined}
                 keyboardType="phone-pad"
                 leftIcon="phone"
                 autoComplete="tel"
@@ -469,7 +500,13 @@ const ProfileScreen = () => {
               
               <TouchableOpacity 
                 style={styles.datePickerButton}
-                onPress={handleShowDatePicker}
+                onPress={() => {
+                  if (Platform.OS === 'android') {
+                    setShowDatePicker(true);
+                  } else {
+                    setShowManualInput(true);
+                  }
+                }}
               >
                 <View style={styles.datePickerContent}>
                   <MaterialIcons name="calendar-today" size={24} color="#777" style={styles.dateIcon} />
@@ -487,11 +524,62 @@ const ProfileScreen = () => {
                 <DateTimePicker
                   value={formData.dateOfBirth}
                   mode="date"
-                  display={Platform.OS === "ios" ? "spinner" : "default"}
+                  display={Platform.OS === "ios" ? "spinner" : "calendar"}
                   onChange={handleDateChange}
                   maximumDate={new Date()}
                   minimumDate={new Date(1950, 0, 1)}
+                  style={{ width: '100%', backgroundColor: 'white' }}
                 />
+              )}
+
+              {showManualInput && (
+                <View style={styles.manualDateContainer}>
+                  <View style={styles.manualDateInputs}>
+                    <TextInput
+                      style={styles.manualDateInput}
+                      placeholder="DD"
+                      value={manualDate.day}
+                      onChangeText={(text) => setManualDate(prev => ({ ...prev, day: text }))}
+                      keyboardType="number-pad"
+                      maxLength={2}
+                    />
+                    <Text style={styles.dateSeparator}>/</Text>
+                    <TextInput
+                      style={styles.manualDateInput}
+                      placeholder="MM"
+                      value={manualDate.month}
+                      onChangeText={(text) => setManualDate(prev => ({ ...prev, month: text }))}
+                      keyboardType="number-pad"
+                      maxLength={2}
+                    />
+                    <Text style={styles.dateSeparator}>/</Text>
+                    <TextInput
+                      style={styles.manualDateInput}
+                      placeholder="YYYY"
+                      value={manualDate.year}
+                      onChangeText={(text) => setManualDate(prev => ({ ...prev, year: text }))}
+                      keyboardType="number-pad"
+                      maxLength={4}
+                    />
+                  </View>
+                  <View style={styles.manualDateActions}>
+                    <TouchableOpacity 
+                      style={[styles.manualDateButton, styles.cancelButton]}
+                      onPress={() => {
+                        setShowManualInput(false);
+                        setManualDate({ day: '', month: '', year: '' });
+                      }}
+                    >
+                      <Text style={styles.cancelButtonText}>Cancel</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity 
+                      style={[styles.manualDateButton, styles.submitButton]}
+                      onPress={handleManualDateSubmit}
+                    >
+                      <Text style={styles.submitButtonText}>Set Date</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
               )}
             </View>
           </View>
@@ -653,15 +741,16 @@ const styles = StyleSheet.create({
     fontFamily: 'LexendDeca_400Regular',
   },
   saveButton: {
-    height: 56,
+    height: 50,
     borderRadius: 12,
     overflow: 'hidden',
-    marginVertical: 16,
+    marginVertical: 30,
     elevation: 4,
     shadowColor: '#FF8447',
     shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.3,
     shadowRadius: 5,
+    marginBottom: 40,
   },
   saveGradient: {
     flex: 1,
@@ -675,6 +764,62 @@ const styles = StyleSheet.create({
   },
   spacer: {
     height: 40,
+  },
+  manualDateContainer: {
+    marginTop: 8,
+    backgroundColor: '#f9f9f9',
+    borderRadius: 10,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#ddd',
+  },
+  manualDateInputs: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  manualDateInput: {
+    flex: 1,
+    height: 40,
+    backgroundColor: 'white',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    textAlign: 'center',
+    borderWidth: 1,
+    borderColor: '#ddd',
+    marginHorizontal: 4,
+  },
+  dateSeparator: {
+    fontSize: 18,
+    color: '#666',
+    marginHorizontal: 4,
+  },
+  manualDateActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 8,
+  },
+  manualDateButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    minWidth: 80,
+    alignItems: 'center',
+  },
+  cancelButton: {
+    backgroundColor: '#f0f0f0',
+  },
+  submitButton: {
+    backgroundColor: '#FF8447',
+  },
+  cancelButtonText: {
+    color: '#666',
+    fontFamily: 'LexendDeca_500Medium',
+  },
+  submitButtonText: {
+    color: 'white',
+    fontFamily: 'LexendDeca_500Medium',
   },
 })
 

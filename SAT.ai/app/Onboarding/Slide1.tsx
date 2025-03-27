@@ -10,8 +10,8 @@ const { width, height } = Dimensions.get('window');
 const slides = [
   {
     id: 1,
-    title: "Welcome To SAT",
-    description: "SAT is designed to streamline sales tracking, improve productivity, and provide real-time insights for telecallers and BDMs.",
+    title: "Welcome To SAT.ai",
+    description: "SAT.ai is designed to streamline sales tracking, improve productivity, and provide real-time insights for telecallers and BDMs.",
     image: require('../../assets/images/Slide1.png'),
   },
   {
@@ -35,7 +35,7 @@ const slides = [
   {
     id: 5,
     title: "Get Started",
-    description: "Boost productivity and drive results with SAT, start tracking and achieving your sales goals now!",
+    description: "Boost productivity and drive results with SAT.ai, start tracking and achieving your sales goals now!",
     image: require('../../assets/images/Screen5.png'),
   }
 ];
@@ -62,7 +62,7 @@ const OnboardingScreen = () => {
       Animated.sequence([
         Animated.timing(fadeAnim, {
           toValue: 1,
-          duration: 600,
+          duration: 2000,
           useNativeDriver: true,
         }),
         Animated.spring(slideAnim, {

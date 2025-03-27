@@ -10,7 +10,7 @@ import {
   ActivityIndicator,
   Alert
 } from 'react-native';
-import CallLog from 'react-native-call-log';
+import CallLog from '@react-native-call-log';
 
 const CallLogScreen = () => {
   const [callLogs, setCallLogs] = useState([]);

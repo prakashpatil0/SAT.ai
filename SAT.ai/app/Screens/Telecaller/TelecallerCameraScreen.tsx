@@ -101,6 +101,10 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ route, navigation }) => {
 
       // Get location
       const { status: locationStatus } = await Location.requestForegroundPermissionsAsync();
+      if (locationStatus !== 'granted') {
+        Alert.alert('Permission Required', 'Location permission is required to take attendance.');
+        return;
+      }
       const location = await Location.getCurrentPositionAsync({});
       const { latitude, longitude } = location.coords;
 
@@ -120,13 +124,13 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ route, navigation }) => {
       });
 
       // Navigate back with attendance data
-      navigation.navigate('Attendance', {
+      navigation.navigate('AttendanceScreen', {
         photo: { uri: photoUrl },
         location: `${latitude}, ${longitude}`,
         dateTime: now,
         isPunchIn,
       });
-    } catch (error) {
+    } catch (error: any) {
       console.error('Storage Error:', error);
       let errorMessage = 'Failed to save photo. Please try again.';
       if (error.code === 'storage/unauthorized') {

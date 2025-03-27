@@ -76,7 +76,7 @@ const SignUpScreen = () => {
   const [formData, setFormData] = useState({
     name: '',
     email: '',
-    phone: '',
+    phoneNumber: '',
     password: '',
     confirmPassword: '',
     role: '',
@@ -112,7 +112,7 @@ const SignUpScreen = () => {
       const userData = {
         name: formData.name.trim(),
         email: formData.email.trim().toLowerCase(),
-        phone: formData.phone.trim(),
+        phoneNumber: formData.phoneNumber.trim(),
         role: formData.role.toLowerCase(),
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
@@ -211,14 +211,14 @@ const SignUpScreen = () => {
       return false;
     }
 
-    if (!formData.phone.trim()) {
+    if (!formData.phoneNumber.trim()) {
       Alert.alert('Error', 'Please enter your phone number');
       return false;
     }
 
     // Phone validation (Indian format)
     const phoneRegex = /^[6-9]\d{9}$/;
-    if (!phoneRegex.test(formData.phone.replace(/[^0-9]/g, ''))) {
+    if (!phoneRegex.test(formData.phoneNumber.replace(/[^0-9]/g, ''))) {
       Alert.alert('Error', 'Please enter a valid phone number');
       return false;
     }
@@ -311,8 +311,8 @@ const SignUpScreen = () => {
           <FormField>
             <TextInput
               label="Phone Number"
-              value={formData.phone}
-              onChangeText={(text) => setFormData({ ...formData, phone: text })}
+              value={formData.phoneNumber}
+              onChangeText={(text) => setFormData({ ...formData, phoneNumber: text })}
               mode="outlined"
               keyboardType="phone-pad"
               left={<TextInput.Icon icon="phone" color="#B1B1B1"/>}

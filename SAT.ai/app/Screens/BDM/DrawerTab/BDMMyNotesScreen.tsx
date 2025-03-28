@@ -294,7 +294,7 @@ const BDMMyNotesScreen = () => {
 
   return (
     <AppGradient>
-    <BDMMainLayout title="My Notes" showBackButton showDrawer={true}>
+    <BDMMainLayout title="My Scripts" showBackButton showDrawer={true}>
       <View style={styles.container}>
         {error ? (
           <View style={styles.errorContainer}>
@@ -309,8 +309,8 @@ const BDMMyNotesScreen = () => {
         ) : notes.length === 0 ? (
           <View style={styles.emptyContainer}>
             <MaterialIcons name="note-add" size={64} color="#CCCCCC" />
-            <Text style={styles.emptyText}>No notes yet</Text>
-            <Text style={styles.emptySubText}>Tap the + button to create your first note</Text>
+            <Text style={styles.emptyText}>No scripts yet</Text>
+            <Text style={styles.emptySubText}>Tap the + button to create your first script</Text>
           </View>
         ) : (
           <ScrollView 
@@ -602,6 +602,9 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.3,
     shadowRadius: 3,
+    borderBottomRightRadius: 1,
+    borderColor: "#FFF",
+    borderWidth: 2,
   },
   modalContainer: {
     flex: 1,

@@ -594,7 +594,8 @@ const styles = StyleSheet.create({
   eventsContainer: {
     flex: 1,
     position: 'relative',
-    minHeight: 630, // 21 slots * 30px for full day coverage
+    minHeight: 610, // 21 slots * 30px for full day coverage
+    marginBottom: 80,
   },
   dayColumn: {
     width: 150,
@@ -602,6 +603,8 @@ const styles = StyleSheet.create({
     borderRightWidth: 1,
     borderColor: '#E0E0E0',
     minHeight: 630, // Match eventsContainer height
+    marginBottom: 80,
+    
   },
   modalOverlay: {
     flex: 1,

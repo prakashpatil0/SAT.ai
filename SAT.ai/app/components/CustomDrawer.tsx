@@ -79,7 +79,7 @@ const CustomDrawer = (props: DrawerContentComponentProps) => {
           onPress={() => handleNavigate('Profile')}
         >
           <Image 
-            source={profileImage ? { uri: profileImage } : require("../../assets/images/person.png")} 
+            source={profileImage ? { uri: profileImage } : require("../../assets/images/girl.png")} 
             style={styles.profileImage} 
           />
           <View style={styles.profileTextContainer}>

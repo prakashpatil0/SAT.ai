@@ -366,6 +366,10 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.25,
     shadowRadius: 4,
+    marginBottom: 65,
+    borderBottomRightRadius:1,
+    borderWidth: 3,
+    borderColor: "#FFF"
   },
 });
 

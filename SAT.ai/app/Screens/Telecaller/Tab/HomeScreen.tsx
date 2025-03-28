@@ -263,56 +263,29 @@ const HomeScreen = () => {
 
       const now = new Date();
       const thirtyDaysAgo = new Date(now.getTime() - THIRTY_DAYS_MS);
-      const startOfToday = new Date(now.setHours(0, 0, 0, 0));
 
       const callLogsRef = collection(db, 'callLogs');
 
-      // Fetch current day's logs with real-time listener
-      const currentDayQuery = query(
-        callLogsRef,
-        where('userId', '==', userId),
-        where('timestamp', '>=', startOfToday),
-        orderBy('timestamp', 'desc')
-      );
-
-      // Fetch last 30 days logs (excluding current day)
-      const olderLogsQuery = query(
+      // Set up real-time listener for all logs in the last 30 days
+      const logsQuery = query(
         callLogsRef,
         where('userId', '==', userId),
         where('timestamp', '>=', thirtyDaysAgo),
-        where('timestamp', '<', startOfToday),
         orderBy('timestamp', 'desc')
       );
 
-      // Set up real-time listener for current day's logs
-      const unsubscribeCurrentDay = onSnapshot(currentDayQuery, async (snapshot) => {
-        const currentDayLogs = await processCallLogs(snapshot);
-        updateCallLogsState(currentDayLogs, 'current');
+      // Set up real-time listener
+      const unsubscribe = onSnapshot(logsQuery, async (snapshot) => {
+        const logs = await processCallLogs(snapshot);
+        updateCallLogsState(logs, 'all');
         
-        // Fetch device call logs immediately when current day logs update
+        // Fetch device call logs immediately when logs update
         if (Platform.OS === 'android') {
           await fetchDeviceCallLogs();
         }
       });
 
-      // Fetch older logs periodically
-      const fetchOlderLogs = async () => {
-        const olderLogsSnapshot = await getDocs(olderLogsQuery);
-        const olderLogs = await processCallLogs(olderLogsSnapshot);
-        updateCallLogsState(olderLogs, 'older');
-      };
-
-      // Initial fetch of older logs
-      await fetchOlderLogs();
-
-      // Set up interval for older logs
-      const olderLogsInterval = setInterval(fetchOlderLogs, OLDER_LOGS_UPDATE_INTERVAL);
-
-      // Return cleanup function
-      return () => {
-        unsubscribeCurrentDay();
-        clearInterval(olderLogsInterval);
-      };
+      return unsubscribe;
     } catch (err: unknown) {
       const error = err as Error;
       console.error('Error fetching call logs:', error);
@@ -364,7 +337,7 @@ const HomeScreen = () => {
   };
 
   // Add helper function to update call logs state
-  const updateCallLogsState = (newLogs: CallLog[], type: 'current' | 'older') => {
+  const updateCallLogsState = (newLogs: CallLog[], type: 'current' | 'older' | 'all') => {
     setCallLogs(prevLogs => {
       let updatedLogs: CallLog[];
       
@@ -376,7 +349,7 @@ const HomeScreen = () => {
           return logDate.getTime() < startOfToday;
         });
         updatedLogs = [...newLogs, ...olderLogs];
-      } else {
+      } else if (type === 'older') {
         // Replace only older logs
         const currentDayLogs = prevLogs.filter(log => {
           const logDate = new Date(log.timestamp);
@@ -384,6 +357,8 @@ const HomeScreen = () => {
           return logDate.getTime() >= startOfToday;
         });
         updatedLogs = [...currentDayLogs, ...newLogs];
+      } else {
+        updatedLogs = newLogs;
       }
 
       // Sort logs by timestamp in descending order
@@ -492,11 +467,17 @@ const HomeScreen = () => {
           // Proceed with making the call
           const url = `tel:${phoneNumber}`;
           await Linking.openURL(url);
+          // Clear the phone number and close dialer
+          setPhoneNumber('');
+          closeDialer();
         }
       } else {
         // For iOS, directly open the dialer
         const url = `tel:${phoneNumber}`;
         await Linking.openURL(url);
+        // Clear the phone number and close dialer
+        setPhoneNumber('');
+        closeDialer();
       }
     } catch (error) {
       console.error('Error making call:', error);
@@ -537,6 +518,11 @@ const HomeScreen = () => {
       if (phoneUrl && await Linking.canOpenURL(phoneUrl)) {
         await Linking.openURL(phoneUrl);
         setCallActive(true);
+        // Clear the phone number if dialer is open
+        if (isDialerVisible) {
+          setPhoneNumber('');
+          closeDialer();
+        }
       } else {
         throw new Error('Cannot make phone call');
       }
@@ -558,20 +544,20 @@ const HomeScreen = () => {
       const lastUpdate = await AsyncStorage.getItem(CALL_LOGS_LAST_UPDATE);
       const storedLogs = await AsyncStorage.getItem(CALL_LOGS_STORAGE_KEY);
       const now = Date.now();
-      const startOfToday = new Date().setHours(0, 0, 0, 0);
+      const thirtyDaysAgo = new Date(now - THIRTY_DAYS_MS);
 
       // If we have stored logs and they're recent, use them
       if (storedLogs && lastUpdate && (now - parseInt(lastUpdate)) < 60000) { // 1 minute threshold
         try {
           const parsedLogs = JSON.parse(storedLogs);
-          // Filter only today's logs
-          const todayLogs = parsedLogs.filter((log: any) => {
+          // Filter logs from last 30 days
+          const recentLogs = parsedLogs.filter((log: any) => {
             const logTimestamp = new Date(log.timestamp).getTime();
-            return logTimestamp >= startOfToday;
+            return logTimestamp >= thirtyDaysAgo.getTime();
           });
           
           // Format and update logs
-          const formattedLogs = todayLogs.map((log: any) => ({
+          const formattedLogs = recentLogs.map((log: any) => ({
             ...log,
             timestamp: new Date(log.timestamp).toISOString(),
             duration: parseInt(log.duration) || 0,
@@ -579,8 +565,8 @@ const HomeScreen = () => {
             status: log.status || 'completed'
           }));
           
-          // Update only today's logs in state
-          updateCallLogsState(formattedLogs, 'current');
+          // Update logs in state
+          updateCallLogsState(formattedLogs, 'all');
         } catch (error) {
           console.error('Error parsing stored logs:', error);
           await fetchFreshLogs();
@@ -607,7 +593,7 @@ const HomeScreen = () => {
             type: log.type || 'outgoing',
             status: log.status || 'completed'
           }));
-          updateCallLogsState(formattedLogs, 'current');
+          updateCallLogsState(formattedLogs, 'all');
         }
       } catch (storageError) {
         console.error('Error reading from storage:', storageError);
@@ -626,15 +612,16 @@ const HomeScreen = () => {
         const logs = await CallLog.loadAll();
         console.log('Device call logs:', logs);
 
-        const startOfToday = new Date().setHours(0, 0, 0, 0);
+        const thirtyDaysAgo = new Date();
+        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
         
-        // Filter only today's logs
-        const todayLogs = logs.filter((log: any) => {
+        // Filter logs from last 30 days
+        const recentLogs = logs.filter((log: any) => {
           const logTimestamp = parseInt(log.timestamp);
-          return logTimestamp >= startOfToday;
+          return logTimestamp >= thirtyDaysAgo.getTime();
         });
 
-        const formattedLogs = todayLogs.map((log: any) => ({
+        const formattedLogs = recentLogs.map((log: any) => ({
           id: String(log.timestamp),
           phoneNumber: log.phoneNumber,
           contactName: log.name && log.name !== "Unknown" ? log.name : log.phoneNumber,
@@ -648,8 +635,8 @@ const HomeScreen = () => {
         await AsyncStorage.setItem(CALL_LOGS_STORAGE_KEY, JSON.stringify(formattedLogs));
         await AsyncStorage.setItem(CALL_LOGS_LAST_UPDATE, String(Date.now()));
 
-        // Update only today's logs in state
-        updateCallLogsState(formattedLogs, 'current');
+        // Update logs in state
+        updateCallLogsState(formattedLogs, 'all');
       }
     }
   };
@@ -661,8 +648,6 @@ const HomeScreen = () => {
     
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-    const startOfToday = new Date();
-    startOfToday.setHours(0, 0, 0, 0);
     
     // First, collect all calls for the last 30 days
     logs.forEach(log => {
@@ -705,6 +690,8 @@ const HomeScreen = () => {
         }
 
         // Update today's calls if applicable
+        const startOfToday = new Date();
+        startOfToday.setHours(0, 0, 0, 0);
         if (logDate >= startOfToday) {
           monthlyHistory[log.phoneNumber].todayCalls.count++;
           monthlyHistory[log.phoneNumber].todayCalls.duration += log.duration || 0;
@@ -923,15 +910,16 @@ const HomeScreen = () => {
           
           // Fetch fresh device logs
           const logs = await CallLog.loadAll();
-          const startOfToday = new Date().setHours(0, 0, 0, 0);
+          const thirtyDaysAgo = new Date();
+          thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
           
-          // Filter only today's logs
-          const todayLogs = logs.filter((log: any) => {
+          // Filter logs from last 30 days
+          const recentLogs = logs.filter((log: any) => {
             const logTimestamp = parseInt(log.timestamp);
-            return logTimestamp >= startOfToday;
+            return logTimestamp >= thirtyDaysAgo.getTime();
           });
 
-          const formattedLogs = todayLogs.map((log: any) => ({
+          const formattedLogs = recentLogs.map((log: any) => ({
             id: String(log.timestamp),
             phoneNumber: log.phoneNumber,
             contactName: log.name && log.name !== "Unknown" ? log.name : log.phoneNumber,
@@ -945,8 +933,8 @@ const HomeScreen = () => {
           await AsyncStorage.setItem(CALL_LOGS_STORAGE_KEY, JSON.stringify(formattedLogs));
           await AsyncStorage.setItem(CALL_LOGS_LAST_UPDATE, String(Date.now()));
 
-          // Update only today's logs in state
-          updateCallLogsState(formattedLogs, 'current');
+          // Update logs in state
+          updateCallLogsState(formattedLogs, 'all');
 
           // Trigger haptic feedback
           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -1047,7 +1035,8 @@ const HomeScreen = () => {
                   />
                   <Text style={styles.callTime}>
                     {new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    {item.monthlyHistory?.todayCalls?.duration > 0 && ` • ${formatDuration(item.monthlyHistory.todayCalls.duration)}`}
+                    {item.monthlyHistory && item.monthlyHistory.todayCalls && item.monthlyHistory.todayCalls.duration > 0 && 
+                      ` • ${formatDuration(item.monthlyHistory.todayCalls.duration)}`}
                   </Text>
                 </View>
               </View>

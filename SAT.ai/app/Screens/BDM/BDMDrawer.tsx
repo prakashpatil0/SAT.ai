@@ -80,7 +80,7 @@ const BDMDrawer = (props: DrawerContentComponentProps) => {
           onPress={() => handleNavigate('BDMProfile')}
         >
           <Image 
-            source={profileImage ? { uri: profileImage } : require("@/assets/images/policy_planner_logo.png")} 
+            source={profileImage ? { uri: profileImage } : require("@/assets/images/person.png")} 
             style={styles.profileImage} 
           />
           <View style={styles.profileTextContainer}>

@@ -31,7 +31,7 @@ const BDMMainLayout: React.FC<BDMMainLayoutProps> = ({
     ? { uri: profileImage } 
     : userProfile?.profileImageUrl 
       ? { uri: userProfile.profileImageUrl } 
-      : require('@/assets/images/girl.png');
+      : require('@/assets/images/person.png');
 
   return (
     <View style={styles.container}>

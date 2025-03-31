@@ -124,7 +124,7 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ route, navigation }) => {
       });
 
       // Navigate back with attendance data
-      navigation.navigate('AttendanceScreen', {
+      navigation.navigate('Attendance' as never, {
         photo: { uri: photoUrl },
         location: `${latitude}, ${longitude}`,
         dateTime: now,

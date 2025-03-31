@@ -16,12 +16,15 @@ import { db, auth } from '@/firebaseConfig';
 import { useProfile } from '@/app/context/ProfileContext';
 
 interface UserProfile {
-  firstName: string;
-  lastName: string;
+  name: string;
   designation: string;
-  phone: string;
+  phoneNumber: string;
   email: string;
-  profileImage?: string;
+  dateOfBirth: Date;
+  profileImageUrl: string | null;
+  address?: string;
+  companyName?: string;
+  website?: string;
 }
 
 const VirtualBusinessCard = () => {
@@ -30,9 +33,8 @@ const VirtualBusinessCard = () => {
   const navigation = useNavigation();
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const { profileImage } = useProfile(); // Get profile image from context
+  const { profileImage } = useProfile();
 
-  // Fetch user profile data with real-time updates
   useEffect(() => {
     const fetchUserProfile = async () => {
       try {
@@ -42,10 +44,8 @@ const VirtualBusinessCard = () => {
           return;
         }
 
-        // Get user document from users collection
         const userDocRef = doc(db, 'users', userId);
         
-        // Set up real-time listener for updates
         const unsubscribe = onSnapshot(userDocRef, (doc) => {
           if (!doc.exists()) {
             setError('User profile not found');
@@ -54,12 +54,15 @@ const VirtualBusinessCard = () => {
 
           const userData = doc.data();
           setUserProfile({
-            firstName: userData.name?.split(' ')[0] || '',
-            lastName: userData.name?.split(' ').slice(1).join(' ') || '',
+            name: userData.name || '',
             designation: userData.designation || 'Telecaller',
-            phone: userData.mobileNumber || '',
+            phoneNumber: userData.phoneNumber || '',
             email: userData.email || auth.currentUser?.email || '',
-            profileImage: userData.profileImageUrl
+            dateOfBirth: userData.dateOfBirth?.toDate() || new Date(),
+            profileImageUrl: userData.profileImageUrl || null,
+            address: userData.address || 'Office No. B-03, KPCT Mall, Near Vishal Mega Mart, Fatima Nagar, Wanawadi, Pune 411013.',
+            companyName: userData.companyName || 'Policy Planner',
+            website: userData.website || 'www.policyplanner.com'
           });
         }, (error) => {
           console.error('Error in profile listener:', error);
@@ -156,14 +159,8 @@ const VirtualBusinessCard = () => {
     <AppGradient>
       <TelecallerMainLayout showDrawer showBottomTabs={true} showBackButton={true} title='Virtual Business Card'>
         <View style={styles.container}>
-          {/* Header */}
-          <View style={styles.header}>
-          </View>
-
-          {/* Capture Card for Sharing */}
           <ViewShot ref={viewShotRef} options={{ format: 'png', quality: 0.9 }}>
             <Animated.View style={[styles.card, { opacity: fadeAnim }]}>
-              {/* Card Top with Gradient Background */}
               <View style={styles.cardTop}>
                 <LinearGradient
                   colors={['#FCE8DC', '#FFFFFF']}
@@ -171,20 +168,21 @@ const VirtualBusinessCard = () => {
                   start={{ x: 0, y: 0 }}
                   end={{ x: 1, y: 1 }}
                 />
-                <Image source={require("@/assets/images/policy_planner_logo.png")} style={styles.logo} />
+                <Image 
+                  source={userProfile?.profileImageUrl ? { uri: userProfile.profileImageUrl } : require("@/assets/images/policy_planner_logo.png")} 
+                  style={styles.logo} 
+                />
               </View>
 
-              {/* Business Card Details */}
               <Text style={styles.name}>
-                {userProfile?.firstName} <Text style={styles.highlight}>{userProfile?.lastName}</Text>
+                {userProfile?.name}
               </Text>
               <Text style={styles.designation}>{userProfile?.designation}</Text>
 
-              {/* Contact Details */}
               <View style={styles.infoContainer}>
                 <View style={styles.infoRow}>
                   <MaterialIcons name="phone" size={20} color="#ff7b42" />
-                  <Text style={styles.infoText}>{userProfile?.phone || 'Not provided'}</Text>
+                  <Text style={styles.infoText}>{userProfile?.phoneNumber || 'Not provided'}</Text>
                 </View>
                 <View style={styles.infoRow}>
                   <MaterialIcons name="email" size={20} color="#ff7b42" />
@@ -192,22 +190,19 @@ const VirtualBusinessCard = () => {
                 </View>
                 <View style={styles.infoRow}>
                   <MaterialIcons name="language" size={20} color="#ff7b42" />
-                  <Text style={[styles.infoText, styles.website]} onPress={() => Linking.openURL("https://www.policyplanner.com")}>
-                    www.policyplanner.com
+                  <Text style={[styles.infoText, styles.website]} onPress={() => Linking.openURL(userProfile?.website || "https://www.policyplanner.com")}>
+                    {userProfile?.website}
                   </Text>
                 </View>
                 <View style={styles.infoRow}>
                   <MaterialIcons name="location-on" size={20} color="#ff7b42" />
-                  <Text style={styles.infoText}>
-                    Office No. B-03, KPCT Mall, Near Vishal Mega Mart, Fatima Nagar, Wanawadi, Pune 411013.
-                  </Text>
+                  <Text style={styles.infoText}>{userProfile?.address}</Text>
                 </View>
               </View>
               <View style={styles.bottomLine} />
             </Animated.View>
           </ViewShot>
 
-          {/* Share & Download Buttons */}
           <Animatable.View animation="pulse" iterationCount="infinite" duration={1500}>
             <View style={styles.actionRow}>
               <TouchableOpacity style={styles.actionButton} onPress={handleShare}>
@@ -287,21 +282,14 @@ const styles = StyleSheet.create({
     resizeMode: 'contain',
     alignSelf: "flex-start",
     marginLeft: 20,
-  },       
+  },
   name: {
     fontSize: 20,
     fontFamily: "Inter_400Regular",
     textAlign: "left",
     color: '#004a77',
     marginLeft: 20,
-    top: 50,
-  },
-  highlight: {
-    color: '#EC691F',
-    fontSize: 20,
-    fontFamily: "Inter_400Regular",
-    top: 40,
-    
+    marginTop: 5,
   },
   designation: {
     fontSize: 14,

@@ -91,6 +91,21 @@ const ContactInfo: React.FC<Props> = ({ route }) => {
     }
   };
 
+  const handleDeleteContact = () => {
+    Alert.alert(
+      'Delete Contact',
+      'Are you sure you want to delete this contact?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Delete', style: 'destructive', onPress: () => {
+          // Implement delete logic here
+          showToast('Contact deleted');
+          navigation.goBack();
+        }}
+      ]
+    );
+  };
+
   const makePhoneCall = async () => {
     try {
       const phoneNumber = contact?.phoneNumber.replace(/\D/g, ''); // Remove non-digits
@@ -204,7 +219,7 @@ const ContactInfo: React.FC<Props> = ({ route }) => {
             )}
           </View>
 
-          {/* Quick Action Buttons */}
+          {/* Top Action Buttons */}
           <View style={styles.actionContainer}>
             <TouchableOpacity 
               style={styles.actionButton}
@@ -229,21 +244,12 @@ const ContactInfo: React.FC<Props> = ({ route }) => {
             <TouchableOpacity 
               style={styles.actionButton}
               onPress={sendEmail}
+              disabled={!contact.email}
             >
-              <View style={[styles.actionIcon, { backgroundColor: '#FFF3E0' }]}>
-                <MaterialIcons name="email" size={24} color="#FF9800" />
+              <View style={[styles.actionIcon, { backgroundColor: contact.email ? '#FFF3E0' : '#F0F0F0' }]}>
+                <MaterialIcons name="email" size={24} color={contact.email ? '#FF9800' : '#999'} />
               </View>
-              <Text style={styles.actionText}>Email</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity 
-              style={styles.actionButton}
-              onPress={handleShareContact}
-            >
-              <View style={[styles.actionIcon, { backgroundColor: '#F3E5F5' }]}>
-                <MaterialIcons name="share" size={24} color="#9C27B0" />
-              </View>
-              <Text style={styles.actionText}>Share</Text>
+              <Text style={[styles.actionText, { color: contact.email ? '#666' : '#999' }]}>Email</Text>
             </TouchableOpacity>
           </View>
 
@@ -276,34 +282,25 @@ const ContactInfo: React.FC<Props> = ({ route }) => {
             )}
           </View>
 
-          {/* Communication Options */}
+          {/* Share and Delete Options */}
           <View style={styles.communicationContainer}>
-            <Text style={styles.sectionTitle}>Quick Actions</Text>
+            <Text style={styles.sectionTitle}>Options</Text>
             
-            <TouchableOpacity 
-              style={styles.communicationButton}
-              onPress={() => sendMessage('whatsapp')}
-            >
-              <MaterialIcons name="message" size={20} color="#25D366" />
-              <Text style={styles.communicationText}>Send WhatsApp Message</Text>
-              <MaterialIcons name="chevron-right" size={20} color="#666" />
-            </TouchableOpacity>
-
-            <TouchableOpacity 
-              style={styles.communicationButton}
-              onPress={() => sendMessage('sms')}
-            >
-              <MaterialIcons name="sms" size={20} color="#2196F3" />
-              <Text style={styles.communicationText}>Send SMS</Text>
-              <MaterialIcons name="chevron-right" size={20} color="#666" />
-            </TouchableOpacity>
-
             <TouchableOpacity 
               style={styles.communicationButton}
               onPress={handleShareContact}
             >
               <MaterialIcons name="share" size={20} color="#9C27B0" />
               <Text style={styles.communicationText}>Share Contact</Text>
+              <MaterialIcons name="chevron-right" size={20} color="#666" />
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              style={styles.communicationButton}
+              onPress={handleDeleteContact}
+            >
+              <MaterialIcons name="delete" size={20} color="#F44336" />
+              <Text style={styles.communicationText}>Delete Contact</Text>
               <MaterialIcons name="chevron-right" size={20} color="#666" />
             </TouchableOpacity>
           </View>

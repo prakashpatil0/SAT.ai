@@ -43,7 +43,7 @@ const slides = [
 const OnboardingScreen = () => {
   const navigation = useNavigation();
   const [currentIndex, setCurrentIndex] = useState(0);
-  const swiperRef = useRef(null);
+  const swiperRef = useRef<Swiper | null>(null);
   const fadeAnim = useRef(new Animated.Value(1)).current;
   const slideAnim = useRef(new Animated.Value(0)).current;
   const scaleAnim = useRef(new Animated.Value(1)).current;
@@ -101,7 +101,7 @@ const OnboardingScreen = () => {
     animateContent(currentIndex);
   }, [currentIndex]);
 
-  // Auto-slide every 6 seconds
+  // Auto-slide every 30 seconds
   useEffect(() => {
     const autoSlide = setInterval(() => {
       if (currentIndex < slides.length - 1) {
@@ -110,7 +110,7 @@ const OnboardingScreen = () => {
       } else {
         clearInterval(autoSlide);
       }
-    }, 6000);
+    }, 40000);
 
     return () => clearInterval(autoSlide);
   }, [currentIndex]);
@@ -300,7 +300,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     position: 'absolute',
     bottom: height * 0.05,
-    zIndex: 2,
+    zIndex: 3,
   },
   bottomNavigation: {
     width: '100%',
@@ -349,6 +349,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     right: 20,
     bottom: 10,
+    zIndex: 3,
   },
   navButton: {
     width: 48,

@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-export const DEFAULT_PROFILE_IMAGE = 'https://i.imgur.com/6XYGPhx.png'; // Replace with your default image URL
+export const DEFAULT_PROFILE_IMAGE = require('@/assets/images/girl.png'); // Replace with your default image URL
 
 export const saveProfilePhoto = async (photoUri: string) => {
   try {

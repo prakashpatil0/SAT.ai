@@ -19,6 +19,8 @@ import api from '@/app/services/api';
 import { useProfile } from '@/app/context/ProfileContext';
 import TelecallerAddContactModal from '@/app/Screens/Telecaller/TelecallerAddContactModal';
 import { getCurrentWeekAchievements } from "@/app/services/targetService";
+import targetService from "@/app/services/targetService";
+import Dialer from '@/app/components/Dialer/Dialer';
 
 // Define navigation types
 type RootStackParamList = {
@@ -74,12 +76,15 @@ interface SimCallLog {
   contactName?: string;
 }
 
+// Update the Contact interface
 interface Contact {
+  id: string;
   firstName: string;
   lastName: string;
-  phoneNumbers?: Array<{
-    number: string;
-  }>;
+  phoneNumber: string;
+  email?: string;
+  userId: string;
+  createdAt: Date;
 }
 
 // Update the MonthlyCallHistory interface
@@ -165,6 +170,8 @@ const HomeScreen = () => {
       },
     })
   ).current;
+  const [contacts, setContacts] = useState<Contact[]>([]);
+  const [isLoadingContacts, setIsLoadingContacts] = useState(false);
 
   // Add function to check if number is saved
   const isNumberSaved = (phoneNumber: string) => {
@@ -252,6 +259,43 @@ const HomeScreen = () => {
     fetchUserDetails();
   }, [userProfile]);
 
+  // Update the fetchContacts function
+  const fetchContacts = async () => {
+    try {
+      setIsLoadingContacts(true);
+      const userId = auth.currentUser?.uid;
+      if (!userId) return;
+
+      const contactsRef = collection(db, 'contacts');
+      const q = query(contactsRef, where('userId', '==', userId));
+      const querySnapshot = await getDocs(q);
+      
+      const contactsList = querySnapshot.docs.map(doc => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          firstName: data.firstName || '',
+          lastName: data.lastName || '',
+          phoneNumber: data.phoneNumber || '',
+          email: data.email,
+          userId: data.userId,
+          createdAt: data.createdAt?.toDate() || new Date(),
+        } as Contact;
+      });
+
+      setContacts(contactsList);
+    } catch (error) {
+      console.error('Error fetching contacts:', error);
+    } finally {
+      setIsLoadingContacts(false);
+    }
+  };
+
+  // Add useEffect to fetch contacts
+  useEffect(() => {
+    fetchContacts();
+  }, []);
+
   // Update the fetchCallLogs function
   const fetchCallLogs = async () => {
     try {
@@ -262,27 +306,22 @@ const HomeScreen = () => {
       }
 
       const now = new Date();
-      const thirtyDaysAgo = new Date(now.getTime() - THIRTY_DAYS_MS);
+      const startOfToday = new Date(now.setHours(0, 0, 0, 0));
 
       const callLogsRef = collection(db, 'callLogs');
 
-      // Set up real-time listener for all logs in the last 30 days
+      // Set up real-time listener for today's logs
       const logsQuery = query(
         callLogsRef,
         where('userId', '==', userId),
-        where('timestamp', '>=', thirtyDaysAgo),
+        where('timestamp', '>=', startOfToday),
         orderBy('timestamp', 'desc')
       );
 
       // Set up real-time listener
       const unsubscribe = onSnapshot(logsQuery, async (snapshot) => {
         const logs = await processCallLogs(snapshot);
-        updateCallLogsState(logs, 'all');
-        
-        // Fetch device call logs immediately when logs update
-        if (Platform.OS === 'android') {
-          await fetchDeviceCallLogs();
-        }
+        updateCallLogsState(logs, 'current');
       });
 
       return unsubscribe;
@@ -310,7 +349,7 @@ const HomeScreen = () => {
         id: docSnapshot.id,
         phoneNumber: data.phoneNumber || '',
         timestamp: data.timestamp?.toDate() || new Date(),
-        duration: data.duration || 0,
+        duration: data.duration|| 0,
         type: data.type || 'outgoing',
         status: data.status || 'completed',
         contactId: data.contactId,
@@ -382,9 +421,7 @@ const HomeScreen = () => {
 
     let totalSeconds = 0;
     dayLogs.forEach(log => {
-      if (log.monthlyHistory?.todayCalls?.duration) {
-        totalSeconds += log.monthlyHistory.todayCalls.duration;
-      }
+      totalSeconds += log.duration;
     });
 
     const hours = Math.floor(totalSeconds / 3600);
@@ -464,20 +501,14 @@ const HomeScreen = () => {
         const hasPermission = await requestCallLogPermission();
         
         if (hasPermission) {
-          // Proceed with making the call
           const url = `tel:${phoneNumber}`;
           await Linking.openURL(url);
-          // Clear the phone number and close dialer
-          setPhoneNumber('');
-          closeDialer();
+          setDialerVisible(false);
         }
       } else {
-        // For iOS, directly open the dialer
         const url = `tel:${phoneNumber}`;
         await Linking.openURL(url);
-        // Clear the phone number and close dialer
-        setPhoneNumber('');
-        closeDialer();
+        setDialerVisible(false);
       }
     } catch (error) {
       console.error('Error making call:', error);
@@ -1035,9 +1066,12 @@ const HomeScreen = () => {
                   />
                   <Text style={styles.callTime}>
                     {new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    {item.monthlyHistory && item.monthlyHistory.todayCalls && item.monthlyHistory.todayCalls.duration > 0 && 
-                      ` • ${formatDuration(item.monthlyHistory.todayCalls.duration)}`}
                   </Text>
+                  {item.duration > 0 && (
+                    <Text style={styles.durationText}>
+                      {` • ${formatDuration(item.duration)}`}
+                    </Text>
+                  )}
                 </View>
               </View>
             </View>
@@ -1048,7 +1082,7 @@ const HomeScreen = () => {
     );
   };
 
-  // Update the renderCallActions function
+  // Update the renderCallActions function to show call history
   const renderCallActions = (call: GroupedCallLog) => {
     const isNumberSaved = call.contactName && call.contactName !== call.phoneNumber;
 
@@ -1293,18 +1327,22 @@ const HomeScreen = () => {
     ]).start(() => setDialerVisible(false));
   };
 
-  // Add a function to fetch weekly achievement data
-  const fetchWeeklyAchievement = async () => {
+  // Function to fetch weekly achievements
+  const fetchWeeklyAchievements = async () => {
     try {
-      if (!auth.currentUser?.uid) return;
-      
-      const achievements = await getCurrentWeekAchievements(auth.currentUser.uid);
+      const userId = auth.currentUser?.uid;
+      if (!userId) {
+        console.log('No user ID found for fetching achievements');
+        return;
+      }
+
+      const achievements = await targetService.getCurrentWeekAchievements(userId);
       setWeeklyAchievement({
         percentageAchieved: achievements.percentageAchieved,
         isLoading: false
       });
     } catch (error) {
-      console.error('Error fetching weekly achievement:', error);
+      console.error('Error fetching weekly achievements:', error);
       setWeeklyAchievement({
         percentageAchieved: 0,
         isLoading: false
@@ -1312,9 +1350,11 @@ const HomeScreen = () => {
     }
   };
 
-  // Use effect to load weekly achievement on component mount
+  // Use effect to fetch achievements on mount and set interval for updates
   useEffect(() => {
-    fetchWeeklyAchievement();
+    fetchWeeklyAchievements();
+    const interval = setInterval(fetchWeeklyAchievements, 60000); // Update every minute
+    return () => clearInterval(interval);
   }, []);
 
   return (
@@ -1403,98 +1443,13 @@ const HomeScreen = () => {
         </Animated.View>
 
         {/* Dialer Modal */}
-        <Modal
+        <Dialer
           visible={isDialerVisible}
-          transparent
-          animationType="none"
-          onRequestClose={closeDialer}
-        >
-          <TouchableOpacity 
-            style={styles.modalOverlay} 
-            activeOpacity={1} 
-            onPress={closeDialer}
-          >
-            <Animated.View 
-              style={[
-                styles.dialerContainer,
-                {
-                  transform: [{ translateY: dialerY }],
-                  opacity: dialerHeight.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [0, 1],
-                  }),
-                },
-              ]}
-              {...panResponder.panHandlers}
-            >
-              <View style={styles.dragIndicator} />
-              
-              <View style={styles.dialerContent}>
-                <View style={styles.dialerHeader}>
-                  <Text style={styles.phoneNumberDisplay}>
-                    {phoneNumber || ''}
-                  </Text>
-                  <View style={styles.dialerActions}>
-                    {phoneNumber.length > 0 && (
-                      <>
-                        {!isNumberSaved(phoneNumber) && (
-                          <TouchableOpacity
-                            style={styles.addContactButtonDialer}
-                            onPress={() => {
-                              closeDialer();
-                              navigation.navigate('AddContactModal', { 
-                                phoneNumber: phoneNumber,
-                                onContactSaved: () => {
-                                  loadSavedContacts();
-                                  setPhoneNumber('');
-                                }
-                              });
-                            }}
-                          >
-                            <MaterialIcons name="person-add" size={24} color="#FF8447" />
-                          </TouchableOpacity>
-                        )}
-                        <TouchableOpacity
-                          onPress={handleBackspace}
-                          style={styles.backspaceButton}
-                        >
-                          <MaterialIcons name="backspace" size={24} color="#666" />
-                        </TouchableOpacity>
-                      </>
-                    )}
-                  </View>
-                </View>
-
-                <View style={styles.dialPad}>
-                  {Array.from({ length: 4 }, (_, rowIndex) => (
-                    <View key={rowIndex} style={styles.dialRow}>
-                      {dialPad.slice(rowIndex * 3, (rowIndex + 1) * 3).map((item) => (
-                        <TouchableOpacity
-                          key={item.num}
-                          style={styles.dialButton}
-                          onPress={() => {
-                            handleDialPress(item.num);
-                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                          }}
-                        >
-                          <Text style={styles.dialButtonNumber}>{item.num}</Text>
-                          <Text style={styles.dialButtonAlpha}>{item.alpha}</Text>
-                        </TouchableOpacity>
-                      ))}
-                    </View>
-                  ))}
-                </View>
-
-                <TouchableOpacity 
-                  style={styles.callButton}
-                  onPress={() => handleCall(phoneNumber)}
-                >
-                  <MaterialIcons name="call" size={32} color="#FFF" />
-                </TouchableOpacity>
-              </View>
-            </Animated.View>
-          </TouchableOpacity>
-        </Modal>
+          onClose={() => setDialerVisible(false)}
+          onCallPress={handleCall}
+          contacts={contacts}
+          isLoading={isLoadingContacts}
+        />
 
         <TelecallerAddContactModal
           visible={addContactModalVisible}
@@ -1599,11 +1554,6 @@ const styles = StyleSheet.create({
     fontFamily: 'LexendDeca_500Medium',
     color: '#666',
   },
-  durationText: {
-    fontSize: 14,
-    fontFamily: 'LexendDeca_400Regular',
-    color: '#666',
-  },
   callCard: {
     backgroundColor: 'white',
     borderRadius: 12,
@@ -1663,6 +1613,7 @@ const styles = StyleSheet.create({
   timeContainer: {
     flexDirection: 'row',
     alignItems: 'center',
+    marginTop: 2,
   },
   callIcon: {
     marginRight: 4,
@@ -1834,10 +1785,26 @@ const styles = StyleSheet.create({
     fontFamily: 'LexendDeca_400Regular',
     color: '#666',
     marginLeft: 8,
-    backgroundColor: '#F3F4F6',
     paddingHorizontal: 8,
     paddingVertical: 2,
     borderRadius: 12,
+  },
+  durationText: {
+    fontSize: 12,
+    fontFamily: 'LexendDeca_400Regular',
+    color: '#666',
+    marginLeft: 6,
+  },
+  achievementContainer: {
+    padding: 16,
+    backgroundColor: '#FFF5E6',
+    borderRadius: 8,
+    marginBottom: 16,
+  },
+  achievementText: {
+    fontSize: 16,
+    color: '#FF8447',
+    fontFamily: 'LexendDeca_500Medium',
   },
 });
 

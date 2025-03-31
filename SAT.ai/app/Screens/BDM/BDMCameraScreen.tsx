@@ -35,6 +35,11 @@ const BDMCameraScreen = () => {
   const route = useRoute<BDMCameraScreenRouteProp>();
   const { type: punchType } = route.params;
 
+  // Reset photo when component mounts or punchType changes
+  useEffect(() => {
+    setPhoto(null);
+  }, [punchType]);
+
   useEffect(() => {
     (async () => {
       const { status: cameraStatus } = await Camera.requestCameraPermissionsAsync();
@@ -131,21 +136,27 @@ const BDMCameraScreen = () => {
           </TouchableOpacity>
           <TouchableOpacity 
             style={[styles.previewButton, styles.confirmButton]}
-            onPress={() => {
-              if (location) {
-                navigation.navigate('BDMAttendanceScreen', {
-                  photo: { uri: photo?.uri || '' },
-                  location: {
-                    coords: {
-                      latitude: location.coords.latitude,
-                      longitude: location.coords.longitude
-                    }
-                  },
-                  dateTime: currentTime,
-                  isPunchIn: punchType === 'in'
-                });
+            onPress={async () => {
+              if (location && photo) {
+                try {
+                  // Navigate to BDMAttendanceScreen with the required data
+                  navigation.navigate('BDMAttendance'as never, {
+                    photo: { uri: photo.uri },
+                    location: {
+                      coords: {
+                        latitude: location.coords.latitude,
+                        longitude: location.coords.longitude
+                      }
+                    },
+                    dateTime: currentTime,
+                    isPunchIn: punchType === 'in'
+                  });
+                } catch (error) {
+                  console.error('Navigation error:', error);
+                  Alert.alert('Error', 'Failed to navigate to attendance screen. Please try again.');
+                }
               } else {
-                Alert.alert('Error', 'Location not available. Please try again.');
+                Alert.alert('Error', 'Location or photo not available. Please try again.');
               }
             }}
           >

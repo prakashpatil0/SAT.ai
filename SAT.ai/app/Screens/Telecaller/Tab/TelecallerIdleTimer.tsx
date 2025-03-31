@@ -113,23 +113,26 @@ const TelecallerIdleTimer = () => {
 
     const handleLogout = async () => {
       const newCount = await incrementIdleCount();
-      
-      // Show logout notification
-      await Notifications.scheduleNotificationAsync({
-        content: {
-          title: 'Session Terminated',
-          body: `You have been logged out due to inactivity. This is your ${newCount}${getOrdinalSuffix(newCount)} idle timeout.`,
-          sound: true,
-          priority: Notifications.AndroidNotificationPriority.HIGH,
-        },
-        trigger: null,
-      });
 
-      await AsyncStorage.clear();
-      navigation.reset({
-        index: 0,
-        routes: [{ name: 'Login' }],
-      });
+      // Check if the user should be logged out
+      if (newCount >= 3) {
+        // Show logout notification
+        await Notifications.scheduleNotificationAsync({
+          content: {
+            title: 'Session Terminated',
+            body: `You have been logged out due to inactivity. This is your ${newCount}${getOrdinalSuffix(newCount)} idle timeout.`,
+            sound: true,
+            priority: Notifications.AndroidNotificationPriority.HIGH,
+          },
+          trigger: null,
+        });
+
+        await AsyncStorage.clear();
+        navigation.reset({
+          index: 0,
+          routes: [{ name: 'Login' as never }],
+        });
+      }
     };
 
     // Setup

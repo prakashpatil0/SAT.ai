@@ -111,7 +111,7 @@ const DetailsScreen = () => {
 
   return (
     <AppGradient>
-    <TelecallerMainLayout title="My Script" showBackButton={true} showBottomTabs={true} showHeader={true}>
+    <TelecallerMainLayout title="My Script" showBackButton={true} showBottomTabs={true}>
     <ScrollView style={styles.container}>
       <View style={styles.card}>
         <View style={styles.cardHeader}>

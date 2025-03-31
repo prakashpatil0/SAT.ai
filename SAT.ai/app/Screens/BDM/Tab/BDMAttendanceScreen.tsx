@@ -295,8 +295,21 @@ const BDMAttendanceScreen = () => {
 
       const sortedHistory = history.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
       setAttendanceHistory(sortedHistory);
-      calculateStatusCounts(sortedHistory);
-      updateWeekDaysStatus(sortedHistory);
+
+      // Check if there are any records for the current month
+      const currentMonthRecords = sortedHistory.filter(record => {
+        const recordDate = new Date(record.timestamp);
+        return format(recordDate, 'MM') === format(new Date(), 'MM') && 
+               format(recordDate, 'yyyy') === format(new Date(), 'yyyy');
+      });
+
+      if (currentMonthRecords.length > 0) {
+        calculateStatusCounts(sortedHistory);
+        updateWeekDaysStatus(sortedHistory);
+      } else {
+        // If no records, set absent days to zero
+        setStatusCounts({ Present: 0, 'Half Day': 0, 'On Leave': 0 });
+      }
     } catch (error) {
       console.error('Error fetching attendance history:', error);
     }

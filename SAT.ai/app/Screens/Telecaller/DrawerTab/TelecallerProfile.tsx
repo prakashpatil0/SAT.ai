@@ -13,7 +13,8 @@ import {
   Dimensions,
   Switch,
   TouchableWithoutFeedback,
-  TextInput
+  TextInput,
+  Easing
 } from "react-native";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { MaterialIcons, MaterialCommunityIcons, Ionicons } from "@expo/vector-icons";
@@ -59,6 +60,7 @@ const ProfileScreen = () => {
   const navigation = useNavigation();
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
   const { profileImage: contextProfileImage, updateProfileImage } = useProfile();
   const [formData, setFormData] = useState<User>({
     id: '',
@@ -69,7 +71,8 @@ const ProfileScreen = () => {
     dateOfBirth: new Date(),
     profileImageUrl: "",
   });
-  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [birthDate, setBirthDate] = useState("");
+  const [dateError, setDateError] = useState("");
   const [profileImage, setProfileImage] = useState<ProfileImage>({ 
     default: require("@/assets/images/girl.png") 
   });
@@ -86,6 +89,7 @@ const ProfileScreen = () => {
   const scaleAnim = useRef(new Animated.Value(1)).current;
   const scrollY = useRef(new Animated.Value(0)).current;
   const profileOpacity = useRef(new Animated.Value(1)).current;
+  const waveAnimation = useRef(new Animated.Value(0)).current;
   
   // Calculated values
   const headerHeight = scrollY.interpolate({
@@ -100,14 +104,6 @@ const ProfileScreen = () => {
     extrapolate: 'clamp'
   });
 
-  // Add new state for manual date input
-  const [showManualInput, setShowManualInput] = useState(false);
-  const [manualDate, setManualDate] = useState({
-    day: '',
-    month: '',
-    year: ''
-  });
-
   // Fetch existing profile data
   useEffect(() => {
     fetchUserProfile();
@@ -119,6 +115,24 @@ const ProfileScreen = () => {
       setProfileImage({ uri: contextProfileImage });
     }
   }, [contextProfileImage]);
+
+  // Add this useEffect for wave animation
+  useEffect(() => {
+    if (isLoading) {
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(waveAnimation, {
+            toValue: 1,
+            duration: 1000,
+            easing: Easing.linear,
+            useNativeDriver: true,
+          }),
+        ])
+      ).start();
+    } else {
+      waveAnimation.setValue(0);
+    }
+  }, [isLoading]);
 
   const fetchUserProfile = async () => {
     try {
@@ -221,6 +235,16 @@ const ProfileScreen = () => {
     }
   };
 
+  const handleEditPress = () => {
+    setIsEditing(true);
+  };
+
+  const handleCancelEdit = () => {
+    setIsEditing(false);
+    // Reset form data to original values
+    fetchUserProfile();
+  };
+
   const handleSaveChanges = async () => {
     try {
       // Validate all fields
@@ -273,6 +297,7 @@ const ProfileScreen = () => {
       }
 
       Alert.alert("Success", "Profile updated successfully");
+      setIsEditing(false);
     } catch (error) {
       console.error("Save changes error:", error);
       Alert.alert(
@@ -284,18 +309,66 @@ const ProfileScreen = () => {
     }
   };
 
-  const handleShowDatePicker = () => {
-    setShowDatePicker(true);
-  };
-
-  const handleDateChange = (event: DateTimePickerEvent, selectedDate?: Date) => {
-    if (event.type === 'set' && selectedDate) {
-      // Ensure the selected date is not in the future
-      const maxDate = new Date();
-      const finalDate = selectedDate > maxDate ? maxDate : selectedDate;
-      setFormData(prev => ({ ...prev, dateOfBirth: finalDate }));
+  const validateBirthDate = (text: string) => {
+    // Remove any non-numeric characters
+    const cleaned = text.replace(/\D/g, '');
+    
+    // Format the date as user types
+    let formattedDate = '';
+    if (cleaned.length > 0) {
+      // Add first two digits (day)
+      formattedDate = cleaned.substring(0, 2);
+      if (cleaned.length > 2) {
+        // Add month after day
+        formattedDate += '/' + cleaned.substring(2, 4);
+        if (cleaned.length > 4) {
+          // Add year after month
+          formattedDate += '/' + cleaned.substring(4, 8);
+        }
+      }
     }
-    setShowDatePicker(Platform.OS === 'ios');
+    
+    setBirthDate(formattedDate);
+
+    // Validate the date
+    if (formattedDate.length === 10) {
+      const [day, month, year] = formattedDate.split('/').map(Number);
+      
+      // Basic validation
+      if (day < 1 || day > 31) {
+        setDateError("Day must be between 1 and 31");
+        return false;
+      }
+      if (month < 1 || month > 12) {
+        setDateError("Month must be between 1 and 12");
+        return false;
+      }
+      if (year < 1950 || year > new Date().getFullYear()) {
+        setDateError(`Year must be between 1950 and ${new Date().getFullYear()}`);
+        return false;
+      }
+
+      // Check if the date actually exists
+      const date = new Date(year, month - 1, day);
+      if (date.getDate() !== day || date.getMonth() !== month - 1 || date.getFullYear() !== year) {
+        setDateError("Please enter a valid date (e.g., 31/02/2024 is invalid)");
+        return false;
+      }
+
+      // Check if date is in the future
+      if (date > new Date()) {
+        setDateError("Date of birth cannot be in the future");
+        return false;
+      }
+
+      setDateError("");
+      setFormData(prev => ({ ...prev, dateOfBirth: date }));
+      return true;
+    } else if (formattedDate.length > 0) {
+      setDateError("Please enter a complete date in DD/MM/YYYY format");
+      return false;
+    }
+    return true;
   };
 
   const openImagePicker = () => {
@@ -352,48 +425,68 @@ const ProfileScreen = () => {
   };
 
   const formatDate = (date: Date) => {
-    const options: Intl.DateTimeFormatOptions = { 
-      year: 'numeric', 
-      month: 'long', 
-      day: 'numeric' 
-    };
-    return date.toLocaleDateString(undefined, options);
+    return date.toLocaleDateString('en-GB', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric'
+    });
   };
 
-  // Add new function to handle manual date input
-  const handleManualDateSubmit = () => {
-    const day = parseInt(manualDate.day);
-    const month = parseInt(manualDate.month) - 1; // JavaScript months are 0-based
-    const year = parseInt(manualDate.year);
+  const renderWaveSkeleton = () => {
+    const translateX = waveAnimation.interpolate({
+      inputRange: [0, 1],
+      outputRange: [-width, width],
+    });
 
-    if (isNaN(day) || isNaN(month) || isNaN(year)) {
-      Alert.alert('Error', 'Please enter valid date values');
-      return;
-    }
+    return (
+      <View style={styles.skeletonContainer}>
+        {/* Profile Header Skeleton */}
+        <View style={styles.skeletonHeader}>
+          <View style={styles.skeletonProfileImage} />
+          <View style={styles.skeletonName} />
+          <View style={styles.skeletonDesignation} />
+        </View>
 
-    const date = new Date(year, month, day);
-    if (date.toString() === 'Invalid Date') {
-      Alert.alert('Error', 'Please enter a valid date');
-      return;
-    }
+        {/* Personal Information Skeleton */}
+        <View style={styles.skeletonSection}>
+          <View style={styles.skeletonSectionHeader}>
+            <View style={styles.skeletonIcon} />
+            <View style={styles.skeletonTitle} />
+          </View>
+          
+          <View style={styles.skeletonFormContainer}>
+            {[1, 2, 3, 4, 5].map((_, index) => (
+              <View key={index} style={styles.skeletonInfoRow}>
+                <View style={styles.skeletonInfoIcon} />
+                <View style={styles.skeletonInfoContent}>
+                  <View style={styles.skeletonInfoLabel} />
+                  <View style={styles.skeletonInfoValue} />
+                </View>
+              </View>
+            ))}
+          </View>
+        </View>
 
-    // Ensure the date is not in the future
-    const maxDate = new Date();
-    const finalDate = date > maxDate ? maxDate : date;
-    
-    setFormData(prev => ({ ...prev, dateOfBirth: finalDate }));
-    setShowManualInput(false);
-    setManualDate({ day: '', month: '', year: '' });
+        {/* Wave Animation Overlay */}
+        <Animated.View
+          style={[
+            styles.waveOverlay,
+            {
+              transform: [{ translateX }],
+            },
+          ]}
+        />
+      </View>
+    );
   };
 
   if (isLoading) {
     return (
-      <TelecallerMainLayout title="Profile" showBackButton>
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#FF8447" />
-          <Text style={styles.loadingText}>Loading profile...</Text>
-        </View>
-      </TelecallerMainLayout>
+      <AppGradient>
+        <TelecallerMainLayout title="Profile" showBackButton>
+          {renderWaveSkeleton()}
+        </TelecallerMainLayout>
+      </AppGradient>
     );
   }
 
@@ -423,7 +516,7 @@ const ProfileScreen = () => {
             end={{ x: 1, y: 1 }}
             style={styles.headerGradient}
           >
-            <TouchableWithoutFeedback onPress={openImagePicker}>
+            <TouchableWithoutFeedback onPress={isEditing ? openImagePicker : undefined}>
               <Animated.View style={[
                 styles.profileImageContainer,
                 { transform: [{ scale: scaleAnim }] }
@@ -436,9 +529,11 @@ const ProfileScreen = () => {
                   }
                   style={styles.profileImage}
                 />
-                <View style={styles.editIconContainer}>
-                  <MaterialIcons name="camera-alt" size={18} color="#FFF" />
-                </View>
+                {isEditing && (
+                  <View style={styles.editIconContainer}>
+                    <MaterialIcons name="camera-alt" size={18} color="#FFF" />
+                  </View>
+                )}
               </Animated.View>
             </TouchableWithoutFeedback>
             
@@ -458,151 +553,137 @@ const ProfileScreen = () => {
             <View style={styles.sectionHeader}>
               <MaterialIcons name="person" size={22} color="#FF8447" />
               <Text style={styles.sectionTitle}>Personal Information</Text>
+              {!isEditing ? (
+                <TouchableOpacity style={styles.editButton} onPress={handleEditPress}>
+                  <MaterialIcons name="edit" size={24} color="#FF8447" />
+                </TouchableOpacity>
+              ) : (
+                <TouchableOpacity style={styles.cancelButton} onPress={handleCancelEdit}>
+                  <MaterialIcons name="close" size={24} color="#FF8447" />
+                </TouchableOpacity>
+              )}
             </View>
             
             <View style={styles.formContainer}>
-              <FormInput
-                label="Full Name"
-                value={formData.name}
-                onChangeText={validateName}
-                onBlur={() => handleBlur('name')}
-                error={touched.name ? errors.name : undefined}
-                leftIcon="account"
-              />
-              
-              <FormInput
-                label="Designation"
-                value={formData.designation}
-                onChangeText={(text) => setFormData(prev => ({ ...prev, designation: text }))}
-                leftIcon="briefcase"
-              />
-              
-              <FormInput
-                label="Email"
-                value={formData.email}
-                onChangeText={(text) => setFormData(prev => ({ ...prev, email: text }))}
-                keyboardType="email-address"
-                autoCapitalize="none"
-                leftIcon="email"
-                autoComplete="email"
-              />
-              
-              <FormInput
-                label="Phone Number"
-                value={formData.phoneNumber}
-                onChangeText={validatePhoneNumber}
-                onBlur={() => handleBlur('phoneNumber')}
-                error={touched.phoneNumber ? errors.phoneNumber : undefined}
-                keyboardType="phone-pad"
-                leftIcon="phone"
-                autoComplete="tel"
-              />
-              
-              <TouchableOpacity 
-                style={styles.datePickerButton}
-                onPress={() => {
-                  if (Platform.OS === 'android') {
-                    setShowDatePicker(true);
-                  } else {
-                    setShowManualInput(true);
-                  }
-                }}
-              >
-                <View style={styles.datePickerContent}>
-                  <MaterialIcons name="calendar-today" size={24} color="#777" style={styles.dateIcon} />
-                  <View>
-                    <Text style={styles.datePickerLabel}>Date of Birth</Text>
-                    <Text style={styles.datePickerValue}>
-                      {formatDate(formData.dateOfBirth)}
-                    </Text>
+              {isEditing ? (
+                <>
+                  <FormInput
+                    label="Full Name"
+                    value={formData.name}
+                    onChangeText={validateName}
+                    onBlur={() => handleBlur('name')}
+                    error={touched.name ? errors.name : undefined}
+                    leftIcon="account"
+                  />
+                  
+                  <FormInput
+                    label="Designation"
+                    value={formData.designation}
+                    onChangeText={(text) => setFormData(prev => ({ ...prev, designation: text }))}
+                    leftIcon="briefcase"
+                  />
+                  
+                  <FormInput
+                    label="Email"
+                    value={formData.email}
+                    onChangeText={(text) => setFormData(prev => ({ ...prev, email: text }))}
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                    leftIcon="email"
+                    autoComplete="email"
+                  />
+                  
+                  <FormInput
+                    label="Phone Number"
+                    value={formData.phoneNumber}
+                    onChangeText={validatePhoneNumber}
+                    onBlur={() => handleBlur('phoneNumber')}
+                    error={touched.phoneNumber ? errors.phoneNumber : undefined}
+                    keyboardType="phone-pad"
+                    leftIcon="phone"
+                    autoComplete="tel"
+                  />
+                  
+                  <FormInput
+                    label="Date of Birth"
+                    value={birthDate}
+                    onChangeText={validateBirthDate}
+                    placeholder="DD/MM/YYYY"
+                    error={dateError}
+                    leftIcon="calendar-today"
+                    keyboardType="numeric"
+                    autoComplete="off"
+                  />
+                </>
+              ) : (
+                <>
+                  <View style={styles.infoRow}>
+                    <MaterialIcons name="person" size={24} color="#FF8447" />
+                    <View style={styles.infoContent}>
+                      <Text style={styles.infoLabel}>Full Name</Text>
+                      <Text style={styles.infoValue}>{formData.name || 'Not provided'}</Text>
+                    </View>
                   </View>
-                  <MaterialIcons name="arrow-drop-down" size={24} color="#FF8447" />
-                </View>
-              </TouchableOpacity>
-              
-              {showDatePicker && (
-                <DateTimePicker
-                  value={formData.dateOfBirth}
-                  mode="date"
-                  display={Platform.OS === "ios" ? "spinner" : "calendar"}
-                  onChange={handleDateChange}
-                  maximumDate={new Date()}
-                  minimumDate={new Date(1950, 0, 1)}
-                  style={{ width: '100%', backgroundColor: 'white' }}
-                />
-              )}
-
-              {showManualInput && (
-                <View style={styles.manualDateContainer}>
-                  <View style={styles.manualDateInputs}>
-                    <TextInput
-                      style={styles.manualDateInput}
-                      placeholder="DD"
-                      value={manualDate.day}
-                      onChangeText={(text) => setManualDate(prev => ({ ...prev, day: text }))}
-                      keyboardType="number-pad"
-                      maxLength={2}
-                    />
-                    <Text style={styles.dateSeparator}>/</Text>
-                    <TextInput
-                      style={styles.manualDateInput}
-                      placeholder="MM"
-                      value={manualDate.month}
-                      onChangeText={(text) => setManualDate(prev => ({ ...prev, month: text }))}
-                      keyboardType="number-pad"
-                      maxLength={2}
-                    />
-                    <Text style={styles.dateSeparator}>/</Text>
-                    <TextInput
-                      style={styles.manualDateInput}
-                      placeholder="YYYY"
-                      value={manualDate.year}
-                      onChangeText={(text) => setManualDate(prev => ({ ...prev, year: text }))}
-                      keyboardType="number-pad"
-                      maxLength={4}
-                    />
+                  
+                  <View style={styles.infoRow}>
+                    <MaterialIcons name="work" size={24} color="#FF8447" />
+                    <View style={styles.infoContent}>
+                      <Text style={styles.infoLabel}>Designation</Text>
+                      <Text style={styles.infoValue}>{formData.designation || 'Not provided'}</Text>
+                    </View>
                   </View>
-                  <View style={styles.manualDateActions}>
-                    <TouchableOpacity 
-                      style={[styles.manualDateButton, styles.cancelButton]}
-                      onPress={() => {
-                        setShowManualInput(false);
-                        setManualDate({ day: '', month: '', year: '' });
-                      }}
-                    >
-                      <Text style={styles.cancelButtonText}>Cancel</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity 
-                      style={[styles.manualDateButton, styles.submitButton]}
-                      onPress={handleManualDateSubmit}
-                    >
-                      <Text style={styles.submitButtonText}>Set Date</Text>
-                    </TouchableOpacity>
+                  
+                  <View style={styles.infoRow}>
+                    <MaterialIcons name="email" size={24} color="#FF8447" />
+                    <View style={styles.infoContent}>
+                      <Text style={styles.infoLabel}>Email</Text>
+                      <Text style={styles.infoValue}>{formData.email || 'Not provided'}</Text>
+                    </View>
                   </View>
-                </View>
+                  
+                  <View style={styles.infoRow}>
+                    <MaterialIcons name="phone" size={24} color="#FF8447" />
+                    <View style={styles.infoContent}>
+                      <Text style={styles.infoLabel}>Phone Number</Text>
+                      <Text style={styles.infoValue}>{formData.phoneNumber || 'Not provided'}</Text>
+                    </View>
+                  </View>
+                  
+                  <View style={styles.infoRow}>
+                    <MaterialIcons name="calendar-today" size={24} color="#FF8447" />
+                    <View style={styles.infoContent}>
+                      <Text style={styles.infoLabel}>Date of Birth</Text>
+                      <Text style={styles.infoValue}>
+                        {formData.dateOfBirth ? formatDate(formData.dateOfBirth) : 'Not provided'}
+                      </Text>
+                    </View>
+                  </View>
+                </>
               )}
             </View>
           </View>
           
-          {/* Save Button */}
-          <TouchableOpacity
-            style={styles.saveButton}
-            onPress={handleSaveChanges}
-            disabled={isSaving}
-          >
-            <LinearGradient
-              colors={['#FF8447', '#FF6D24']}
-              style={styles.saveGradient}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
+          {/* Save Button - Only show when editing */}
+          {isEditing && (
+            <TouchableOpacity
+              style={styles.saveButton}
+              onPress={handleSaveChanges}
+              disabled={isSaving}
             >
-              {isSaving ? (
-                <ActivityIndicator size="small" color="#FFFFFF" />
-              ) : (
-                <Text style={styles.saveButtonText}>Save Changes</Text>
-              )}
-            </LinearGradient>
-          </TouchableOpacity>
+              <LinearGradient
+                colors={['#FF8447', '#FF6D24']}
+                style={styles.saveGradient}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+              >
+                {isSaving ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <Text style={styles.saveButtonText}>Save Changes</Text>
+                )}
+              </LinearGradient>
+            </TouchableOpacity>
+          )}
           
           <View style={styles.spacer} />
         </View>
@@ -714,32 +795,6 @@ const styles = StyleSheet.create({
   formContainer: {
     padding: 16,
   },
-  datePickerButton: {
-    marginTop: 8,
-    marginBottom: 8,
-  },
-  datePickerContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#f9f9f9',
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#ddd',
-    padding: 12,
-  },
-  dateIcon: {
-    marginRight: 12,
-  },
-  datePickerLabel: {
-    fontSize: 12,
-    color: '#666',
-    fontFamily: 'LexendDeca_400Regular',
-  },
-  datePickerValue: {
-    fontSize: 16,
-    color: '#333',
-    fontFamily: 'LexendDeca_400Regular',
-  },
   saveButton: {
     height: 50,
     borderRadius: 12,
@@ -765,61 +820,134 @@ const styles = StyleSheet.create({
   spacer: {
     height: 40,
   },
-  manualDateContainer: {
-    marginTop: 8,
-    backgroundColor: '#f9f9f9',
-    borderRadius: 10,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: '#ddd',
-  },
-  manualDateInputs: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 12,
-  },
-  manualDateInput: {
-    flex: 1,
-    height: 40,
-    backgroundColor: 'white',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    textAlign: 'center',
-    borderWidth: 1,
-    borderColor: '#ddd',
-    marginHorizontal: 4,
-  },
-  dateSeparator: {
-    fontSize: 18,
-    color: '#666',
-    marginHorizontal: 4,
-  },
-  manualDateActions: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    gap: 8,
-  },
-  manualDateButton: {
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    borderRadius: 8,
-    minWidth: 80,
-    alignItems: 'center',
+  editButton: {
+    marginLeft: 'auto',
+    padding: 8,
   },
   cancelButton: {
-    backgroundColor: '#f0f0f0',
+    marginLeft: 'auto',
+    padding: 8,
   },
-  submitButton: {
-    backgroundColor: '#FF8447',
+  infoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
   },
-  cancelButtonText: {
+  infoContent: {
+    marginLeft: 12,
+    flex: 1,
+  },
+  infoLabel: {
+    fontSize: 12,
+    fontFamily: 'LexendDeca_400Regular',
     color: '#666',
-    fontFamily: 'LexendDeca_500Medium',
+    marginBottom: 4,
   },
-  submitButtonText: {
-    color: 'white',
+  infoValue: {
+    fontSize: 16,
     fontFamily: 'LexendDeca_500Medium',
+    color: '#333',
+  },
+  skeletonContainer: {
+    flex: 1,
+    backgroundColor: '#fff',
+  },
+  skeletonHeader: {
+    height: 250,
+    backgroundColor: '#f0f0f0',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingTop: 20,
+  },
+  skeletonProfileImage: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    backgroundColor: '#e0e0e0',
+  },
+  skeletonName: {
+    width: 200,
+    height: 30,
+    backgroundColor: '#e0e0e0',
+    marginTop: 16,
+    borderRadius: 4,
+  },
+  skeletonDesignation: {
+    width: 150,
+    height: 20,
+    backgroundColor: '#e0e0e0',
+    marginTop: 8,
+    borderRadius: 4,
+  },
+  skeletonSection: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    margin: 16,
+    overflow: 'hidden',
+  },
+  skeletonSectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  skeletonIcon: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: '#e0e0e0',
+  },
+  skeletonTitle: {
+    width: 150,
+    height: 20,
+    backgroundColor: '#e0e0e0',
+    marginLeft: 10,
+    borderRadius: 4,
+  },
+  skeletonFormContainer: {
+    padding: 16,
+  },
+  skeletonInfoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  skeletonInfoIcon: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: '#e0e0e0',
+  },
+  skeletonInfoContent: {
+    marginLeft: 12,
+    flex: 1,
+  },
+  skeletonInfoLabel: {
+    width: 80,
+    height: 12,
+    backgroundColor: '#e0e0e0',
+    marginBottom: 4,
+    borderRadius: 4,
+  },
+  skeletonInfoValue: {
+    width: 150,
+    height: 16,
+    backgroundColor: '#e0e0e0',
+    borderRadius: 4,
+  },
+  waveOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(255, 255, 255, 0.5)',
+    transform: [{ translateX: 0 }],
   },
 })
 

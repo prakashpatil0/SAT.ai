@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
-import { View, Text, ScrollView, TouchableOpacity, Alert, StyleSheet, Animated } from "react-native";
+import { View, Text, ScrollView, TouchableOpacity, Alert, StyleSheet, Animated, Easing, Dimensions } from "react-native";
 import { Button } from "react-native-paper";
 import { useNavigation, RouteProp, useRoute } from "@react-navigation/native";
 import { StackNavigationProp } from '@react-navigation/stack';
@@ -52,6 +52,8 @@ const PUNCH_IN_DEADLINE = '09:45'; // 9:45 AM
 const PUNCH_OUT_MINIMUM = '18:25'; // 6:25 PM
 const NEXT_DAY_PUNCH_TIME = '08:45'; // 8:45 AM
 
+const { width } = Dimensions.get('window');
+
 const AttendanceScreen = () => {
   const navigation = useNavigation<AttendanceScreenNavigationProp>();
   const route = useRoute<RouteProp<RootStackParamList, 'AttendanceScreen'>>();
@@ -71,6 +73,8 @@ const AttendanceScreen = () => {
   });
   const [isPunchButtonDisabled, setIsPunchButtonDisabled] = useState(false);
   const [isNewUser, setIsNewUser] = useState(true);
+  const [waveAnimation] = useState(new Animated.Value(0));
+  const [isLoading, setIsLoading] = useState(true);
 
   const [weekDays, setWeekDays] = useState<WeekDay[]>([
     { day: 'M', date: '', status: 'On Leave' },
@@ -437,6 +441,109 @@ const AttendanceScreen = () => {
       </TouchableOpacity>
     );
   };
+
+  useEffect(() => {
+    if (isLoading) {
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(waveAnimation, {
+            toValue: 1,
+            duration: 1000,
+            easing: Easing.linear,
+            useNativeDriver: true,
+          }),
+        ])
+      ).start();
+    } else {
+      waveAnimation.setValue(0);
+    }
+  }, [isLoading]);
+
+  const renderWaveSkeleton = () => {
+    const translateX = waveAnimation.interpolate({
+      inputRange: [0, 1],
+      outputRange: [-width, width],
+    });
+
+    return (
+      <View style={styles.skeletonContainer}>
+        {/* Punch Card Skeleton */}
+        <View style={styles.skeletonPunchCard}>
+          <View style={styles.skeletonPunchHeader}>
+            <View style={styles.skeletonPunchTitle} />
+            <View style={styles.skeletonPunchButton} />
+          </View>
+          <View style={styles.skeletonPunchTimes}>
+            <View style={styles.skeletonPunchTimeBlock}>
+              <View style={styles.skeletonPunchLabel} />
+              <View style={styles.skeletonPunchTime} />
+            </View>
+            <View style={styles.skeletonPunchTimeBlock}>
+              <View style={styles.skeletonPunchLabel} />
+              <View style={styles.skeletonPunchTime} />
+            </View>
+          </View>
+        </View>
+
+        {/* Calendar Card Skeleton */}
+        <View style={styles.skeletonCalendarCard}>
+          <View style={styles.skeletonDateHeader} />
+          <View style={styles.skeletonWeekDays}>
+            {[1, 2, 3, 4, 5, 6].map((_, index) => (
+              <View key={index} style={styles.skeletonDayContainer}>
+                <View style={styles.skeletonDayCircle} />
+                <View style={styles.skeletonWeekName} />
+                <View style={styles.skeletonDateNumber} />
+              </View>
+            ))}
+          </View>
+        </View>
+
+        {/* Month Selector Skeleton */}
+        <View style={styles.skeletonMonthSelector}>
+          {[1, 2, 3, 4, 5].map((_, index) => (
+            <View key={index} style={styles.skeletonMonthButton} />
+          ))}
+        </View>
+
+        {/* Status Badges Skeleton */}
+        <View style={styles.skeletonStatusContainer}>
+          {[1, 2, 3].map((_, index) => (
+            <View key={index} style={styles.skeletonStatusBadge} />
+          ))}
+        </View>
+
+        {/* Wave Animation Overlay */}
+        <Animated.View
+          style={[
+            styles.waveOverlay,
+            {
+              transform: [{ translateX }],
+            },
+          ]}
+        />
+      </View>
+    );
+  };
+
+  useEffect(() => {
+    // Simulate loading time
+    const timer = setTimeout(() => {
+      setIsLoading(false);
+    }, 2000);
+
+    return () => clearTimeout(timer);
+  }, []);
+
+  if (isLoading) {
+    return (
+      <AppGradient>
+        <TelecallerMainLayout showDrawer showBackButton={true} title="Attendance">
+          {renderWaveSkeleton()}
+        </TelecallerMainLayout>
+      </AppGradient>
+    );
+  }
 
   return (
     <AppGradient>
@@ -857,6 +964,141 @@ const styles = StyleSheet.create({
     marginBottom: 32,
     justifyContent: 'center',
     gap: 20,
+  },
+  skeletonContainer: {
+    flex: 1,
+    backgroundColor: '#fff',
+  },
+  skeletonPunchCard: {
+    backgroundColor: 'white',
+    borderRadius: 16,
+    padding: 20,
+    margin: 16,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  skeletonPunchHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  skeletonPunchTitle: {
+    width: 120,
+    height: 24,
+    backgroundColor: '#e0e0e0',
+    borderRadius: 4,
+  },
+  skeletonPunchButton: {
+    width: 100,
+    height: 40,
+    backgroundColor: '#e0e0e0',
+    borderRadius: 6,
+  },
+  skeletonPunchTimes: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  skeletonPunchTimeBlock: {
+    flex: 1,
+  },
+  skeletonPunchLabel: {
+    width: 80,
+    height: 16,
+    backgroundColor: '#e0e0e0',
+    marginBottom: 8,
+    borderRadius: 4,
+  },
+  skeletonPunchTime: {
+    width: 100,
+    height: 20,
+    backgroundColor: '#e0e0e0',
+    borderRadius: 4,
+  },
+  skeletonCalendarCard: {
+    backgroundColor: "white",
+    borderRadius: 16,
+    padding: 20,
+    margin: 16,
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  skeletonDateHeader: {
+    width: 200,
+    height: 24,
+    backgroundColor: '#e0e0e0',
+    marginBottom: 16,
+    borderRadius: 4,
+  },
+  skeletonWeekDays: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    width: "100%",
+    paddingHorizontal: 10,
+  },
+  skeletonDayContainer: {
+    alignItems: "center",
+    width: 45,
+  },
+  skeletonDayCircle: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#e0e0e0',
+  },
+  skeletonWeekName: {
+    width: 20,
+    height: 16,
+    backgroundColor: '#e0e0e0',
+    marginTop: 4,
+    borderRadius: 4,
+  },
+  skeletonDateNumber: {
+    width: 16,
+    height: 16,
+    backgroundColor: '#e0e0e0',
+    marginTop: 2,
+    borderRadius: 4,
+  },
+  skeletonMonthSelector: {
+    flexDirection: 'row',
+    marginHorizontal: 16,
+    marginBottom: 16,
+  },
+  skeletonMonthButton: {
+    width: 80,
+    height: 24,
+    backgroundColor: '#e0e0e0',
+    marginRight: 24,
+    borderRadius: 4,
+  },
+  skeletonStatusContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginHorizontal: 16,
+    marginBottom: 24,
+  },
+  skeletonStatusBadge: {
+    width: 100,
+    height: 40,
+    backgroundColor: '#e0e0e0',
+    borderRadius: 8,
+  },
+  waveOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(255, 255, 255, 0.5)',
+    transform: [{ translateX: 0 }],
   },
 });
 

@@ -484,7 +484,7 @@ const RootStack = () => {
           gestureEnabled: false
         }}
       />
-      <Stack.Screen name="TelecallerIdleTimer" component={TelecallerIdleTimer} options={{ headerShown: false }} />
+      
       <Stack.Screen name="ContactInfo" component={ContactInfo} options={{ headerShown: false }} />
     </Stack.Navigator>
   );

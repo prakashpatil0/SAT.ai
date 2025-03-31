@@ -9,6 +9,8 @@ import {
   ScrollView,
   Alert,
   FlatList,
+  Animated,
+  Easing,
 } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import Ionicons from "react-native-vector-icons/Ionicons";
@@ -103,6 +105,8 @@ const ReportScreen: React.FC = () => {
   const [errors, setErrors] = useState<{[key: string]: string}>({});
   const [todayCalls, setTodayCalls] = useState(0);
   const [todayDuration, setTodayDuration] = useState(0);
+  const [waveAnimation] = useState(new Animated.Value(0));
+  const [isLoading, setIsLoading] = useState(true);
 
   // Filter products based on search
   useEffect(() => {
@@ -127,7 +131,7 @@ const ReportScreen: React.FC = () => {
     return () => clearTimeout(autoSaveTimer);
   }, [numMeetings, meetingDuration, positiveLeads, rejectedLeads, notAttendedCalls, closingLeads, closingDetails]);
 
-  // Add function to fetch today's call data
+  // Update the fetchTodayCallData function for faster updates
   const fetchTodayCallData = async () => {
     try {
       const userId = auth.currentUser?.uid;
@@ -182,8 +186,6 @@ const ReportScreen: React.FC = () => {
       );
 
       const querySnapshot = await getDocs(q);
-      console.log('Total documents found:', querySnapshot.size);
-
       let totalCalls = 0;
       let totalDuration = 0;
 
@@ -197,31 +199,55 @@ const ReportScreen: React.FC = () => {
         }
       });
 
-      console.log('Calculated totals:', {
-        totalCalls,
-        totalDuration,
-        formattedDuration: formatDuration(totalDuration)
-      });
-
       // Update state with fetched data
       setTodayCalls(totalCalls);
       setTodayDuration(totalDuration);
       setNumMeetings(totalCalls.toString());
       setMeetingDuration(formatDuration(totalDuration));
 
+      // Store in AsyncStorage for faster future access
+      await AsyncStorage.setItem('device_call_logs', JSON.stringify(querySnapshot.docs.map(doc => doc.data())));
+      await AsyncStorage.setItem('call_logs_last_update', now.toString());
+
     } catch (error) {
       console.error('Error fetching today\'s call data:', error);
       Alert.alert('Error', 'Failed to fetch today\'s call data');
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  // Add useEffect to fetch call data on mount and periodically
+  // Add useEffect for wave animation
+  useEffect(() => {
+    if (isLoading) {
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(waveAnimation, {
+            toValue: 1,
+            duration: 1000,
+            useNativeDriver: true,
+            easing: Easing.inOut(Easing.ease),
+          }),
+          Animated.timing(waveAnimation, {
+            toValue: 0,
+            duration: 1000,
+            useNativeDriver: true,
+            easing: Easing.inOut(Easing.ease),
+          }),
+        ])
+      ).start();
+    } else {
+      waveAnimation.setValue(0);
+    }
+  }, [isLoading]);
+
+  // Update the useEffect for fetching data
   useEffect(() => {
     // Fetch immediately on mount
     fetchTodayCallData();
     
-    // Set up interval to fetch every 30 seconds
-    const interval = setInterval(fetchTodayCallData, 30000);
+    // Set up interval to fetch every 10 seconds
+    const interval = setInterval(fetchTodayCallData, 10000);
     
     // Cleanup interval on unmount
     return () => clearInterval(interval);
@@ -429,6 +455,50 @@ const ReportScreen: React.FC = () => {
     setClosingDetails(newClosingDetails);
   };
 
+  const renderWaveSkeleton = () => {
+    const translateY = waveAnimation.interpolate({
+      inputRange: [0, 1],
+      outputRange: [0, 10],
+    });
+
+    return (
+      <View style={styles.skeletonContainer}>
+        <Animated.View 
+          style={[
+            styles.skeletonWave,
+            {
+              transform: [{ translateY }],
+            }
+          ]} 
+        />
+        <View style={styles.skeletonContent}>
+          <View style={styles.skeletonHeader} />
+          <View style={styles.skeletonCard}>
+            <View style={styles.skeletonCardHeader} />
+            <View style={styles.skeletonCardContent}>
+              <View style={styles.skeletonProgress} />
+              <View style={styles.skeletonStats}>
+                {[1, 2, 3, 4].map((i) => (
+                  <View key={i} style={styles.skeletonStatRow} />
+                ))}
+              </View>
+            </View>
+          </View>
+        </View>
+      </View>
+    );
+  };
+
+  if (isLoading) {
+    return (
+      <AppGradient>
+        <TelecallerMainLayout showDrawer showBackButton={true} title="Daily Report">
+          {renderWaveSkeleton()}
+        </TelecallerMainLayout>
+      </AppGradient>
+    );
+  }
+
   return (
     <AppGradient>
       <TelecallerMainLayout showDrawer showBackButton={true} title="Daily Report">
@@ -441,13 +511,13 @@ const ReportScreen: React.FC = () => {
             <View style={styles.inputContainer}>
               <Text style={styles.dateText}>{format(new Date(), 'dd MMMM (EEEE)')}</Text>
               
-              {/* Number of Calls - Read Only */}
+              {/* Number of Calls - Read Only with Auto Update */}
               <Text style={styles.label}>Number of Calls</Text>
               <View style={styles.readOnlyInput}>
                 <Text style={styles.readOnlyText}>{todayCalls}</Text>
               </View>
 
-              {/* Call Duration - Read Only */}
+              {/* Call Duration - Read Only with Auto Update */}
               <Text style={styles.label}>Call Duration</Text>
               <View style={styles.readOnlyInput}>
                 <Text style={styles.readOnlyText}>{formatDuration(todayDuration)}</Text>
@@ -507,6 +577,17 @@ const ReportScreen: React.FC = () => {
 
                 {closingDetails.map((detail, index) => (
                   <View key={index} style={styles.closingItem}>
+                    {index > 0 && (
+                      <TouchableOpacity
+                        style={styles.removeButton}
+                        onPress={() => {
+                          const newDetails = closingDetails.filter((_, i) => i !== index);
+                          setClosingDetails(newDetails);
+                        }}
+                      >
+                        <Ionicons name="remove-circle" size={24} color="#FF5252" />
+                      </TouchableOpacity>
+                    )}
                     <Text style={styles.label}>Type of Product <Text style={styles.required}>*</Text></Text>
 
                     {/* Product Selection */}
@@ -947,6 +1028,68 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: "#333",
     fontFamily: "LexendDeca_500Medium",
+  },
+  removeButton: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    padding: 5,
+  },
+  skeletonContainer: {
+    flex: 1,
+    overflow: 'hidden',
+  },
+  skeletonWave: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 200,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    transform: [{ translateY: 0 }],
+  },
+  skeletonContent: {
+    flex: 1,
+    padding: 16,
+  },
+  skeletonHeader: {
+    height: 40,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    borderRadius: 8,
+    marginBottom: 16,
+    width: '60%',
+    alignSelf: 'center',
+  },
+  skeletonCard: {
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 16,
+  },
+  skeletonCardHeader: {
+    height: 24,
+    backgroundColor: 'rgba(255, 255, 255, 0.3)',
+    borderRadius: 4,
+    marginBottom: 16,
+    width: '40%',
+  },
+  skeletonCardContent: {
+    flex: 1,
+  },
+  skeletonProgress: {
+    height: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.3)',
+    borderRadius: 4,
+    marginBottom: 24,
+  },
+  skeletonStats: {
+    marginTop: 16,
+  },
+  skeletonStatRow: {
+    height: 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.3)',
+    borderRadius: 4,
+    marginBottom: 12,
   },
 });
 

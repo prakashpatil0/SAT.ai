@@ -11,7 +11,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 const AlertScreen = () => {
   const navigation = useNavigation();
   const { resetIdleTimer, isTimerActive } = useIdleTimer();
-  const initialTime = 900; // 15 minutes in seconds
+  const initialTime = 15 * 60; // 15 minutes in seconds
   const [secondsRemaining, setSecondsRemaining] = useState(initialTime);
   const [isRinging, setIsRinging] = useState(false);
   const [sound, setSound] = useState(null);
@@ -44,6 +44,7 @@ const AlertScreen = () => {
 
     if (secondsRemaining <= 0) {
       startAlertSound();
+      navigation.navigate('TelecallerIdleTimer' as never);
       return;
     }
 
@@ -52,7 +53,7 @@ const AlertScreen = () => {
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [secondsRemaining, isTimerActive]);
+  }, [secondsRemaining, isTimerActive, navigation]);
 
   const handleScreenPress = () => {
     if (isTimerActive && secondsRemaining < initialTime) {
@@ -68,7 +69,7 @@ const AlertScreen = () => {
 
     try {
       const { sound } = await Audio.Sound.createAsync(
-        require("@/assets/Sounds/alarm-siren-sound.mp3"),
+        require("@/assets/sound/alarmsound.mp3"),
         { shouldPlay: true }
       );
       await sound.playAsync();
@@ -76,6 +77,8 @@ const AlertScreen = () => {
     } catch (error) {
       console.error("Error playing sound", error);
     }
+
+    // Navigate to TelecallerIdleTimer screen
     navigation.navigate('TelecallerIdleTimer' as never);
   };
 

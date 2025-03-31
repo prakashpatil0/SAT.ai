@@ -4,8 +4,8 @@ import { LineChart } from 'react-native-chart-kit';
 import { useNavigation } from '@react-navigation/native';
 import { auth } from '@/firebaseConfig';
 import { MaterialIcons } from '@expo/vector-icons';
-import { format, addMonths, subMonths, startOfMonth, endOfMonth, addDays, startOfWeek, endOfWeek, subWeeks, startOfQuarter, endOfQuarter, subQuarters } from 'date-fns';
-import { collection, query, where, orderBy, getDocs, Timestamp } from 'firebase/firestore';
+import { format, addMonths, subMonths, startOfMonth, endOfMonth, addDays, startOfWeek, endOfWeek, subWeeks, startOfQuarter, endOfQuarter, subQuarters, eachWeekOfInterval, getWeeksInMonth, isSameMonth, isSameWeek } from 'date-fns';
+import { collection, query, where, orderBy, getDocs, Timestamp, addDoc, updateDoc } from 'firebase/firestore';
 import { db } from '@/firebaseConfig';
 import { getTargets } from '@/app/services/targetService';
 
@@ -55,6 +55,8 @@ const ViewFullReport = () => {
   const periods = ['Weekly', 'Quarterly', 'Half Yearly'];
   const [currentDate, setCurrentDate] = useState(new Date());
   const [timeOffset, setTimeOffset] = useState(0);
+  const [quarterOffset, setQuarterOffset] = useState(0);
+  const [monthOffset, setMonthOffset] = useState(0);
 
   const [isLoading, setIsLoading] = useState(true);
   const [weeklyChartData, setWeeklyChartData] = useState<ChartData>({ 
@@ -74,32 +76,17 @@ const ViewFullReport = () => {
 
   const getCurrentQuarter = (date: Date) => {
     const month = date.getMonth();
-    // Map months to quarters (0-11 to 1-3)
-    if (month >= 0 && month <= 3) return 1;
-    if (month >= 4 && month <= 7) return 2;
-    return 3;
+    return Math.floor(month / 3) + 1;
   };
 
   const getQuarterMonths = (date: Date) => {
     const currentMonth = date.getMonth();
     const currentYear = date.getFullYear();
-    
-    // Calculate start and end months for the current quarter
-    let startMonth, endMonth;
-    if (currentMonth >= 0 && currentMonth <= 3) {
-      startMonth = 0; // January
-      endMonth = 3;   // April
-    } else if (currentMonth >= 4 && currentMonth <= 7) {
-      startMonth = 4; // May
-      endMonth = 7;   // August
-    } else {
-      startMonth = 8; // September
-      endMonth = 11;  // December
-    }
+    const quarterStart = Math.floor(currentMonth / 3) * 3;
     
     return {
-      start: new Date(currentYear, startMonth, 1),
-      end: new Date(currentYear, endMonth, 31)
+      start: new Date(currentYear, quarterStart, 1),
+      end: new Date(currentYear, quarterStart + 2, 31)
     };
   };
 
@@ -108,16 +95,16 @@ const ViewFullReport = () => {
     const currentYear = date.getFullYear();
     const labels = [];
     
-    // Generate labels for next 6 months starting from current month
-    for (let i = 0; i < 6; i++) {
-      const monthDate = new Date(currentYear, currentMonth + i, 1);
+    // Generate labels for current month and previous 5 months
+    for (let i = 5; i >= 0; i--) {
+      const monthDate = new Date(currentYear, currentMonth - i, 1);
       labels.push(format(monthDate, 'MMM'));
     }
     
     return {
       labels,
-      start: new Date(currentYear, currentMonth, 1),
-      end: new Date(currentYear, currentMonth + 5, 31)
+      start: new Date(currentYear, currentMonth - 5, 1),
+      end: new Date(currentYear, currentMonth, 31)
     };
   };
 
@@ -127,189 +114,285 @@ const ViewFullReport = () => {
     fetchPeriodData(selectedPeriod, newOffset);
   };
 
+  const handleQuarterNavigation = (direction: 'prev' | 'next') => {
+    const newOffset = direction === 'next' ? quarterOffset + 3 : quarterOffset - 3;
+    setQuarterOffset(newOffset);
+    fetchPeriodData(selectedPeriod, newOffset);
+  };
+
+  const handleMonthNavigation = (direction: 'prev' | 'next') => {
+    const newOffset = direction === 'next' ? monthOffset + 1 : monthOffset - 1;
+    setMonthOffset(newOffset);
+    fetchPeriodData(selectedPeriod, quarterOffset + newOffset);
+  };
+
+  const getPeriodLabel = () => {
+    switch (selectedPeriod) {
+      case 'Quarterly': {
+        const currentMonth = new Date(currentDate.getFullYear(), currentDate.getMonth() + quarterOffset + monthOffset);
+        const currentQuarter = Math.floor(currentMonth.getMonth() / 3) + 1;
+        return (
+          <View style={styles.periodLabelContainer}>
+            <View style={styles.quarterNavigationContainer}>
+              <TouchableOpacity
+                style={styles.navButton}
+                onPress={() => handleQuarterNavigation('prev')}
+              >
+                <MaterialIcons name="chevron-left" size={30} color="#FF8447" />
+              </TouchableOpacity>
+              <View style={styles.quarterLabelContainer}>
+                <Text style={styles.quarterLabel}>Quarter {currentQuarter}</Text>
+                <Text style={styles.yearLabel}>{currentMonth.getFullYear()}</Text>
+              </View>
+              <TouchableOpacity
+                style={styles.navButton}
+                onPress={() => handleQuarterNavigation('next')}
+              >
+                <MaterialIcons name="chevron-right" size={30} color="#FF8447" />
+              </TouchableOpacity>
+            </View>
+            <View style={styles.monthNavigationContainer}>
+              <TouchableOpacity
+                style={styles.navButton}
+                onPress={() => handleMonthNavigation('prev')}
+              >
+                <MaterialIcons name="chevron-left" size={30} color="#FF8447" />
+              </TouchableOpacity>
+              <View style={styles.monthLabelContainer}>
+                <Text style={styles.monthLabel}>{format(currentMonth, 'MMMM')}</Text>
+              </View>
+              <TouchableOpacity
+                style={styles.navButton}
+                onPress={() => handleMonthNavigation('next')}
+              >
+                <MaterialIcons name="chevron-right" size={30} color="#FF8447" />
+              </TouchableOpacity>
+            </View>
+          </View>
+        );
+      }
+      case 'Half Yearly': {
+        const { start, end } = getHalfYearMonths(new Date(currentDate.getFullYear(), currentDate.getMonth() + (timeOffset * 6)));
+        return `${format(start, 'MMM yyyy')} - ${format(end, 'MMM yyyy')}`;
+      }
+      default: {
+        const currentMonth = new Date(currentDate.getFullYear(), currentDate.getMonth() + timeOffset);
+        return format(currentMonth, 'MMMM yyyy');
+      }
+    }
+  };
+
+  const getWeekLabels = (month: Date) => {
+    const monthStart = startOfMonth(month);
+    const monthEnd = endOfMonth(month);
+    const firstWeekStart = startOfWeek(monthStart, { weekStartsOn: 1 }); // Monday
+    const lastWeekEnd = endOfWeek(monthEnd, { weekStartsOn: 1 }); // Monday
+    const lastSaturday = new Date(lastWeekEnd);
+    lastSaturday.setDate(lastSaturday.getDate() - 1); // Adjust to Saturday
+
+    // Calculate total weeks between first Monday and last Saturday
+    const totalWeeks = Math.ceil((lastSaturday.getTime() - firstWeekStart.getTime()) / (7 * 24 * 60 * 60 * 1000));
+    
+    const labels = [];
+    for (let i = 1; i <= totalWeeks; i++) {
+      labels.push(`Week ${i}`);
+    }
+    return labels;
+  };
+
+  const getQuarterLabels = (currentMonth: Date) => {
+    const currentQuarter = Math.floor(currentMonth.getMonth() / 3) + 1;
+    const quarterStartMonth = (currentQuarter - 1) * 3;
+    
+    // Get three months for the current quarter
+    return [
+      format(new Date(currentMonth.getFullYear(), quarterStartMonth, 1), 'MMM'),
+      format(new Date(currentMonth.getFullYear(), quarterStartMonth + 1, 1), 'MMM'),
+      format(new Date(currentMonth.getFullYear(), quarterStartMonth + 2, 1), 'MMM')
+    ];
+  };
+
+  const getQuarterData = async (currentMonth: Date): Promise<ChartData> => {
+    const userId = auth.currentUser?.uid;
+    if (!userId) return { labels: [], datasets: [{ data: [] }] };
+
+    const achievementsRef = collection(db, 'telecaller_monthly_achievements');
+    const currentYear = currentMonth.getFullYear();
+    const currentQuarter = Math.floor(currentMonth.getMonth() / 3) + 1;
+    const quarterStartMonth = (currentQuarter - 1) * 3;
+    
+    const monthlyData: number[] = [];
+    const labels: string[] = [];
+    
+    // Get data for each month of the current quarter
+    for (let i = 0; i < 3; i++) {
+      const monthStart = new Date(currentYear, quarterStartMonth + i, 1);
+      const monthEnd = new Date(currentYear, quarterStartMonth + i + 1, 0);
+      
+      labels.push(format(monthStart, 'MMM'));
+      
+      const monthQuery = query(
+        achievementsRef,
+        where('userId', '==', userId),
+        where('monthStart', '==', Timestamp.fromDate(monthStart)),
+        where('monthEnd', '==', Timestamp.fromDate(monthEnd))
+      );
+
+      const monthSnapshot = await getDocs(monthQuery);
+      
+      if (!monthSnapshot.empty) {
+        const monthAchievements = monthSnapshot.docs.map(doc => doc.data().percentageAchieved);
+        const monthAverage = monthAchievements.reduce((sum, val) => sum + val, 0) / monthAchievements.length;
+        monthlyData.push(Math.min(Math.max(Math.round(monthAverage * 10) / 10, 0), 100)); // Ensure value is between 0 and 100
+      } else {
+        monthlyData.push(0);
+      }
+    }
+
+    return {
+      labels,
+      datasets: [{ data: monthlyData }]
+    };
+  };
+
+  const getWeeklyData = async (month: Date): Promise<ChartData> => {
+    const userId = auth.currentUser?.uid;
+    if (!userId) return { labels: [], datasets: [{ data: [] }] };
+
+    const achievementsRef = collection(db, 'telecaller_achievements');
+    const monthStart = startOfMonth(month);
+    const monthEnd = endOfMonth(month);
+    
+    const weeklyQuery = query(
+      achievementsRef,
+      where('userId', '==', userId),
+      where('weekStart', '>=', Timestamp.fromDate(monthStart)),
+      where('weekEnd', '<=', Timestamp.fromDate(monthEnd)),
+      orderBy('weekStart', 'asc')
+    );
+
+    const weeklySnapshot = await getDocs(weeklyQuery);
+    const data: number[] = [];
+    const labels: string[] = [];
+    
+    // Get all weeks in the month
+    const weeks = eachWeekOfInterval(
+      { start: monthStart, end: monthEnd },
+      { weekStartsOn: 1 }
+    );
+
+    // Initialize data for each week
+    weeks.forEach((weekStart, index) => {
+      const weekEnd = endOfWeek(weekStart, { weekStartsOn: 1 });
+      const weekKey = `Week ${index + 1}`;
+      labels.push(weekKey);
+
+      // Find achievements for this week
+      const weekAchievements = weeklySnapshot.docs
+        .filter(doc => {
+          const achievement = doc.data();
+          const achievementDate = achievement.weekStart.toDate();
+          return achievementDate >= weekStart && achievementDate <= weekEnd;
+        })
+        .map(doc => doc.data().percentageAchieved);
+
+      if (weekAchievements.length > 0) {
+        const weekAverage = weekAchievements.reduce((sum, val) => sum + val, 0) / weekAchievements.length;
+        data.push(Math.min(Math.max(Math.round(weekAverage * 10) / 10, 0), 100)); // Ensure value is between 0 and 100
+      } else {
+        data.push(0);
+      }
+    });
+
+    return {
+      labels,
+      datasets: [{ data }]
+    };
+  };
+
+  const getHalfYearData = async (currentMonth: Date): Promise<ChartData> => {
+    const userId = auth.currentUser?.uid;
+    if (!userId) return { labels: [], datasets: [{ data: [] }] };
+
+    const achievementsRef = collection(db, 'telecaller_monthly_achievements');
+    const startDate = new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 5, 1);
+    const endDate = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 0);
+    
+    const halfYearQuery = query(
+      achievementsRef,
+      where('userId', '==', userId),
+      where('monthStart', '>=', Timestamp.fromDate(startDate)),
+      where('monthEnd', '<=', Timestamp.fromDate(endDate)),
+      orderBy('monthStart', 'asc')
+    );
+
+    const halfYearSnapshot = await getDocs(halfYearQuery);
+    const monthlyData: { [key: string]: number[] } = {};
+    const labels: string[] = [];
+
+    // Generate labels for the last 6 months
+    for (let i = 5; i >= 0; i--) {
+      const monthDate = new Date(currentMonth.getFullYear(), currentMonth.getMonth() - i, 1);
+      const monthKey = format(monthDate, 'MMM');
+      labels.push(monthKey);
+      monthlyData[monthKey] = [];
+    }
+
+    // Group achievements by month
+    halfYearSnapshot.docs.forEach(doc => {
+      const achievement = doc.data();
+      const achievementDate = achievement.monthStart.toDate();
+      const monthKey = format(achievementDate, 'MMM');
+      if (monthlyData[monthKey]) {
+        monthlyData[monthKey].push(achievement.percentageAchieved);
+      }
+    });
+
+    // Calculate monthly averages
+    const data = labels.map(monthKey => {
+      const monthAchievements = monthlyData[monthKey];
+      if (monthAchievements.length > 0) {
+        const monthAverage = monthAchievements.reduce((sum, val) => sum + val, 0) / monthAchievements.length;
+        return Math.min(Math.max(Math.round(monthAverage * 10) / 10, 0), 100); // Ensure value is between 0 and 100
+      }
+      return 0;
+    });
+
+    return {
+      labels,
+      datasets: [{ data }]
+    };
+  };
+
   const fetchPeriodData = async (period: string, offset: number) => {
     if (!auth.currentUser) return;
 
     try {
       setIsLoading(true);
-      const userId = auth.currentUser.uid;
-      const reportsRef = collection(db, 'telecaller_reports');
-      const achievementsRef = collection(db, 'telecaller_achievements');
-      const targets = getTargets();
-      const today = new Date();
-      const currentMonth = today.getMonth();
-      const currentYear = today.getFullYear();
+      const currentMonth = new Date(currentDate.getFullYear(), currentDate.getMonth() + offset, 1);
 
       switch (period) {
         case 'Weekly': {
-          const firstDayOfMonth = new Date(currentYear, currentMonth, 1);
-          const lastDayOfMonth = new Date(currentYear, currentMonth + 1, 0);
-          const numWeeks = Math.ceil((lastDayOfMonth.getDate() - firstDayOfMonth.getDate() + 1) / 7);
-          
-          const weeklyData: { [key: string]: { total: number; count: number } } = {};
-          for (let i = 1; i <= numWeeks; i++) {
-            weeklyData[`Week ${i}`] = { total: 0, count: 0 };
-          }
-
-          const startDate = startOfMonth(new Date(currentYear, currentMonth, 1));
-          const endDate = endOfMonth(new Date(currentYear, currentMonth, lastDayOfMonth.getDate()));
-
-          // First get all reports for the month
-          const reportsQuery = query(
-            reportsRef,
-            where('userId', '==', userId),
-            where('createdAt', '>=', Timestamp.fromDate(startDate)),
-            where('createdAt', '<=', Timestamp.fromDate(endDate)),
-            orderBy('createdAt', 'asc')
-          );
-
-          const reportsSnapshot = await getDocs(reportsQuery);
-          
-          // Group reports by week and calculate achievements
-          reportsSnapshot.docs.forEach(doc => {
-            const report = doc.data() as DailyReport;
-            const percentage = calculatePercentage(
-              {
-                numCalls: report.numCalls || 0,
-                callDuration: report.callDuration || 0,
-                positiveLeads: report.positiveLeads || 0,
-                closingAmount: report.closingAmount || 0
-              },
-              targets
-            );
-            
-            const weekNumber = Math.ceil((report.createdAt.toDate().getDate()) / 7);
-            const weekKey = `Week ${weekNumber}`;
-            if (weeklyData[weekKey]) {
-              weeklyData[weekKey].total += percentage;
-              weeklyData[weekKey].count++;
-            }
-          });
-
-          setWeeklyChartData({
-            labels: Object.keys(weeklyData),
-            datasets: [{ data: Object.keys(weeklyData).map(week => 
-              weeklyData[week].count > 0 
-                ? Math.round((weeklyData[week].total / weeklyData[week].count) * 10) / 10
-                : 0
-            )}]
-          });
+          const weeklyData = await getWeeklyData(currentMonth);
+          setWeeklyChartData(weeklyData);
           break;
         }
-
         case 'Quarterly': {
-          const monthlyData: { [key: string]: { total: number; count: number } } = {};
-          
-          // Get current month and next two months
-          for (let i = 0; i < 3; i++) {
-            const monthDate = new Date(currentYear, currentMonth + i, 1);
-            const monthKey = format(monthDate, 'MMM');
-            monthlyData[monthKey] = { total: 0, count: 0 };
-          }
-
-          const startDate = startOfMonth(new Date(currentYear, currentMonth, 1));
-          const endDate = endOfMonth(new Date(currentYear, currentMonth + 2, 1));
-
-          // Query reports for the quarter
-          const reportsQuery = query(
-            reportsRef,
-            where('userId', '==', userId),
-            where('createdAt', '>=', Timestamp.fromDate(startDate)),
-            where('createdAt', '<=', Timestamp.fromDate(endDate)),
-            orderBy('createdAt', 'asc')
-          );
-
-          const reportsSnapshot = await getDocs(reportsQuery);
-
-          reportsSnapshot.docs.forEach(doc => {
-            const report = doc.data() as DailyReport;
-            const percentage = calculatePercentage(
-              {
-                numCalls: report.numCalls || 0,
-                callDuration: report.callDuration || 0,
-                positiveLeads: report.positiveLeads || 0,
-                closingAmount: report.closingAmount || 0
-              },
-              targets
-            );
-            
-            const monthKey = format(report.createdAt.toDate(), 'MMM');
-            if (monthlyData[monthKey]) {
-              monthlyData[monthKey].total += percentage;
-              monthlyData[monthKey].count++;
-            }
-          });
-
-          setQuarterlyChartData({
-            labels: Object.keys(monthlyData),
-            datasets: [{ data: Object.keys(monthlyData).map(month => 
-              monthlyData[month].count > 0 
-                ? Math.round((monthlyData[month].total / monthlyData[month].count) * 10) / 10
-                : 0
-            )}]
-          });
+          const quarterlyData = await getQuarterData(currentMonth);
+          setQuarterlyChartData(quarterlyData);
           break;
         }
-
         case 'Half Yearly': {
-          const monthlyData: { [key: string]: { total: number; count: number } } = {};
-          
-          // Get current month and next five months
-          for (let i = 0; i < 6; i++) {
-            const monthDate = new Date(currentYear, currentMonth + i, 1);
-            const monthKey = format(monthDate, 'MMM');
-            monthlyData[monthKey] = { total: 0, count: 0 };
-          }
-
-          const startDate = startOfMonth(new Date(currentYear, currentMonth, 1));
-          const endDate = endOfMonth(new Date(currentYear, currentMonth + 5, 1));
-
-          // Query reports for half year
-          const reportsQuery = query(
-            reportsRef,
-            where('userId', '==', userId),
-            where('createdAt', '>=', Timestamp.fromDate(startDate)),
-            where('createdAt', '<=', Timestamp.fromDate(endDate)),
-            orderBy('createdAt', 'asc')
-          );
-
-          const reportsSnapshot = await getDocs(reportsQuery);
-
-          reportsSnapshot.docs.forEach(doc => {
-            const report = doc.data() as DailyReport;
-            const percentage = calculatePercentage(
-              {
-                numCalls: report.numCalls || 0,
-                callDuration: report.callDuration || 0,
-                positiveLeads: report.positiveLeads || 0,
-                closingAmount: report.closingAmount || 0
-              },
-              targets
-            );
-            
-            const halfYearMonthKey = format(report.createdAt.toDate(), 'MMM');
-            if (monthlyData[halfYearMonthKey]) {
-              monthlyData[halfYearMonthKey].total += percentage;
-              monthlyData[halfYearMonthKey].count++;
-            }
-          });
-
-          setHalfYearlyChartData({
-            labels: Object.keys(monthlyData),
-            datasets: [{ data: Object.keys(monthlyData).map(month => 
-              monthlyData[month].count > 0 
-                ? Math.round((monthlyData[month].total / monthlyData[month].count) * 10) / 10
-                : 0
-            )}]
-          });
+          const halfYearData = await getHalfYearData(currentMonth);
+          setHalfYearlyChartData(halfYearData);
           break;
         }
       }
 
-      // Calculate highest and average achievements from reports
+      // Calculate highest and average achievements
       const allTimeQuery = query(
-        reportsRef,
-        where('userId', '==', userId),
+        collection(db, 'telecaller_achievements'),
+        where('userId', '==', auth.currentUser.uid),
         orderBy('createdAt', 'desc')
       );
 
@@ -319,17 +402,8 @@ const ViewFullReport = () => {
       let count = 0;
 
       allTimeSnapshot.docs.forEach(doc => {
-        const report = doc.data() as DailyReport;
-        const percentage = calculatePercentage(
-          {
-            numCalls: report.numCalls || 0,
-            callDuration: report.callDuration || 0,
-            positiveLeads: report.positiveLeads || 0,
-            closingAmount: report.closingAmount || 0
-          },
-          targets
-        );
-        
+        const data = doc.data();
+        const percentage = data.percentageAchieved;
         highest = Math.max(highest, percentage);
         total += percentage;
         count++;
@@ -361,54 +435,45 @@ const ViewFullReport = () => {
   }, [selectedPeriod]);
 
   const getActiveData = () => {
-    // Ensure all data points are valid numbers
-    const sanitizeData = (data: ChartData): ChartData => {
-      return {
-        labels: data.labels,
-        datasets: [{
-          data: data.datasets[0].data.map(value => 
-            isNaN(value) ? 0 : Math.round(value * 10) / 10
-          )
-        }]
-      };
-    };
-
     switch (selectedPeriod) {
       case 'Quarterly':
-        return sanitizeData(quarterlyChartData);
+        return quarterlyChartData;
       case 'Half Yearly':
-        return sanitizeData(halfYearlyChartData);
+        return halfYearlyChartData;
       default:
-        return sanitizeData(weeklyChartData);
-    }
-  };
-
-  const getPeriodLabel = () => {
-    switch (selectedPeriod) {
-      case 'Quarterly':
-        const currentQuarter = getCurrentQuarter(currentDate);
-        const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 
-                          'July', 'August', 'September', 'October', 'November', 'December'];
-        const currentMonth = currentDate.getMonth();
-        return `${monthNames[currentMonth]} (Q${currentQuarter})`;
-      case 'Half Yearly':
-        const { start: hStart, end: hEnd } = getHalfYearMonths(currentDate);
-        return `${format(hStart, 'MMMM yyyy')} - ${format(hEnd, 'MMMM yyyy')}`;
-      default:
-        return 'This Week';
+        return weeklyChartData;
     }
   };
 
   const activeData = getActiveData();
 
+  const renderSkeletonLoading = () => (
+    <View style={styles.skeletonContainer}>
+      <View style={styles.skeletonHeader} />
+      <View style={styles.skeletonPeriodContainer}>
+        {[1, 2, 3].map((i) => (
+          <View key={i} style={styles.skeletonPeriodButton} />
+        ))}
+      </View>
+      <View style={styles.skeletonChart} />
+      <View style={styles.skeletonStats}>
+        {[1, 2].map((i) => (
+          <View key={i} style={styles.skeletonStatCard} />
+        ))}
+      </View>
+      <View style={styles.skeletonInsights}>
+        {[1, 2].map((i) => (
+          <View key={i} style={styles.skeletonInsightCard} />
+        ))}
+      </View>
+    </View>
+  );
+
   if (isLoading) {
     return (
       <AppGradient>
-        <TelecallerMainLayout showDrawer showBackButton title="Weekly Report">
-          <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
-            <ActivityIndicator size="large" color="#FF8447" />
-            <Text style={styles.loadingText}>Loading your reports...</Text>
-          </View>
+        <TelecallerMainLayout showDrawer showBackButton title="Performance Report">
+          {renderSkeletonLoading()}
         </TelecallerMainLayout>
       </AppGradient>
     );
@@ -416,9 +481,15 @@ const ViewFullReport = () => {
 
   return (
     <AppGradient>
-      <TelecallerMainLayout showDrawer showBackButton title="Weekly Report">
+      <TelecallerMainLayout showDrawer showBackButton title="Performance Report">
         <View style={styles.container}>
           <ScrollView contentContainerStyle={styles.scrollContainer}>
+            {/* Header Section */}
+            <View style={styles.headerSection}>
+              <Text style={styles.headerTitle}>Performance Analytics</Text>
+              <Text style={styles.headerSubtitle}>Track your achievements and progress</Text>
+            </View>
+
             {/* Period Selection */}
             <View style={styles.periodContainer}>
               {periods.map((period) => (
@@ -445,8 +516,22 @@ const ViewFullReport = () => {
               ))}
             </View>
 
-            {/* Period Label */}
-            <Text style={styles.periodLabel}>{getPeriodLabel()}</Text>
+            {/* Period Label and Navigation */}
+            {getPeriodLabel()}
+
+            {/* Quick Stats */}
+            <View style={styles.quickStatsContainer}>
+              <View style={styles.quickStatCard}>
+                <MaterialIcons name="trending-up" size={24} color="#FF8447" />
+                <Text style={styles.quickStatValue}>{highestAchievement.toFixed(1)}%</Text>
+                <Text style={styles.quickStatLabel}>Highest Achievement</Text>
+              </View>
+              <View style={styles.quickStatCard}>
+                <MaterialIcons name="assessment" size={24} color="#FF8447" />
+                <Text style={styles.quickStatValue}>{averageAchievement.toFixed(1)}%</Text>
+                <Text style={styles.quickStatLabel}>Average Achievement</Text>
+              </View>
+            </View>
 
             {/* Graph Section */}
             <View style={styles.graphCard}>
@@ -455,7 +540,7 @@ const ViewFullReport = () => {
                 width={screenWidth}
                 height={300}
                 yAxisSuffix="%"
-                yAxisInterval={1}
+                yAxisInterval={25}
                 chartConfig={{
                   backgroundColor: '#ffffff',
                   backgroundGradientFrom: '#ffffff',
@@ -473,9 +558,12 @@ const ViewFullReport = () => {
                   },
                   propsForBackgroundLines: {
                     stroke: '#E5E7EB',
-                    strokeWidth: 1,
+                    strokeWidth: 2,
                   },
-                  formatYLabel: (value) => Math.round(parseFloat(value)).toString(),
+                  formatYLabel: (value) => {
+                    const numValue = parseFloat(value);
+                    return Math.min(Math.max(Math.round(numValue), 0), 100).toString();
+                  },
                   useShadowColorFromDataset: false,
                 }}
                 bezier
@@ -493,13 +581,39 @@ const ViewFullReport = () => {
                 withHorizontalLabels={true}
                 withShadow={false}
                 fromZero={true}
+                getDotProps={(value, index) => ({
+                  r: value === highestAchievement ? '8' : '6',
+                  strokeWidth: value === highestAchievement ? '3' : '2',
+                  stroke: value === highestAchievement ? '#FF8447' : '#FF8447',
+                })}
               />
             </View>
 
-            {/* Motivational Message */}
-            <View style={styles.messageContainer}>
-              <Text style={styles.messageText}>Your highest record so far is {highestAchievement.toFixed(1)}% 🎉</Text>
-              <Text style={styles.subMessageText}>Keep pushing to achieve more!</Text>
+            {/* Performance Insights */}
+            <View style={styles.insightsContainer}>
+              <Text style={styles.insightsTitle}>Performance Insights</Text>
+              <View style={styles.insightCard}>
+                <MaterialIcons name="emoji-events" size={24} color="#FF8447" />
+                <View style={styles.insightContent}>
+                  <Text style={styles.insightText}>
+                    Your highest achievement of {highestAchievement.toFixed(1)}% shows your potential!
+                  </Text>
+                  <Text style={styles.insightSubtext}>
+                    Keep pushing to break your own records
+                  </Text>
+                </View>
+              </View>
+              <View style={styles.insightCard}>
+                <MaterialIcons name="trending-up" size={24} color="#FF8447" />
+                <View style={styles.insightContent}>
+                  <Text style={styles.insightText}>
+                    Your average performance is {averageAchievement.toFixed(1)}%
+                  </Text>
+                  <Text style={styles.insightSubtext}>
+                    Maintain consistency to achieve your targets
+                  </Text>
+                </View>
+              </View>
             </View>
 
             {/* Legend */}
@@ -511,18 +625,6 @@ const ViewFullReport = () => {
               <View style={styles.legendItem}>
                 <View style={[styles.legendDot, { backgroundColor: "#E5E7EB" }]} />
                 <Text style={styles.legendText}>Target</Text>
-              </View>
-            </View>
-
-            {/* Stats Cards */}
-            <View style={styles.statsContainer}>
-              <View style={styles.statCard}>
-                <Text style={styles.statTitle}>Average Achievement</Text>
-                <Text style={styles.statValue}>{averageAchievement.toFixed(1)}%</Text>
-              </View>
-              <View style={styles.statCard}>
-                <Text style={styles.statTitle}>Highest Achievement</Text>
-                <Text style={styles.statValue}>{highestAchievement.toFixed(1)}%</Text>
               </View>
             </View>
           </ScrollView>
@@ -541,6 +643,8 @@ const styles = StyleSheet.create({
     marginBottom: 30,
   },
   periodButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingVertical: 10,
     paddingHorizontal: 20,
     borderRadius: 20,
@@ -549,7 +653,12 @@ const styles = StyleSheet.create({
     marginHorizontal: 2,
   },
   selectedPeriodButton: { backgroundColor: "#FF8447" },
-  periodText: { fontSize: 12, fontFamily: "LexendDeca_500Medium", color: "#666" },
+  periodText: {
+    fontSize: 12,
+    fontFamily: "LexendDeca_500Medium",
+    color: "#666",
+    marginLeft: 8,
+  },
   selectedPeriodText: { color: "white" },
   graphCard: { justifyContent: "center" },
   graph: { marginVertical: 18, marginHorizontal: 20 },
@@ -577,26 +686,184 @@ const styles = StyleSheet.create({
     fontFamily: 'LexendDeca_500Medium',
     color: '#666',
   },
-  timeNavigation: {
-    flexDirection: 'row',
-    justifyContent: 'center',
+  periodLabelContainer: {
     alignItems: 'center',
     marginBottom: 20,
-    paddingHorizontal: 20,
+    backgroundColor: 'white',
+    borderRadius: 16,
+    padding: 16,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    width: '100%',
+  },
+  quarterNavigationContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    width: '100%',
+    marginBottom: 12,
+  },
+  monthNavigationContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    width: '100%',
+    borderTopWidth: 1,
+    borderTopColor: '#E5E7EB',
+    paddingTop: 12,
+  },
+  quarterLabelContainer: {
+    alignItems: 'center',
+  },
+  monthLabelContainer: {
+    alignItems: 'center',
+  },
+  quarterLabel: {
+    fontSize: 20,
+    fontFamily: 'LexendDeca_600SemiBold',
+    color: '#333',
+    marginBottom: 4,
+  },
+  yearLabel: {
+    fontSize: 14,
+    fontFamily: 'LexendDeca_500Medium',
+    color: '#666',
+  },
+  monthLabel: {
+    fontSize: 18,
+    fontFamily: 'LexendDeca_600SemiBold',
+    color: '#333',
   },
   navButton: {
     padding: 8,
-    borderRadius: 20,
-    backgroundColor: 'white',
-    elevation: 2,
   },
-  periodLabel: {
-    fontSize: 16,
+  headerSection: {
+    alignItems: 'center',
+    marginBottom: 24,
+  },
+  headerTitle: {
+    fontSize: 24,
     fontFamily: 'LexendDeca_600SemiBold',
     color: '#333',
-    marginHorizontal: 16,
-    minWidth: 150,
+    marginBottom: 8,
+  },
+  headerSubtitle: {
+    fontSize: 14,
+    fontFamily: 'LexendDeca_400Regular',
+    color: '#666',
+  },
+  quickStatsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 24,
+  },
+  quickStatCard: {
+    flex: 1,
+    backgroundColor: 'white',
+    borderRadius: 16,
+    padding: 16,
+    marginHorizontal: 8,
+    elevation: 2,
+    alignItems: 'center',
+  },
+  quickStatValue: {
+    fontSize: 24,
+    fontFamily: 'LexendDeca_600SemiBold',
+    color: '#333',
+    marginVertical: 8,
+  },
+  quickStatLabel: {
+    fontSize: 12,
+    fontFamily: 'LexendDeca_400Regular',
+    color: '#666',
     textAlign: 'center',
+  },
+  insightsContainer: {
+    marginTop: 24,
+  },
+  insightsTitle: {
+    fontSize: 18,
+    fontFamily: 'LexendDeca_600SemiBold',
+    color: '#333',
+    marginBottom: 16,
+  },
+  insightCard: {
+    flexDirection: 'row',
+    backgroundColor: 'white',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 12,
+    elevation: 2,
+    alignItems: 'center',
+  },
+  insightContent: {
+    flex: 1,
+    marginLeft: 12,
+  },
+  insightText: {
+    fontSize: 14,
+    fontFamily: 'LexendDeca_500Medium',
+    color: '#333',
+    marginBottom: 4,
+  },
+  insightSubtext: {
+    fontSize: 12,
+    fontFamily: 'LexendDeca_400Regular',
+    color: '#666',
+  },
+  // Skeleton Loading Styles
+  skeletonContainer: {
+    flex: 1,
+    padding: 20,
+  },
+  skeletonHeader: {
+    height: 40,
+    backgroundColor: '#E5E7EB',
+    borderRadius: 8,
+    marginBottom: 20,
+    width: '60%',
+    alignSelf: 'center',
+  },
+  skeletonPeriodContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginBottom: 30,
+  },
+  skeletonPeriodButton: {
+    height: 40,
+    width: 100,
+    backgroundColor: '#E5E7EB',
+    borderRadius: 20,
+  },
+  skeletonChart: {
+    height: 300,
+    backgroundColor: '#E5E7EB',
+    borderRadius: 16,
+    marginBottom: 20,
+  },
+  skeletonStats: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 20,
+  },
+  skeletonStatCard: {
+    flex: 1,
+    height: 100,
+    backgroundColor: '#E5E7EB',
+    borderRadius: 16,
+    marginHorizontal: 8,
+  },
+  skeletonInsights: {
+    marginTop: 20,
+  },
+  skeletonInsightCard: {
+    height: 80,
+    backgroundColor: '#E5E7EB',
+    borderRadius: 16,
+    marginBottom: 12,
   },
 });
 

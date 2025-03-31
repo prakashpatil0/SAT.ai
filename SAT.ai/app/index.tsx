@@ -36,7 +36,7 @@ import ContactInfo from "@/app/Screens/Telecaller/TelecallerContactInfo";
 import AddContactModal from "@/app/Screens/Telecaller/TelecallerAddContactModal";
 import CallHistory from "./Screens/Telecaller/TelecallerCallHistory";
 import TelecallerPersonNotes from "@/app/Screens/Telecaller/TelecallerPersonNotes";
-import TelecallerIdleTimer from "@/app/Screens/Telecaller/Tab/TelecallerIdleTimer"
+import TelecallerIdleTimer from "@/app/Screens/Telecaller/Tab/TelecallerIdleTimer";
 import ContactBook from "@/app/components/ContactBook/ContactBook";
 
 

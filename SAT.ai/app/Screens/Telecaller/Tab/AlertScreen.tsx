@@ -1,21 +1,19 @@
 import React, { useState, useEffect } from "react";
-import { View, Text, StyleSheet, Vibration, TouchableWithoutFeedback } from "react-native";
+import { View, Text, StyleSheet, Alert, Vibration } from "react-native";
 import Svg, { G, Text as SvgText, Line } from "react-native-svg";
 import { Audio } from "expo-av";
+import * as ScreenOrientation from "expo-screen-orientation";
 import { useNavigation } from "@react-navigation/native";
 import TelecallerMainLayout from "@/app/components/TelecallerMainLayout";
 import AppGradient from "@/app/components/AppGradient";
-import { useIdleTimer } from '@/context/IdleTimerContext';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+
 
 const AlertScreen = () => {
   const navigation = useNavigation();
-  const { resetIdleTimer, isTimerActive } = useIdleTimer();
-  const initialTime = 15 * 60; // 15 minutes in seconds
+  const initialTime = 10; // 15 minutes in seconds
   const [secondsRemaining, setSecondsRemaining] = useState(initialTime);
   const [isRinging, setIsRinging] = useState(false);
   const [sound, setSound] = useState(null);
-  const [idleCount, setIdleCount] = useState(0);
 
   const radius = 80;
   const strokeWidth = 4;
@@ -23,28 +21,8 @@ const AlertScreen = () => {
   const dashAngle = 360 / dashCount; // Angle between each dash
 
   useEffect(() => {
-    loadIdleCount();
-  }, []);
-
-  const loadIdleCount = async () => {
-    try {
-      const count = await AsyncStorage.getItem('idleLogoutCount');
-      setIdleCount(count ? parseInt(count) : 0);
-    } catch (error) {
-      console.error('Error loading idle count:', error);
-    }
-  };
-
-  useEffect(() => {
-    if (!isTimerActive) {
-      setSecondsRemaining(initialTime);
-      stopAlertSound();
-      return;
-    }
-
     if (secondsRemaining <= 0) {
       startAlertSound();
-      navigation.navigate('TelecallerIdleTimer' as never);
       return;
     }
 
@@ -53,15 +31,7 @@ const AlertScreen = () => {
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [secondsRemaining, isTimerActive, navigation]);
-
-  const handleScreenPress = () => {
-    if (isTimerActive && secondsRemaining < initialTime) {
-      resetIdleTimer();
-      setSecondsRemaining(initialTime);
-      stopAlertSound();
-    }
-  };
+  }, [secondsRemaining]);
 
   const startAlertSound = async () => {
     setIsRinging(true);
@@ -73,12 +43,11 @@ const AlertScreen = () => {
         { shouldPlay: true }
       );
       await sound.playAsync();
-      setSound(sound as any);
+      setSound(sound as any); // Type assertion to fix type error
     } catch (error) {
       console.error("Error playing sound", error);
     }
-
-    // Navigate to TelecallerIdleTimer screen
+    // Immediately navigate to TimerAlertScreen
     navigation.navigate('TelecallerIdleTimer' as never);
   };
 
@@ -91,87 +60,89 @@ const AlertScreen = () => {
     setIsRinging(false);
   };
 
+  const lockApplication = () => {
+    Alert.alert("Phone Locked", "Your phone has been locked due to inactivity.");
+    ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP);
+  };
+
   const formatTime = (totalSeconds: number) => {
-    const hours = Math.floor(totalSeconds / 3600);
-    const minutes = Math.floor((totalSeconds % 3600) / 60);
-    const seconds = totalSeconds % 60;
-    
-    return `${hours.toString().padStart(2, "0")}:${minutes
+    const hours = Math.floor(totalSeconds / 3600)
       .toString()
-      .padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
+      .padStart(2, "0");
+    const minutes = Math.floor((totalSeconds % 3600) / 60)
+      .toString()
+      .padStart(2, "0");
+    const seconds = (totalSeconds % 60).toString().padStart(2, "0");
+    return `${hours}:${minutes}:${seconds}`;
   };
 
   return (
     <AppGradient>
-      <TelecallerMainLayout showDrawer showBackButton={true} title="Idle Timer">
-        <TouchableWithoutFeedback onPress={handleScreenPress}>
-          <View style={styles.container}>
-            <View style={styles.svgContainer}>
-              <Svg height="300" width="300" viewBox="0 0 200 200">
-                <G rotation="-90" origin="100, 100">
-                  {[...Array(60)].map((_, index) => {
-                    const angle = (index * 6 * Math.PI) / 180;
-                    const x1 = 100 + radius * Math.cos(angle);
-                    const y1 = 100 + radius * Math.sin(angle);
-                    const x2 = 100 + (radius + 10) * Math.cos(angle);
-                    const y2 = 100 + (radius + 10) * Math.sin(angle);
+    <TelecallerMainLayout showDrawer showBackButton={true} title="Idle Timer">
+    <View  style={styles.container}>
 
-                    return (
-                      <Line
-                        key={index}
-                        x1={x1}
-                        y1={y1}
-                        x2={x2}
-                        y2={y2}
-                        stroke={index < (initialTime - secondsRemaining) / 15 ? "#FF8447" : "#E0E0E0"}
-                        strokeWidth={strokeWidth}
-                        strokeLinecap="round"
-                      />
-                    );
-                  })}
-                </G>
+      <View style={styles.svgContainer}>
+        <Svg height="300" width="300" viewBox="0 0 200 200">
+          <G rotation="-90" origin="100, 100">
+            {[...Array(dashCount)].map((_, index) => {
+              const angle = (index * dashAngle * Math.PI) / 180;
+              const x1 = 100 + radius * Math.cos(angle);
+              const y1 = 100 + radius * Math.sin(angle);
+              const x2 = 100 + (radius + 10) * Math.cos(angle);
+              const y2 = 100 + (radius + 10) * Math.sin(angle);
 
-                <SvgText
-                  x="50%"
-                  y="50%"
-                  textAnchor="middle"
-                  dy=".3em"
-                  fontSize="24"
-                  fontFamily="LexendDeca_400Regular"
-                  fill="#FF8447"
-                >
-                  {formatTime(secondsRemaining)}
-                </SvgText>
+              return (
+                <Line
+                  key={index}
+                  x1={x1}
+                  y1={y1}
+                  x2={x2}
+                  y2={y2}
+                  stroke={index < (initialTime - secondsRemaining) / 15 ? "#FF8447" : "#E0E0E0"}
+                  strokeWidth={strokeWidth}
+                  strokeLinecap="round"
+                />
+              );
+            })}
+          </G>
 
-                <SvgText
-                  x="50%"
-                  y="65%"
-                  textAnchor="middle"
-                  fontSize="14"
-                  fontFamily="LexendDeca_400Regular"
-                  fill="#FF8447"
-                >
-                  Total 15 minutes
-                </SvgText>
-              </Svg>
-            </View>
+          <SvgText
+            x="50%"
+            y="50%"
+            textAnchor="middle"
+            dy=".3em"
+            fontSize="30"
+            fontFamily="LexendDeca_400Regular"
+            fill="#FF8447"
+          >
+            {formatTime(secondsRemaining)}
+          </SvgText>
 
-            <Text style={styles.infoText}>
-              {isTimerActive ? "Timer Active - Tap anywhere to reset" : "Timer Paused"}
-            </Text>
+          <SvgText
+            x="50%"
+            y="65%"
+            textAnchor="middle"
+            fontSize="14"
+            fontFamily="LexendDeca_400Regular"
+            fill="#FF8447"
+          >
+            Total 15 minutes
+          </SvgText>
+        </Svg>
+      </View>
 
-            <View style={styles.instructionsContainer}>
-              <Text style={styles.instructionsHeader}>Idle Timer Instructions</Text>
-              <Text style={styles.instructionsText}>• The idle timer will ring after 15 minutes of inactivity.</Text>
-              <Text style={styles.instructionsText}>• The idle timer will ring a total of three times.</Text>
-              <Text style={styles.instructionsText}>• On the third ring, your phone will automatically lock.</Text>
-              <Text style={styles.instructionsText}>• Timer resets when you interact with the screen.</Text>
-              <Text style={styles.instructionsText}>• Timer restarts after 15 minutes of inactivity.</Text>
-              <Text style={styles.instructionsText}>• Total idle timeouts: {idleCount}</Text>
-            </View>
-          </View>
-        </TouchableWithoutFeedback>
-      </TelecallerMainLayout>
+      <Text style={styles.infoText}>Rung 2 Times so far</Text>
+
+      <View style={styles.instructionsContainer}>
+        <Text style={styles.instructionsHeader}>Idle Timer Instructions</Text>
+        <Text style={styles.instructionsText}>• The idle timer will ring a total of three times.</Text>
+        <Text style={styles.instructionsText}>• On the third ring, your phone will automatically lock.</Text>
+        <Text style={styles.instructionsText}>
+          • Once locked, please visit management to have your phone unlocked.
+        </Text>
+      </View>
+      </View>
+    </TelecallerMainLayout>
     </AppGradient>
   );
 };
@@ -204,9 +175,8 @@ const styles = StyleSheet.create({
     fontFamily: "LexendDeca_500Medium",
   },
   instructionsContainer: {
-    marginTop: 20,
+    marginTop: 30,
     width: "100%",
-    marginBottom: 60,
   },
   instructionsHeader: {
     fontSize: 16,

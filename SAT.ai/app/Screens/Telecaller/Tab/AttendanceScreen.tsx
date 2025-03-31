@@ -48,8 +48,9 @@ interface WeekDay {
 }
 
 const EIGHT_HOURS_IN_MS = 8 * 60 * 60 * 1000; // 8 hours in milliseconds
-const PUNCH_IN_DEADLINE = '09:45'; // 9:45 AM
-const PUNCH_OUT_MINIMUM = '18:25'; // 6:25 PM
+const PUNCH_IN_DEADLINE = '09:45'; // 9:45 AM for full day
+const PUNCH_IN_HALF_DAY = '14:00'; // 2:00 PM for half day
+const PUNCH_OUT_MINIMUM = '18:30'; // 6:30 PM
 const NEXT_DAY_PUNCH_TIME = '08:45'; // 8:45 AM
 
 const { width } = Dimensions.get('window');
@@ -134,7 +135,7 @@ const AttendanceScreen = () => {
   }, [punchInTime, punchOutTime]);
 
   const calculateStatus = (punchIn: string, punchOut: string): AttendanceStatus => {
-    if (!punchIn && !punchOut) return 'On Leave';
+    if (!punchIn) return 'On Leave';
     if (!punchOut) return 'Half Day';
     
     // Convert time strings to minutes for easier comparison
@@ -142,13 +143,20 @@ const AttendanceScreen = () => {
     const [punchOutHours, punchOutMinutes] = punchOut.split(':').map(Number);
     const [minOutHours, minOutMinutes] = PUNCH_OUT_MINIMUM.split(':').map(Number);
     const [maxInHours, maxInMinutes] = PUNCH_IN_DEADLINE.split(':').map(Number);
+    const [halfDayInHours, halfDayInMinutes] = PUNCH_IN_HALF_DAY.split(':').map(Number);
     
     const punchInMins = punchInHours * 60 + punchInMinutes;
     const punchOutMins = punchOutHours * 60 + punchOutMinutes;
     const minOutMins = minOutHours * 60 + minOutMinutes;
     const maxInMins = maxInHours * 60 + maxInMinutes;
+    const halfDayInMins = halfDayInHours * 60 + halfDayInMinutes;
     
-    // If punch in is after deadline (9:45 AM) or punch out is before minimum time (6:25 PM), mark as Half Day
+    // If punch in is after 2 PM, mark as On Leave
+    if (punchInMins > halfDayInMins) {
+      return 'On Leave';
+    }
+    
+    // If punch in is after 9:45 AM or punch out is before 6:30 PM, mark as Half Day
     if (punchInMins > maxInMins || punchOutMins < minOutMins) {
       return 'Half Day';
     }
@@ -233,6 +241,12 @@ const AttendanceScreen = () => {
       'On Leave': 0
     };
 
+    // If the user is new (no attendance history), return zero counts
+    if (history.length === 0) {
+      setStatusCounts(counts);
+      return;
+    }
+
     // Get the number of days in current month
     const daysInMonth = new Date(parseInt(currentYear), parseInt(currentMonth), 0).getDate();
     
@@ -252,32 +266,23 @@ const AttendanceScreen = () => {
              format(recordDate, 'yyyy') === currentYear;
     });
 
+    // Count existing records
     currentMonthRecords.forEach(record => {
       counts[record.status]++;
     });
 
-    // Calculate On Leave days (days without any attendance record)
-    const attendedDates = currentMonthRecords.map(record => record.date);
-    
     // Get current date for comparison
     const today = format(new Date(), 'dd');
     
-    // If the user is new, do not count past days as 'On Leave'
-    if (history.length === 0) {
-      counts['On Leave'] = 0;
-    } else {
-      // Filter dates that are:
-      // 1. Not Sundays
-      // 2. Not attended
-      // 3. Are in the past or today
-      const onLeaveDates = allDates.filter(({ dateStr, isSunday }) => 
-        !isSunday && // Exclude Sundays
-        !attendedDates.includes(dateStr) && // Not attended
-        parseInt(dateStr) <= parseInt(today) // Past or today
-      );
-      
-      counts['On Leave'] = onLeaveDates.length;
-    }
+    // For dates without records, only count as On Leave if they are in the past
+    const attendedDates = currentMonthRecords.map(record => record.date);
+    const onLeaveDates = allDates.filter(({ dateStr, isSunday }) => 
+      !isSunday && // Exclude Sundays
+      !attendedDates.includes(dateStr) && // Not attended
+      parseInt(dateStr) < parseInt(today) // Only past dates
+    );
+    
+    counts['On Leave'] = onLeaveDates.length;
 
     setStatusCounts(counts);
   };
@@ -293,7 +298,7 @@ const AttendanceScreen = () => {
       const currentTime = new Date();
       const dateStr = format(currentTime, 'dd');
       const dayStr = format(currentTime, 'EEE').toUpperCase();
-      const timeStr = format(currentTime, 'HH:mm'); // Changed to 24-hour format for easier calculations
+      const timeStr = format(currentTime, 'HH:mm');
 
       const attendanceRef = collection(db, 'users', userId, 'attendance');
       const todayQuery = query(
@@ -306,12 +311,13 @@ const AttendanceScreen = () => {
       
       if (querySnapshot.empty) {
         // Create new attendance record
+        const status = isPunchIn ? calculateStatus(timeStr, '') : 'On Leave';
         await addDoc(attendanceRef, {
           date: dateStr,
           day: dayStr,
           punchIn: isPunchIn ? timeStr : '',
           punchOut: !isPunchIn ? timeStr : '',
-          status: isPunchIn ? 'Half Day' : 'On Leave',
+          status,
           userId,
           timestamp: Timestamp.fromDate(currentTime),
           photoUri,
@@ -337,10 +343,10 @@ const AttendanceScreen = () => {
 
       // Update local state
       if (isPunchIn) {
-        setPunchInTime(format(currentTime, 'hh:mm a')); // Display in 12-hour format
+        setPunchInTime(format(currentTime, 'hh:mm a'));
         setIsPunchedIn(true);
       } else {
-        setPunchOutTime(format(currentTime, 'hh:mm a')); // Display in 12-hour format
+        setPunchOutTime(format(currentTime, 'hh:mm a'));
         setIsPunchedIn(false);
       }
 

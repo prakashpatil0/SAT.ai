@@ -18,7 +18,7 @@ Notifications.setNotificationHandler({
   }),
 });
 
-const IDLE_TIMEOUT = 5 * 60 * 1000; // 5 minutes
+const IDLE_TIMEOUT = 1 * 60 * 1000; // 5 minutes
 const FINAL_TIMEOUT = 10 * 60 * 1000; // 10 minutes
 const WARNING_INTERVALS = [5, 3, 1]; // Minutes before final timeout
 

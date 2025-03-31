@@ -112,52 +112,36 @@ const LeaderBoard = () => {
     try {
       if (showRefreshing) setRefreshing(true);
       else setLoading(true);
-      
+  
       const data = await getLeaderboardData(10);
-      
-      // Add rank to each user
-      const rankedData = data.map((user, index) => ({
+  
+      // Only take the top 10 entries and assign ranks sequentially from 1-10
+      let rankedData = data.slice(0, 10).map((user, index) => ({
         ...user,
         rank: index + 1
       }));
-      
-      // If we have user name mappings, update the names
+  
+      // Update names from userNameMap if available
       if (Object.keys(userNameMap).length > 0) {
-        rankedData.forEach(user => {
-          if (userNameMap[user.userId]) {
-            user.name = userNameMap[user.userId];
-          }
-        });
-      }
-      
-      // If current user is authenticated but not in the list, add their data for context
-      if (currentUserId && userProfile && !rankedData.some(user => user.userId === currentUserId)) {
-        // Add a dummy entry for the current user with a rank beyond the leaderboard
-        // This won't be displayed in the top 10 but will be used to show "Your Position" banner
-        const currentUserEntry: LeaderboardUser = {
-          userId: currentUserId,
-          name: userProfile.name || userNameMap[currentUserId] || 'You',
-          profileImage: userProfile.profileImageUrl || null,
-          percentageAchieved: 0, // This will be shown as "Not Ranked Yet"
-          rank: rankedData.length + 1,
-          isNotRanked: true
-        };
-        rankedData.push(currentUserEntry);
-      }
-      
-      // If we have less than 10 users, fill the rest with placeholder data
-      if (rankedData.length < 10) {
-        const fillerData = placeholderData.slice(rankedData.length).map(placeholder => ({
-          ...placeholder,
-          rank: rankedData.length + placeholder.rank
+        rankedData = rankedData.map(user => ({
+          ...user,
+          name: userNameMap[user.userId] || user.name,
         }));
-        setLeaderboardData([...rankedData, ...fillerData]);
-      } else {
-        setLeaderboardData(rankedData);
       }
+  
+      // Fill with placeholder data if less than 10 entries
+      if (rankedData.length < 10) {
+        const fillerData = placeholderData.slice(rankedData.length).map((placeholder, index) => ({
+          ...placeholder,
+          rank: rankedData.length + index + 1
+        }));
+        rankedData = [...rankedData, ...fillerData];
+      }
+  
+      setLeaderboardData(rankedData);
+  
     } catch (error) {
       console.error('Error fetching leaderboard data:', error);
-      // On error, show placeholder data to maintain UI structure
       setLeaderboardData(placeholderData);
       Alert.alert(
         "Error",
@@ -169,6 +153,7 @@ const LeaderBoard = () => {
       setRefreshing(false);
     }
   };
+  
 
   // Helper function to get a profile image (either from user data or fallback)
   const getProfileImage = (user: LeaderboardUser | { profileImage: string | null, rank: number, isPlaceholder?: boolean }) => {
@@ -207,11 +192,12 @@ const LeaderBoard = () => {
     return `${percentage.toFixed(1)}%`;
   };
 
-  // Get top 3 users for the podium
-  const topThree = leaderboardData.filter(user => !user.isNotRanked).slice(0, 3);
-  
-  // Get remaining users for the list
-  const remainingUsers = leaderboardData.filter(user => !user.isNotRanked).slice(3);
+ // Get top 3 for podium (positions 1,2,3)
+const topThree = leaderboardData.slice(0, 3);
+
+// Get remaining users for list (positions 4 to 10)
+const remainingUsers = leaderboardData.slice(3, 10);
+
   
   // Find current user in leaderboard
   const currentUserRanking = leaderboardData.find(user => user.userId === currentUserId);

@@ -27,7 +27,7 @@ const defaultProfileImages = [
 ];
 
 // Placeholder data
-const placeholderData: LeaderboardUser[] = Array(7).fill(null).map((_, index) => ({
+const placeholderData: LeaderboardUser[] = Array(10).fill(null).map((_, index) => ({
   userId: `placeholder-${index}`,
   name: `Rank ${index + 4}`,
   profileImage: null,

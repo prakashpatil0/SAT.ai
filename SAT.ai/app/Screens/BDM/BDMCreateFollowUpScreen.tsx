@@ -15,8 +15,6 @@ interface RouteParams {
   contactName?: string;
   phoneNumber?: string;
   notes?: string;
-  customerName?: string; // For backward compatibility
-  customerPhone?: string; // For backward compatibility
 }
 
 const CreateFollowUpScreen = () => {
@@ -24,9 +22,8 @@ const CreateFollowUpScreen = () => {
   const route = useRoute<RouteProp<{ params: RouteParams }, 'params'>>();
   
   // Get passed parameters if available
-  // Support multiple parameter name formats for flexibility
-  const initialContactName = route.params?.contactName || route.params?.customerName || '';
-  const initialPhoneNumber = route.params?.phoneNumber || route.params?.customerPhone || '';
+  const initialContactName = route.params?.contactName || '';
+  const initialPhoneNumber = route.params?.phoneNumber || '';
   const initialNotes = route.params?.notes || '';
 
   const [selectedDate, setSelectedDate] = useState('');
@@ -50,15 +47,12 @@ const CreateFollowUpScreen = () => {
   // Update contact info if route params change
   useEffect(() => {
     if (route.params) {
-      const updatedName = route.params.contactName || route.params.customerName;
-      const updatedPhone = route.params.phoneNumber || route.params.customerPhone;
-      
-      if (updatedName && updatedName !== contactName) {
-        setContactName(updatedName);
+      if (route.params.contactName && route.params.contactName !== contactName) {
+        setContactName(route.params.contactName);
       }
       
-      if (updatedPhone && updatedPhone !== phoneNumber) {
-        setPhoneNumber(updatedPhone);
+      if (route.params.phoneNumber && route.params.phoneNumber !== phoneNumber) {
+        setPhoneNumber(route.params.phoneNumber);
       }
       
       if (route.params.notes && route.params.notes !== notes) {

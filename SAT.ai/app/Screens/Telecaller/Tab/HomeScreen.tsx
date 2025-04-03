@@ -21,6 +21,8 @@ import TelecallerAddContactModal from '@/app/Screens/Telecaller/TelecallerAddCon
 import { getCurrentWeekAchievements } from "@/app/services/targetService";
 import targetService from "@/app/services/targetService";
 import Dialer from '@/app/components/Dialer/Dialer';
+import { startOfWeek, endOfWeek } from 'date-fns';
+import { Timestamp } from 'firebase/firestore';
 
 // Define navigation types
 type RootStackParamList = {
@@ -1336,11 +1338,38 @@ const HomeScreen = () => {
         return;
       }
 
-      const achievements = await targetService.getCurrentWeekAchievements(userId);
-      setWeeklyAchievement({
-        percentageAchieved: achievements.percentageAchieved,
-        isLoading: false
-      });
+      const now = new Date();
+      const weekStart = startOfWeek(now, { weekStartsOn: 1 }); // Monday
+      const weekEnd = endOfWeek(now, { weekStartsOn: 1 });
+
+      // Query the telecaller_achievements collection
+      const achievementsRef = collection(db, 'telecaller_achievements');
+      const q = query(
+        achievementsRef,
+        where('userId', '==', userId),
+        where('weekStart', '==', Timestamp.fromDate(weekStart)),
+        where('weekEnd', '==', Timestamp.fromDate(weekEnd))
+      );
+
+      const querySnapshot = await getDocs(q);
+      
+      if (!querySnapshot.empty) {
+        const achievementData = querySnapshot.docs[0].data();
+        console.log('Found achievement data:', achievementData);
+        
+        setWeeklyAchievement({
+          percentageAchieved: achievementData.percentageAchieved || 0,
+          isLoading: false
+        });
+      } else {
+        // If no achievement record exists, calculate it using targetService
+        console.log('No achievement record found, calculating from daily reports');
+        const achievements = await targetService.getCurrentWeekAchievements(userId);
+        setWeeklyAchievement({
+          percentageAchieved: achievements.percentageAchieved,
+          isLoading: false
+        });
+      }
     } catch (error) {
       console.error('Error fetching weekly achievements:', error);
       setWeeklyAchievement({
@@ -1352,8 +1381,12 @@ const HomeScreen = () => {
 
   // Use effect to fetch achievements on mount and set interval for updates
   useEffect(() => {
+    console.log('Setting up weekly achievements fetch');
     fetchWeeklyAchievements();
-    const interval = setInterval(fetchWeeklyAchievements, 60000); // Update every minute
+    const interval = setInterval(() => {
+      console.log('Fetching weekly achievements (interval)');
+      fetchWeeklyAchievements();
+    }, 60000); // Update every minute
     return () => clearInterval(interval);
   }, []);
 

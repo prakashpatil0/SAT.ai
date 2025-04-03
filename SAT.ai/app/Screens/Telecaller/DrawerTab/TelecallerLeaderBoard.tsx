@@ -10,7 +10,7 @@ import { auth } from '@/firebaseConfig';
 import { DEFAULT_PROFILE_IMAGE } from '@/app/utils/profileStorage';
 import { useProfile } from '@/app/context/ProfileContext';
 import { db } from '@/firebaseConfig';
-import { collection, query, where, getDocs } from 'firebase/firestore';
+import { collection, query, where, getDocs, orderBy, getDoc, doc } from 'firebase/firestore';
 
 // Define the LeaderboardUser type
 type LeaderboardUser = {
@@ -112,37 +112,101 @@ const LeaderBoard = () => {
     try {
       if (showRefreshing) setRefreshing(true);
       else setLoading(true);
-  
-      const data = await getLeaderboardData(10);
-  
-      // Only take the top 10 entries and assign ranks sequentially from 1-10
-      let rankedData = data.slice(0, 10).map((user, index) => ({
-        ...user,
-        rank: index + 1
-      }));
-  
-      // Update names from userNameMap if available
-      if (Object.keys(userNameMap).length > 0) {
-        rankedData = rankedData.map(user => ({
-          ...user,
-          name: userNameMap[user.userId] || user.name,
-        }));
-      }
-  
-      // Fill with placeholder data if less than 10 entries
-      if (rankedData.length < 10) {
-        const fillerData = placeholderData.slice(rankedData.length).map((placeholder, index) => ({
-          ...placeholder,
-          rank: rankedData.length + index + 1
-        }));
-        rankedData = [...rankedData, ...fillerData];
-      }
-  
-      setLeaderboardData(rankedData);
-  
+
+      // Get all telecaller achievements
+      const achievementsRef = collection(db, 'telecaller_achievements');
+      const achievementsQuery = query(
+        achievementsRef,
+        orderBy('percentageAchieved', 'desc')
+      );
+
+      const achievementsSnapshot = await getDocs(achievementsQuery);
+      
+      // Group achievements by user and get their highest achievement
+      const userAchievements: Record<string, {
+        highestPercentage: number;
+        latestDate: Date;
+      }> = {};
+
+      achievementsSnapshot.forEach(doc => {
+        const data = doc.data();
+        const userId = data.userId;
+        const percentage = data.percentageAchieved;
+        const date = data.createdAt.toDate();
+
+        if (!userAchievements[userId] || 
+            percentage > userAchievements[userId].highestPercentage ||
+            (percentage === userAchievements[userId].highestPercentage && 
+             date > userAchievements[userId].latestDate)) {
+          userAchievements[userId] = {
+            highestPercentage: percentage,
+            latestDate: date
+          };
+        }
+      });
+
+      // Convert to array and sort by highest percentage
+      const sortedUsers = Object.entries(userAchievements)
+        .map(([userId, data]) => ({
+          userId,
+          percentageAchieved: data.highestPercentage,
+          latestDate: data.latestDate
+        }))
+        .sort((a, b) => b.percentageAchieved - a.percentageAchieved);
+
+      // Fetch user details for all users
+      const leaderboardData = await Promise.all(
+        sortedUsers.map(async (user) => {
+          try {
+            // Try to get user from users collection
+            const userDoc = await getDoc(doc(db, "users", user.userId));
+            let userName = "Unknown User";
+            let profileImage = null;
+
+            if (userDoc.exists()) {
+              const userData = userDoc.data();
+              // Try different name fields
+              userName = userData.name || 
+                        (userData.firstName && userData.lastName ? `${userData.firstName} ${userData.lastName}` : null) ||
+                        userData.displayName || 
+                        userData.email || 
+                        "Unknown User";
+
+              // Try different profile image fields
+              const imageFields = ["profileImageUrl", "profileImage", "photoURL", "avatar", "picture"];
+              for (const field of imageFields) {
+                if (userData[field] && typeof userData[field] === 'string') {
+                  profileImage = String(userData[field]);
+                  break;
+                }
+              }
+            }
+
+            return {
+              userId: user.userId,
+              name: userName,
+              profileImage: profileImage || defaultProfileImages[3], // Use default girl image
+              percentageAchieved: user.percentageAchieved,
+              rank: sortedUsers.indexOf(user) + 1
+            };
+          } catch (error) {
+            console.error(`Error fetching user details for ${user.userId}:`, error);
+            return {
+              userId: user.userId,
+              name: "Unknown User",
+              profileImage: defaultProfileImages[3], // Use default girl image
+              percentageAchieved: user.percentageAchieved,
+              rank: sortedUsers.indexOf(user) + 1
+            };
+          }
+        })
+      );
+
+      console.log('Leaderboard data:', leaderboardData); // Add logging to debug
+      setLeaderboardData(leaderboardData);
+
     } catch (error) {
       console.error('Error fetching leaderboard data:', error);
-      setLeaderboardData(placeholderData);
       Alert.alert(
         "Error",
         "Could not load leaderboard data. Please try again later.",
@@ -157,19 +221,19 @@ const LeaderBoard = () => {
 
   // Helper function to get a profile image (either from user data or fallback)
   const getProfileImage = (user: LeaderboardUser | { profileImage: string | null, rank: number, isPlaceholder?: boolean }) => {
-    // For placeholder entries, use a consistent default image with reduced opacity
+    // For placeholder entries, use a consistent default image
     if (user.isPlaceholder) {
       return defaultProfileImages[3];
     }
     
-    // Use the user's profile image if available
-    if (user.profileImage) {
-      return { uri: user.profileImage };
-    }
-    
     // If this is the current user, try to get image from userProfile
     if ('userId' in user && isCurrentUser(user.userId) && userProfile?.profileImageUrl) {
-      return { uri: userProfile.profileImageUrl };
+      return { uri: String(userProfile.profileImageUrl) };
+    }
+    
+    // Use the user's profile image if available and valid
+    if (user.profileImage && typeof user.profileImage === 'string') {
+      return { uri: String(user.profileImage) };
     }
     
     // Use predetermined images for top 3, then default for others
@@ -177,8 +241,8 @@ const LeaderBoard = () => {
       return defaultProfileImages[user.rank - 1];
     }
     
-    // Default fallback image
-    return DEFAULT_PROFILE_IMAGE ? { uri: DEFAULT_PROFILE_IMAGE } : defaultProfileImages[3];
+    // Default fallback image (girl image)
+    return defaultProfileImages[3];
   };
   
   // Check if this entry is the current user
@@ -265,7 +329,7 @@ const remainingUsers = leaderboardData.slice(3, 10);
               </View>
             )}
             
-            {/* Top Three Section - Always display even with placeholder data */}
+            {/* Top Three Section */}
             <View style={styles.topThreeContainer}>
               {/* Second Place */}
               <View style={styles.secondPlaceWrapper}>
@@ -290,7 +354,7 @@ const remainingUsers = leaderboardData.slice(3, 10);
                     topThree[1]?.isPlaceholder && styles.placeholderText,
                     isCurrentUser(topThree[1]?.userId) && styles.currentUserText
                   ]}>
-                    {topThree[1]?.name ? topThree[1].name.split(' ').join('\n') : 'Waiting\nfor data'}
+                    {topThree[1]?.name || 'Waiting\nfor data'}
                   </Text>
                   <Text style={[styles.rank, styles.secondRank]}>2</Text>
                   <Text style={[
@@ -303,7 +367,7 @@ const remainingUsers = leaderboardData.slice(3, 10);
                 </View>
               </View>
 
-              {/* First Place (Centered and Highlighted) */}
+              {/* First Place */}
               <View style={styles.firstPlaceWrapper}>
                 <FontAwesome5 name="crown" size={40} color="#FFD700" style={styles.crown} />
                 <View style={styles.imageContainer}>
@@ -329,7 +393,7 @@ const remainingUsers = leaderboardData.slice(3, 10);
                     topThree[0]?.isPlaceholder && styles.placeholderText,
                     isCurrentUser(topThree[0]?.userId) && styles.currentUserText
                   ]}>
-                    {topThree[0]?.name ? topThree[0].name.split(' ').join('\n') : 'Waiting\nfor data'}
+                    {topThree[0]?.name || 'Waiting\nfor data'}
                   </Text>
                   <Text style={[styles.rank, styles.firstRank]}>1</Text>
                   <Text style={[
@@ -366,7 +430,7 @@ const remainingUsers = leaderboardData.slice(3, 10);
                     topThree[2]?.isPlaceholder && styles.placeholderText,
                     isCurrentUser(topThree[2]?.userId) && styles.currentUserText
                   ]}>
-                    {topThree[2]?.name ? topThree[2].name.split(' ').join('\n') : 'Waiting\nfor data'}
+                    {topThree[2]?.name || 'Waiting\nfor data'}
                   </Text>
                   <Text style={[styles.rank, styles.thirdRank]}>3</Text>
                   <Text style={[
@@ -380,9 +444,9 @@ const remainingUsers = leaderboardData.slice(3, 10);
               </View>
             </View>
 
-            {/* List Section - Always show structure with 7 more entries */}
+            {/* List Section - Show all remaining users */}
             <View style={styles.listContainer}>
-              {remainingUsers.map((user) => (
+              {leaderboardData.slice(3).map((user) => (
                 <View key={user.userId} style={[
                   styles.listItem,
                   isCurrentUser(user.userId) && styles.currentUserItem
@@ -430,11 +494,6 @@ const remainingUsers = leaderboardData.slice(3, 10);
                   </View>
                 </View>
               ))}
-              
-              {/* Always show 7 list items even if we don't have that many users */}
-              {remainingUsers.length === 0 && (
-                <Text style={styles.noDataMessage}>Submit your daily reports to appear on the leaderboard!</Text>
-              )}
             </View>
           </Animated.View>
         </ScrollView>
@@ -512,20 +571,20 @@ const styles = StyleSheet.create({
   firstPodium: {
     backgroundColor: "#FFE4B5",
     width: 120,
-    height: 140,
+    height: 160,
     zIndex: 1,
     elevation: 4,
   },
   secondPodium: {
     backgroundColor: "#E6E6FA",
     width: 110,
-    height: 110,
+    height: 130,
     elevation: 3,
   },
   thirdPodium: {
     backgroundColor: "#FFE4E1",
     width: 110,
-    height: 110,
+    height: 130,
     elevation: 3,
   },
   crown: {

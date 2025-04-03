@@ -187,7 +187,7 @@ const OnboardingScreen = () => {
                             index === dotIndex && styles.activeDot,
                             {
                               transform: [{
-                                scale: index === dotIndex ? 1.2 : 1
+                                scale: index === dotIndex ? 1 : 1
                               }]
                             }
                           ]} 
@@ -195,15 +195,14 @@ const OnboardingScreen = () => {
                       ))}
                     </View>
 
-                    {/* Skip button - show on slides 2-4 */}
-                    {index > 0 && index < slides.length - 1 && (
+                   
                       <TouchableOpacity 
                         style={styles.skipButton} 
                         onPress={() => navigation.navigate('SignUpScreen' as never)}
                       >
                         <Text style={styles.skipText}>Skip</Text>
                       </TouchableOpacity>
-                    )}
+                    {/* )} */}
 
                     <View style={styles.navigationButtons}>
                       <TouchableOpacity 
@@ -216,16 +215,16 @@ const OnboardingScreen = () => {
                         }}
                         disabled={index === 0}
                       >
-                        <MaterialIcons name="chevron-left" size={30} color="#F55100" />
+                        <MaterialIcons name="chevron-left" size={35} color="#F55100" />
                       </TouchableOpacity>
                       <TouchableOpacity 
                         style={styles.navButton}
                         onPress={() => {
-                          setCurrentIndex(index + 1);
+                          setCurrentIndex(index );
                           swiperRef.current?.scrollBy(1);
                         }}
                       >
-                        <MaterialIcons name="chevron-right" size={30} color="#F55100" />
+                        <MaterialIcons name="chevron-right" size={35} color="#F55100" />
                       </TouchableOpacity>
                     </View>
                   </View>
@@ -354,11 +353,8 @@ const styles = StyleSheet.create({
   navButton: {
     width: 48,
     height: 48,
-    backgroundColor: '#FFE4E1',
-    borderRadius: 24,
     justifyContent: 'center',
     alignItems: 'center',
-    elevation: 2,
   },
   getStartedButton: {
     width: width * 0.9,

@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from "react";
-import { View, TouchableOpacity, StyleSheet, Image, Alert } from "react-native";
+import React, { useState, useEffect, FC } from "react";
+import { View, TouchableOpacity, StyleSheet, Image, Alert, AppState, ParamListBase, RouteProp } from "react-native";
 import { NavigationContainer, DrawerActions, useNavigation } from "@react-navigation/native";
 import { createDrawerNavigator } from "@react-navigation/drawer";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
@@ -17,7 +17,6 @@ import TargetScreen from "@/app/Screens/Telecaller/Tab/TargetScreen";
 import HomeScreen from "@/app/Screens/Telecaller/Tab/HomeScreen";
 import AttendanceScreen from "@/app/Screens/Telecaller/Tab/AttendanceScreen";
 import CustomDrawerContent from "@/app/components/CustomDrawer";
-import AlertScreen from "@/app/Screens/Telecaller/Tab/AlertScreen";
 import MyScript from "@/app/Screens/Telecaller/DrawerTab/TelecallerMyScript";
 import DetailsScreen from '@/app/Screens/Telecaller/TelecallerDetailsScreen';
 import ReportScreen from "@/app/Screens/Telecaller/Tab/DailyReportScreen";
@@ -36,9 +35,8 @@ import ContactInfo from "@/app/Screens/Telecaller/TelecallerContactInfo";
 import AddContactModal from "@/app/Screens/Telecaller/TelecallerAddContactModal";
 import CallHistory from "./Screens/Telecaller/TelecallerCallHistory";
 import TelecallerPersonNotes from "@/app/Screens/Telecaller/TelecallerPersonNotes";
-import TelecallerIdleTimer from "@/app/Screens/Telecaller/Tab/TelecallerIdleTimer";
 import ContactBook from "@/app/components/ContactBook/ContactBook";
-
+import TelecallerIdleTimerScreen from "@/app/Screens/Telecaller/Tab/TelecallerIdleTimerScreen";
 
 
 import BDMBottomTabs from "@/app/Screens/BDM/BDMBottomTabs";
@@ -77,7 +75,9 @@ import { BackendProvider } from './contexts/BackendContext';
 import BDMMyCallsScreen from '@/app/Screens/BDM/BDMMyCallsScreen';
 import BDMSettings from "@/app/Screens/BDM/BDMSettings";
 import BDMMeetingReports from "./Screens/BDM/DrawerTab/BDMMeetingReports";
-
+import { auth } from '@/firebaseConfig';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import TelecallerIdleAlertScreen from "@/app/Screens/Telecaller/TelecallerIdleAlertScreen";
 
 
 
@@ -140,8 +140,53 @@ export type RootStackParamList = {
   };
 };
 
+// Update the component types to include navigation props
+type ScreenComponentType<T extends ParamListBase, K extends keyof T> = FC<{
+  route: RouteProp<T, K>;
+  navigation: any;
+}>;
+
+// Update the BDMStackParamList to include all screens
 export type BDMStackParamList = {
   BDMHomeScreen: undefined;
+  BDMCallHistory: {
+    customerName: string;
+    meetings: {
+      date: string;
+      time: string;
+      duration: string;
+      notes?: string[];
+      type: 'incoming' | 'outgoing' | 'missed';
+    }[];
+    callStats?: {
+      totalCalls: number;
+      totalDuration: number;
+      callTypes: {
+        incoming: number;
+        outgoing: number;
+        missed: number;
+        rejected: number;
+      };
+      dailyCalls: {
+        [date: string]: {
+          count: number;
+          duration: number;
+          callTypes: {
+            incoming: number;
+            outgoing: number;
+            missed: number;
+            rejected: number;
+          };
+        };
+      };
+    };
+  };
+  BDMCreateFollowUpScreen: {
+    contactName?: string;
+    phoneNumber?: string;
+    notes?: string;
+  };
+  BDMViewFullReport: undefined;
   BDMBottomTabs: undefined;
   BDMProfile: undefined;
   BDMLeaderBoard: undefined;
@@ -165,15 +210,6 @@ export type BDMStackParamList = {
   BDMMeetingLogScreen: undefined;
   BDMCameraScreen: {
     type: 'in' | 'out';
-  };
-  BDMCallHistory: {
-    customerName: string;
-    meetings: Array<{
-      date: string;
-      time: string;
-      duration: string;
-      notes?: string[];
-    }>;
   };
   BDMPersonNote: {
     name: string;
@@ -255,7 +291,6 @@ const DrawerNavigator = () => {
       <Drawer.Screen name="Target" component={TargetScreen} />
       <Drawer.Screen name="Attendance" component={AttendanceScreen} />
       <Drawer.Screen name="Report" component={ReportScreen} />
-      <Drawer.Screen name="AlertScreen" component={AlertScreen} />
       <Drawer.Screen name="My Script" component={MyScript} />
       <Drawer.Screen name="DetailsScreen" component={DetailsScreen} />
       <Drawer.Screen name="Leaderboard" component={Leaderboard} />
@@ -271,9 +306,10 @@ const DrawerNavigator = () => {
       <Drawer.Screen name="ContactInfo" component={ContactInfo} />
       <Drawer.Screen name="AddContactModal" component={AddContactModal} />
       <Drawer.Screen name="TelecallerPersonNotes" component={TelecallerPersonNotes} />
-      <Drawer.Screen name="TelecallerIdleTimer" component={TelecallerIdleTimer} />
       <Drawer.Screen name="ContactBook" component={ContactBook} />
       <Drawer.Screen name="TelecallerCallNoteDetails" component={TelecallerCallNoteDetails} />
+      <Drawer.Screen name="TelecallerIdleTimerScreen" component={TelecallerIdleTimerScreen} />
+      <Drawer.Screen name="TelecallerIdleAlertScreen" component={TelecallerIdleAlertScreen} />
     </Drawer.Navigator>
     </IdleTimerProvider>
   );
@@ -504,6 +540,70 @@ export default function App() {
 
   const [appIsReady, setAppIsReady] = useState(false);
   const [permissionsGranted, setPermissionsGranted] = useState(false);
+
+  // Add app state tracking
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', handleAppStateChange);
+    
+    // Check for existing session on app start
+    checkExistingSession();
+
+    return () => {
+      subscription.remove();
+    };
+  }, []);
+
+  const handleAppStateChange = async (nextAppState: string) => {
+    if (nextAppState === 'active') {
+      // App came to foreground
+      const sessionToken = await AsyncStorage.getItem('sessionToken');
+      const lastActiveTime = await AsyncStorage.getItem('lastActiveTime');
+      
+      if (sessionToken && lastActiveTime) {
+        // Check if session is still valid (e.g., within 30 days)
+        const lastActive = new Date(lastActiveTime).getTime();
+        const now = new Date().getTime();
+        const thirtyDaysInMs = 30 * 24 * 60 * 60 * 1000;
+        
+        if (now - lastActive > thirtyDaysInMs) {
+          // Session expired, clear it
+          await AsyncStorage.multiRemove(['sessionToken', 'lastActiveTime', 'userRole']);
+          auth.signOut();
+        }
+      }
+    } else if (nextAppState === 'background' || nextAppState === 'inactive') {
+      // App went to background
+      if (auth.currentUser) {
+        // Save current time as last active
+        await AsyncStorage.setItem('lastActiveTime', new Date().toISOString());
+        // Store session token
+        await AsyncStorage.setItem('sessionToken', auth.currentUser.uid);
+      }
+    }
+  };
+
+  const checkExistingSession = async () => {
+    try {
+      const [sessionToken, lastActiveTime] = await AsyncStorage.multiGet(['sessionToken', 'lastActiveTime']);
+      
+      if (sessionToken[1] && lastActiveTime[1]) {
+        const lastActive = new Date(lastActiveTime[1]).getTime();
+        const now = new Date().getTime();
+        const thirtyDaysInMs = 30 * 24 * 60 * 60 * 1000;
+        
+        if (now - lastActive <= thirtyDaysInMs) {
+          // Valid session exists, no need to logout
+          await AsyncStorage.setItem('lastActiveTime', new Date().toISOString());
+        } else {
+          // Session expired, clear it
+          await AsyncStorage.multiRemove(['sessionToken', 'lastActiveTime', 'userRole']);
+          auth.signOut();
+        }
+      }
+    } catch (error) {
+      console.error('Error checking existing session:', error);
+    }
+  };
 
   useEffect(() => {
     async function prepare() {

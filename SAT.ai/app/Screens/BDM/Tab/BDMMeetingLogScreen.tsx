@@ -23,6 +23,7 @@ import { auth, db } from '@/firebaseConfig';
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import { useNavigation } from '@react-navigation/native';
 import * as Location from 'expo-location';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 interface IndividualDetails {
   name: string;
@@ -53,6 +54,10 @@ const generateMeetingId = () => {
   const randomStr = Math.random().toString(36).substring(2, 7).toUpperCase();
   return `MTG-${timestamp.slice(-4)}${randomStr}`;
 };
+
+// Add storage key constant
+const MEETING_LOGS_STORAGE_KEY = 'bdm_meeting_logs';
+const MEETING_LOGS_PENDING_SYNC = 'bdm_meeting_logs_pending_sync';
 
 const BDMMeetingLogScreen = () => {
   const navigation = useNavigation();
@@ -197,11 +202,11 @@ const BDMMeetingLogScreen = () => {
     try {
       setIsLoading(true);
       
-      // Prepare meeting data for Firestore
+      // Prepare meeting data
       const meetingData = {
         ...formData,
         meetingType,
-        createdAt: serverTimestamp(),
+        createdAt: new Date(),
         meetingDateTime: new Date(
           selectedDate.getFullYear(),
           selectedDate.getMonth(),
@@ -221,24 +226,78 @@ const BDMMeetingLogScreen = () => {
           ? [formData.individuals[0]] 
           : formData.individuals
       };
-      
-      // Add document to "meetings" collection
-      const docRef = await addDoc(collection(db, 'meetings'), meetingData);
-      
-      console.log('Meeting saved with ID: ', docRef.id);
-      
-      // Show success modal
-      setModalVisible(true);
-      
-      // Auto-hide the modal after 2 seconds and navigate back
-      setTimeout(() => {
-        setModalVisible(false);
-        navigation.goBack();
-      }, 2000);
-      
+
+      // Save to AsyncStorage first
+      try {
+        const existingLogsStr = await AsyncStorage.getItem(MEETING_LOGS_STORAGE_KEY);
+        const existingLogs = existingLogsStr ? JSON.parse(existingLogsStr) : [];
+        
+        // Add new meeting to existing logs
+        existingLogs.push({
+          ...meetingData,
+          id: formData.meetingId,
+          syncStatus: 'pending'
+        });
+
+        // Save updated logs to AsyncStorage
+        await AsyncStorage.setItem(MEETING_LOGS_STORAGE_KEY, JSON.stringify(existingLogs));
+        
+        // Add to pending sync list
+        const pendingSyncStr = await AsyncStorage.getItem(MEETING_LOGS_PENDING_SYNC);
+        const pendingSync = pendingSyncStr ? JSON.parse(pendingSyncStr) : [];
+        pendingSync.push(formData.meetingId);
+        await AsyncStorage.setItem(MEETING_LOGS_PENDING_SYNC, JSON.stringify(pendingSync));
+
+        // Schedule Firebase sync after 10 minutes
+        setTimeout(async () => {
+          try {
+            // Get the meeting data from AsyncStorage
+            const logsStr = await AsyncStorage.getItem(MEETING_LOGS_STORAGE_KEY);
+            const logs = logsStr ? JSON.parse(logsStr) : [];
+            const meetingToSync = logs.find((log: any) => log.id === formData.meetingId);
+
+            if (meetingToSync) {
+              // Save to Firebase
+              await addDoc(collection(db, 'meetings'), {
+                ...meetingToSync,
+                createdAt: serverTimestamp(),
+                meetingDateTime: meetingToSync.meetingDateTime,
+                meetingEndDateTime: meetingToSync.meetingEndDateTime
+              });
+
+              // Update sync status in AsyncStorage
+              const updatedLogs = logs.map((log: any) => 
+                log.id === formData.meetingId 
+                  ? { ...log, syncStatus: 'synced' }
+                  : log
+              );
+              await AsyncStorage.setItem(MEETING_LOGS_STORAGE_KEY, JSON.stringify(updatedLogs));
+
+              // Remove from pending sync list
+              const updatedPendingSync = pendingSync.filter((id: string) => id !== formData.meetingId);
+              await AsyncStorage.setItem(MEETING_LOGS_PENDING_SYNC, JSON.stringify(updatedPendingSync));
+            }
+          } catch (error) {
+            console.error('Error syncing meeting to Firebase:', error);
+          }
+        }, 10 * 60 * 1000); // 10 minutes
+        
+        // Show success modal
+        setModalVisible(true);
+        
+        // Auto-hide the modal after 2 seconds and navigate back
+        setTimeout(() => {
+          setModalVisible(false);
+          navigation.goBack();
+        }, 2000);
+        
+      } catch (error) {
+        console.error('Error saving meeting to AsyncStorage:', error);
+        Alert.alert('Error', 'Failed to save meeting. Please try again.');
+      }
     } catch (error) {
-      console.error('Error saving meeting:', error);
-      Alert.alert('Error', 'Failed to save meeting. Please try again.');
+      console.error('Error in handleSubmit:', error);
+      Alert.alert('Error', 'An unexpected error occurred. Please try again.');
     } finally {
       setIsLoading(false);
     }

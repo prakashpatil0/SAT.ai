@@ -27,15 +27,15 @@ type CustomTextStyle = {
   fontSize: number;
 };
 
-type Styles = {
+interface Styles {
   container: ViewStyle;
   innerContainer: ViewStyle;
   title: TextStyle;
-  input: ViewStyle;
+  input: TextStyle & ViewStyle;
+  inputContent: TextStyle & ViewStyle;
+  inputOutline: ViewStyle;
   inputWithError: ViewStyle;
   errorText: TextStyle;
-  inputContent: ViewStyle;
-  inputOutline: ViewStyle;
   signupButton: ViewStyle;
   buttonContent: ViewStyle;
   buttonLabel: TextStyle;
@@ -51,8 +51,8 @@ type Styles = {
   roleText: TextStyle;
   dropdownTrigger: ViewStyle;
   textInput: ViewStyle;
-  textInputContent: TextStyle;
-  textInputWithError: TextStyle;
+  textInputContent: TextStyle & ViewStyle;
+  textInputWithError: TextStyle & ViewStyle;
   inputContainer: ViewStyle;
   inputContainerWithError: ViewStyle;
   formField: ViewStyle;
@@ -114,6 +114,7 @@ const SignUpScreen = () => {
         email: formData.email.trim().toLowerCase(),
         phoneNumber: formData.phoneNumber.trim(),
         role: formData.role.toLowerCase(),
+        designation: formData.role.toLowerCase() === 'bdm' ? 'Business Development Manager' : 'Telecaller',
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
         isActive: true
@@ -518,16 +519,16 @@ const styles = StyleSheet.create<Styles>({
     marginBottom: 12,
     backgroundColor: '#FFFFFF',
     fontSize: 16,
-  } as ViewStyle,
+  },
   inputContent: {
     paddingVertical: 12,
     paddingHorizontal: 16,
     height: 56,
-  } as ViewStyle,
+  },
   inputOutline: {
     borderRadius: 10,
     borderWidth: 1.5,
-  } as ViewStyle,
+  },
   inputWithError: {
     marginBottom: 0,
   },
@@ -536,7 +537,7 @@ const styles = StyleSheet.create<Styles>({
     marginTop: 2,
     fontSize: 12,
     color: '#DC3545',
-  } as TextStyle,
+  },
   signupButton: {
     marginTop: 24,
     backgroundColor: '#FF8447',
@@ -626,7 +627,7 @@ const styles = StyleSheet.create<Styles>({
   },
   textInput: {
     width: '100%',
-  } as ViewStyle,
+  },
   textInputContent: {
     marginBottom: 12,
     backgroundColor: '#FFFFFF',
@@ -634,7 +635,7 @@ const styles = StyleSheet.create<Styles>({
     paddingVertical: 12,
     paddingHorizontal: 16,
     height: 56,
-  } as TextStyle,
+  },
   textInputWithError: {
     marginBottom: 0,
     backgroundColor: '#FFFFFF',
@@ -642,13 +643,13 @@ const styles = StyleSheet.create<Styles>({
     paddingVertical: 12,
     paddingHorizontal: 16,
     height: 56,
-  } as TextStyle,
+  },
   inputContainer: {
     marginBottom: 12,
-  } as ViewStyle,
+  },
   inputContainerWithError: {
     marginBottom: 0,
-  } as ViewStyle,
+  },
   formField: {
     marginBottom: 12,
   },

@@ -231,7 +231,7 @@ const BDMTargetScreen = () => {
 
                 {/* Rows */}
                 <View style={styles.row}>
-                  <Text style={styles.label}>Projected No. of Meetings</Text>
+                  <Text style={styles.label}>Number of Meetings</Text>
                   <View style={styles.valueColumns}>
                     <Text style={styles.achieved}>{targetData.projectedMeetings.achieved}</Text>
                     <Text style={styles.target}>{targetData.projectedMeetings.target}</Text>
@@ -239,7 +239,7 @@ const BDMTargetScreen = () => {
                 </View>
 
                 <View style={styles.row}>
-                  <Text style={styles.label}>Attended No. of Meetings</Text>
+                  <Text style={styles.label}>Prospective No. of Meetings</Text>
                   <View style={styles.valueColumns}>
                     <Text style={styles.achieved}>{targetData.attendedMeetings.achieved}</Text>
                     <Text style={styles.target}>{targetData.attendedMeetings.target}</Text>
@@ -255,7 +255,7 @@ const BDMTargetScreen = () => {
                 </View>
 
                 <View style={styles.row}>
-                  <Text style={styles.label}>Closing</Text>
+                  <Text style={styles.label}>Closing Amount</Text>
                   <View style={styles.valueColumns}>
                     <Text style={styles.achieved}>₹{targetData.closing.achieved.toLocaleString()}</Text>
                     <Text style={styles.target}>₹{targetData.closing.target.toLocaleString()}</Text>

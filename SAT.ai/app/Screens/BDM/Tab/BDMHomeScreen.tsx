@@ -69,9 +69,17 @@ interface MonthlyCallHistory {
     rejected: number;
   };
   totalDuration: number;
-  todayCalls: {
-    count: number;
-    duration: number;
+  dailyCalls: {
+    [date: string]: {
+      count: number;
+      duration: number;
+      callTypes: {
+        incoming: number;
+        outgoing: number;
+        missed: number;
+        rejected: number;
+      };
+    };
   };
 }
 
@@ -191,6 +199,11 @@ const BDMHomeScreen = () => {
     percentageAchieved: 0,
     isLoading: true
   });
+  const [meetingStats, setMeetingStats] = useState({
+    totalMeetings: 0,
+    totalDuration: 0
+  });
+  const statsUpdateInterval = useRef<NodeJS.Timeout | null>(null);
   
   const navigation = useNavigation<StackNavigationProp<BDMStackParamList>>();
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -456,10 +469,7 @@ const BDMHomeScreen = () => {
               rejected: 0
             },
             totalDuration: 0,
-            todayCalls: {
-              count: 0,
-              duration: 0
-            }
+            dailyCalls: {}
           };
         }
         
@@ -478,12 +488,32 @@ const BDMHomeScreen = () => {
           monthlyHistory[log.phoneNumber].callTypes.rejected++;
         }
 
-        // Update today's calls if applicable
-        const startOfToday = new Date();
-        startOfToday.setHours(0, 0, 0, 0);
-        if (logDate >= startOfToday) {
-          monthlyHistory[log.phoneNumber].todayCalls.count++;
-          monthlyHistory[log.phoneNumber].todayCalls.duration += log.duration || 0;
+        // Update daily calls
+        const dateKey = logDate.toISOString().split('T')[0];
+        if (!monthlyHistory[log.phoneNumber].dailyCalls[dateKey]) {
+          monthlyHistory[log.phoneNumber].dailyCalls[dateKey] = {
+            count: 0,
+            duration: 0,
+            callTypes: {
+              incoming: 0,
+              outgoing: 0,
+              missed: 0,
+              rejected: 0
+            }
+          };
+        }
+
+        monthlyHistory[log.phoneNumber].dailyCalls[dateKey].count++;
+        monthlyHistory[log.phoneNumber].dailyCalls[dateKey].duration += log.duration || 0;
+        
+        if (log.type === 'incoming') {
+          monthlyHistory[log.phoneNumber].dailyCalls[dateKey].callTypes.incoming++;
+        } else if (log.type === 'outgoing') {
+          monthlyHistory[log.phoneNumber].dailyCalls[dateKey].callTypes.outgoing++;
+        } else if (log.type === 'missed') {
+          monthlyHistory[log.phoneNumber].dailyCalls[dateKey].callTypes.missed++;
+        } else if (log.type === 'rejected') {
+          monthlyHistory[log.phoneNumber].dailyCalls[dateKey].callTypes.rejected++;
         }
 
         if (logDate > monthlyHistory[log.phoneNumber].lastCallDate) {
@@ -541,11 +571,11 @@ const BDMHomeScreen = () => {
       if (storedLogs && lastUpdate && (now - parseInt(lastUpdate)) < 60000) { // 1 minute threshold
         try {
           const parsedLogs = JSON.parse(storedLogs);
-          // Filter logs from last 30 days
-          const recentLogs = parsedLogs.filter((log: any) => {
+          // Filter logs from last 30 days and deduplicate
+          const recentLogs = deduplicateCallLogs(parsedLogs.filter((log: any) => {
             const logTimestamp = new Date(log.timestamp).getTime();
             return logTimestamp >= thirtyDaysAgo.getTime();
-          });
+          }));
           
           // Format and update logs
           const formattedLogs = recentLogs.map((log: any) => ({
@@ -558,7 +588,7 @@ const BDMHomeScreen = () => {
           
           // Update logs in state
           updateCallLogsState(formattedLogs, 'all');
-    } catch (error) {
+        } catch (error) {
           console.error('Error parsing stored logs:', error);
           await fetchFreshLogs();
         }
@@ -577,7 +607,8 @@ const BDMHomeScreen = () => {
         const storedLogs = await AsyncStorage.getItem(CALL_LOGS_STORAGE_KEY);
         if (storedLogs) {
           const parsedLogs = JSON.parse(storedLogs);
-          const formattedLogs = parsedLogs.map((log: any) => ({
+          const deduplicatedLogs = deduplicateCallLogs(parsedLogs);
+          const formattedLogs = deduplicatedLogs.map((log: any) => ({
             ...log,
             timestamp: new Date(log.timestamp).toISOString(),
             duration: parseInt(log.duration) || 0,
@@ -594,6 +625,20 @@ const BDMHomeScreen = () => {
     }
   };
 
+  // Add new function to deduplicate call logs
+  const deduplicateCallLogs = (logs: any[]): any[] => {
+    const seen = new Set();
+    return logs.filter(log => {
+      // Create a unique key for each call based on timestamp and phone number
+      const key = `${log.timestamp}-${log.phoneNumber}`;
+      if (seen.has(key)) {
+        return false;
+      }
+      seen.add(key);
+      return true;
+    });
+  };
+
   const fetchFreshLogs = async () => {
     if (Platform.OS === 'android') {
       const hasPermission = await requestCallLogPermission();
@@ -605,11 +650,11 @@ const BDMHomeScreen = () => {
         const thirtyDaysAgo = new Date();
         thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
         
-        // Filter logs from last 30 days
-        const recentLogs = logs.filter((log: any) => {
+        // Filter logs from last 30 days and deduplicate
+        const recentLogs = deduplicateCallLogs(logs.filter((log: any) => {
           const logTimestamp = parseInt(log.timestamp);
           return logTimestamp >= thirtyDaysAgo.getTime();
-        });
+        }));
 
         const formattedLogs = recentLogs.map((log: any) => ({
           id: String(log.timestamp),
@@ -690,29 +735,28 @@ const BDMHomeScreen = () => {
   };
 
   const calculateTotalDuration = (date: string) => {
+    // Get all logs for the specified date
     const dayLogs = callLogs.filter(log => {
       const logDate = new Date(log.timestamp).toLocaleDateString();
       return logDate === date;
     });
 
+    // Calculate total duration for the day
     let totalSeconds = 0;
+    
+    // First try to get duration from monthlyHistory
     dayLogs.forEach(log => {
-      if (log.monthlyHistory?.todayCalls?.duration) {
-        totalSeconds += log.monthlyHistory.todayCalls.duration;
+      const dateKey = new Date(log.timestamp).toISOString().split('T')[0];
+      if (log.monthlyHistory?.dailyCalls?.[dateKey]?.duration) {
+        totalSeconds += log.monthlyHistory.dailyCalls[dateKey].duration;
+      } else {
+        // Fallback to individual call duration
+        totalSeconds += log.duration || 0;
       }
     });
 
-    const hours = Math.floor(totalSeconds / 3600);
-    const minutes = Math.floor((totalSeconds % 3600) / 60);
-    const seconds = totalSeconds % 60;
-    
-    if (hours > 0) {
-      return `${hours}h ${minutes}m`;
-    } else if (minutes > 0) {
-      return `${minutes}m ${seconds}s`;
-    } else {
-      return `${seconds}s`;
-    }
+    console.log(`Total duration for ${date}: ${totalSeconds} seconds`);
+    return formatDuration(totalSeconds);
   };
 
   const handleCardClick = (id: string) => {
@@ -721,14 +765,30 @@ const BDMHomeScreen = () => {
   };
 
   const navigateToCallHistory = (callItem: GroupedCallLog) => {
+    if (!callItem || !callItem.allCalls) {
+      console.error('Invalid call item:', callItem);
+      return;
+    }
+
+    const meetings = callItem.allCalls.map(call => ({
+      date: formatDate(new Date(call.timestamp)),
+      time: formatTime(new Date(call.timestamp)),
+      duration: formatDuration(call.duration || 0),
+      notes: call.notes || [],
+      type: call.type || 'unknown'
+    }));
+
+    const callStats = callItem.monthlyHistory ? {
+      totalCalls: callItem.monthlyHistory.totalCalls,
+      totalDuration: callItem.monthlyHistory.totalDuration,
+      callTypes: callItem.monthlyHistory.callTypes,
+      dailyCalls: callItem.monthlyHistory.dailyCalls
+    } : undefined;
+
     navigation.navigate('BDMCallHistory', {
       customerName: callItem.contactName || callItem.phoneNumber,
-      meetings: callItem.allCalls.map(call => ({
-        date: formatDate(new Date(call.timestamp)),
-        time: formatTime(new Date(call.timestamp)),
-        duration: formatDuration(call.duration || 0),
-        notes: call.notes || []
-      }))
+      meetings,
+      callStats
     });
   };
 
@@ -784,20 +844,26 @@ const BDMHomeScreen = () => {
     const isNumberSaved = item.contactName && item.contactName !== item.phoneNumber;
     const displayName = isNumberSaved ? item.contactName : item.phoneNumber;
 
+    // Get the last call duration (not the total for the day)
+    const lastCallDuration = item.duration || 0;
+
     return (
       <>
         {isNewDate && (
           <View style={styles.dateHeader}>
             <Text style={styles.dateText}>{formatDate(new Date(item.timestamp))}</Text>
-            <Text style={styles.durationText}>
-              {calculateTotalDuration(new Date(item.timestamp).toLocaleDateString())}
-            </Text>
+            <View style={styles.durationContainer}>
+              <MaterialIcons name="access-time" size={16} color="#666" style={styles.durationIcon} />
+              <Text style={styles.durationText}>
+                {calculateTotalDuration(new Date(item.timestamp).toLocaleDateString())}
+              </Text>
+            </View>
           </View>
         )}
         <TouchableOpacity onPress={() => handleCardClick(item.id)}>
           <View style={styles.callCard}>
             <View style={styles.callInfo}>
-          <TouchableOpacity 
+              <TouchableOpacity 
                 style={styles.avatarContainer}
                 onPress={() => navigation.navigate('BDMContactDetails', {
                   contact: {
@@ -820,7 +886,7 @@ const BDMHomeScreen = () => {
                     { color: item.type === 'missed' ? '#DC2626' : '#333' }
                   ]}>
                     {displayName}
-                </Text>
+                  </Text>
                   {item.monthlyHistory && item.monthlyHistory.totalCalls > 0 && (
                     <Text style={styles.monthlyCallCount}>
                       ({item.monthlyHistory.totalCalls})
@@ -836,10 +902,10 @@ const BDMHomeScreen = () => {
                   />
                   <Text style={styles.callTime}>
                     {new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    {item.monthlyHistory && item.monthlyHistory.todayCalls && item.monthlyHistory.todayCalls.duration > 0 && 
-                      ` • ${formatDuration(item.monthlyHistory.todayCalls.duration)}`}
-                </Text>
-              </View>
+                    {lastCallDuration > 0 && 
+                      ` • ${formatDuration(lastCallDuration)}`}
+                  </Text>
+                </View>
               </View>
             </View>
             {expandedCallId === item.id && renderCallActions(item)}
@@ -856,15 +922,7 @@ const BDMHomeScreen = () => {
       <View style={styles.actionContainer}>
               <TouchableOpacity 
           style={styles.actionButton}
-          onPress={() => navigation.navigate('BDMCallHistory', { 
-            customerName: call.contactName || call.phoneNumber,
-            meetings: call.allCalls.map(c => ({
-              date: formatDate(new Date(c.timestamp)),
-              time: formatTime(new Date(c.timestamp)),
-              duration: formatDuration(c.duration || 0),
-              notes: c.notes || []
-            }))
-          })}
+          onPress={() => navigateToCallHistory(call)}
         >
           <MaterialIcons name="history" size={24} color="#FF8447" />
           <Text style={styles.actionText}>History ({call.callCount})</Text>
@@ -917,6 +975,68 @@ const BDMHomeScreen = () => {
   const formatTime = (date: Date) => {
     return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
+
+  // Add this new function to calculate meeting stats
+  const calculateMeetingStats = async () => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const todayLogs = callLogs.filter(log => {
+      const logDate = new Date(log.timestamp);
+      return logDate >= today;
+    });
+
+    const totalMeetings = todayLogs.length;
+    let totalDuration = 0;
+
+    todayLogs.forEach(log => {
+      totalDuration += log.duration || 0; // Ensure this is correctly calculated
+    });
+
+    const stats = {
+      totalMeetings,
+      totalDuration,
+      lastUpdated: new Date().toISOString()
+    };
+
+    await AsyncStorage.setItem('bdm_meeting_stats', JSON.stringify(stats));
+  };
+
+  // Add useEffect for background updates
+  useEffect(() => {
+    // Initial calculation
+    calculateMeetingStats();
+
+    // Set up interval for background updates
+    statsUpdateInterval.current = setInterval(() => {
+      calculateMeetingStats();
+    }, 5000); // Update every 5 seconds
+
+    // Cleanup interval on unmount
+    return () => {
+      if (statsUpdateInterval.current) {
+        clearInterval(statsUpdateInterval.current);
+      }
+    };
+  }, [callLogs]); // Re-run when callLogs change
+
+  // Add background update interval
+  useEffect(() => {
+    // Initial fetch
+    fetchCallLogs();
+    fetchDeviceCallLogs();
+
+    // Set up background update interval
+    const backgroundInterval = setInterval(() => {
+      fetchCallLogs();
+      fetchDeviceCallLogs();
+    }, 20000); // Update every 20 seconds
+
+    // Cleanup interval on unmount
+    return () => {
+      clearInterval(backgroundInterval);
+    };
+  }, []);
 
   return (
     <AppGradient>
@@ -1077,11 +1197,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 12,
     marginTop: 8,
+    paddingHorizontal: 4,
   },
   dateText: {
     fontSize: 14,
     fontFamily: 'LexendDeca_500Medium',
     color: '#666',
+  },
+  durationContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  durationIcon: {
+    marginRight: 4,
   },
   durationText: {
     fontSize: 14,

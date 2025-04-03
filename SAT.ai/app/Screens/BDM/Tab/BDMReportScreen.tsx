@@ -22,6 +22,14 @@ import { auth, db } from '@/firebaseConfig';
 import { collection, addDoc, getDocs, query, where, Timestamp, orderBy, limit } from 'firebase/firestore';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import AppGradient from "@/app/components/AppGradient";
+import Animated, { 
+  useAnimatedStyle, 
+  withRepeat, 
+  withSequence, 
+  withTiming,
+  useSharedValue,
+  withDelay
+} from 'react-native-reanimated';
 
 // Manually specify Picker type since we may not have the npm package installed yet
 // You should install @react-native-picker/picker package:
@@ -45,10 +53,69 @@ interface DailyReport {
   totalClosingAmount: number;
 }
 
+// Add this new component for the wave skeleton
+const WaveSkeleton = ({ width, height, style }: { width: number | string; height: number; style?: any }) => {
+  const translateX = useSharedValue(typeof width === 'number' ? -width : -100);
+
+  React.useEffect(() => {
+    translateX.value = withRepeat(
+      withSequence(
+        withTiming(typeof width === 'number' ? width : 100, { duration: 1000 }),
+        withDelay(500, withTiming(typeof width === 'number' ? -width : -100, { duration: 0 }))
+      ),
+      -1
+    );
+  }, [width]);
+
+  const animatedStyle = useAnimatedStyle(() => {
+    return {
+      transform: [{ translateX: translateX.value }],
+    };
+  });
+
+  return (
+    <View style={[{ width, height, backgroundColor: '#E5E7EB', overflow: 'hidden' }, style]}>
+      <Animated.View
+        style={[
+          {
+            width: '100%',
+            height: '100%',
+            backgroundColor: 'transparent',
+          },
+          animatedStyle,
+        ]}
+      >
+        <LinearGradient
+          colors={['transparent', 'rgba(255, 255, 255, 0.3)', 'transparent']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 0 }}
+          style={{ width: '100%', height: '100%' }}
+        />
+      </Animated.View>
+    </View>
+  );
+};
+
+// Add this new component for the form skeleton
+const FormSkeleton = () => {
+  return (
+    <View style={styles.skeletonContainer}>
+      <WaveSkeleton width="60%" height={24} style={styles.skeletonTitle} />
+      <WaveSkeleton width="100%" height={48} style={styles.skeletonInput} />
+      <WaveSkeleton width="100%" height={48} style={styles.skeletonInput} />
+      <WaveSkeleton width="100%" height={48} style={styles.skeletonInput} />
+      <WaveSkeleton width="100%" height={120} style={styles.skeletonTextArea} />
+      <WaveSkeleton width="100%" height={48} style={styles.skeletonButton} />
+    </View>
+  );
+};
+
 const BDMReportScreen = () => {
   const navigation = useNavigation();
   const [modalVisible, setModalVisible] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'synced' | 'error'>('idle');
   
   // Form state
   const [numMeetings, setNumMeetings] = useState<string>("");
@@ -143,13 +210,120 @@ const BDMReportScreen = () => {
   // Add storage keys
   const STORAGE_KEYS = {
     DRAFT_REPORT: 'bdm_report_draft',
-    LAST_REPORT: 'bdm_last_report'
+    LAST_REPORT: 'bdm_last_report',
+    PENDING_REPORTS: 'bdm_pending_reports'
   };
 
-  // Load draft data on mount
+  // Add this new useEffect for real-time updates
   useEffect(() => {
-    loadDraftData();
+    // Initial fetch
+    fetchTodayCallLogs();
+
+    // Set up interval for real-time updates
+    const interval = setInterval(() => {
+      fetchTodayCallLogs();
+    }, 5000); // Update every 5 seconds
+
+    // Cleanup interval on unmount
+    return () => clearInterval(interval);
   }, []);
+
+  const fetchTodayCallLogs = async () => {
+    try {
+      const statsString = await AsyncStorage.getItem('bdm_meeting_stats');
+      if (statsString) {
+        const stats = JSON.parse(statsString);
+        const lastUpdated = new Date(stats.lastUpdated);
+        const today = new Date();
+        
+        // Only use stats if they were updated today
+        if (lastUpdated.toDateString() === today.toDateString()) {
+          console.log("Using cached meeting stats:", stats);
+          if (stats.totalDuration !== undefined) {
+            console.log("Setting duration:", stats.totalDuration, "seconds");
+            setNumMeetings(stats.totalMeetings.toString());
+            setMeetingDuration(formatDuration(stats.totalDuration));
+            return;
+          }
+        }
+      }
+      
+      // If not in AsyncStorage or outdated, fetch from Firebase
+      await fetchCallLogsForToday();
+    } catch (error) {
+      console.error('Error fetching today\'s call logs:', error);
+      // Fallback to Firebase if AsyncStorage fails
+      await fetchCallLogsForToday();
+    }
+  };
+
+  // Fetch call logs for today
+  const fetchCallLogsForToday = async () => {
+    try {
+      const userId = auth.currentUser?.uid;
+      if (!userId) {
+        console.error('No user ID available');
+        return;
+      }
+
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      
+      const callLogsRef = collection(db, 'users', userId, 'call_logs');
+      const q = query(
+        callLogsRef,
+        where('timestamp', '>=', today),
+        orderBy('timestamp', 'desc')
+      );
+      
+      const querySnapshot = await getDocs(q);
+      const logs = querySnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      
+      // Calculate total meetings and duration
+      const totalMeetings = logs.length;
+      let totalDuration = 0;
+      
+      logs.forEach(log => {
+        // First try to get duration from monthlyHistory
+        const todayKey = today.toISOString().split('T')[0];
+        const logData = log as { 
+          monthlyHistory?: {
+            dailyCalls?: {
+              [key: string]: {
+                duration: number
+              }
+            }
+          },
+          duration?: number
+        };
+        if (logData.monthlyHistory?.dailyCalls?.[todayKey]?.duration) {
+          totalDuration += logData.monthlyHistory.dailyCalls[todayKey].duration;
+        } else {
+          // Fallback to direct duration if monthlyHistory is not available
+          totalDuration += logData.duration || 0;
+        }
+      });
+      
+      console.log("Fetched from Firebase - Total meetings:", totalMeetings, "Total duration:", totalDuration);
+      
+      // Update state
+      setNumMeetings(totalMeetings.toString());
+      setMeetingDuration(formatDuration(totalDuration));
+      
+      // Save to AsyncStorage for future use
+      const stats = {
+        totalMeetings,
+        totalDuration,
+        lastUpdated: new Date().toISOString()
+      };
+      await AsyncStorage.setItem('bdm_meeting_stats', JSON.stringify(stats));
+    } catch (error) {
+      console.error('Error fetching call logs from Firebase:', error);
+    }
+  };
 
   // Save draft data
   const saveDraftData = async () => {
@@ -159,7 +333,8 @@ const BDMReportScreen = () => {
         meetingDuration,
         positiveLeads,
         closingDetails,
-        totalAmount
+        totalAmount,
+        date: new Date().toISOString()
       };
       await AsyncStorage.setItem(STORAGE_KEYS.DRAFT_REPORT, JSON.stringify(draftData));
     } catch (error) {
@@ -173,18 +348,91 @@ const BDMReportScreen = () => {
       const draftDataString = await AsyncStorage.getItem(STORAGE_KEYS.DRAFT_REPORT);
       if (draftDataString) {
         const draftData = JSON.parse(draftDataString);
-        setNumMeetings(draftData.numMeetings || '');
-        setMeetingDuration(draftData.meetingDuration || '');
-        setPositiveLeads(draftData.positiveLeads || '');
-        setClosingDetails(draftData.closingDetails || [{
-          productType: ["Health Insurance"],
-          closingAmount: 0,
-          description: ""
-        }]);
-        setTotalAmount(draftData.totalAmount || 0);
+        
+        // Check if draft is from today
+        const draftDate = new Date(draftData.date);
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        
+        if (draftDate.getTime() === today.getTime()) {
+          setNumMeetings(draftData.numMeetings || '');
+          setMeetingDuration(draftData.meetingDuration || '');
+          setPositiveLeads(draftData.positiveLeads || '');
+          setClosingDetails(draftData.closingDetails || [{
+            productType: ["Health Insurance"],
+            closingAmount: 0,
+            description: ""
+          }]);
+          setTotalAmount(draftData.totalAmount || 0);
+        } else {
+          // If draft is not from today, clear it
+          await AsyncStorage.removeItem(STORAGE_KEYS.DRAFT_REPORT);
+        }
       }
     } catch (error) {
       console.error('Error loading draft:', error);
+    }
+  };
+
+  // Check for pending reports that need to be synced
+  const checkPendingReports = async () => {
+    try {
+      const pendingReportsString = await AsyncStorage.getItem(STORAGE_KEYS.PENDING_REPORTS);
+      if (pendingReportsString) {
+        const pendingReports = JSON.parse(pendingReportsString);
+        if (pendingReports.length > 0) {
+          syncPendingReports(pendingReports);
+        }
+      }
+    } catch (error) {
+      console.error('Error checking pending reports:', error);
+    }
+  };
+
+  // Sync pending reports to Firebase
+  const syncPendingReports = async (pendingReports: any[]) => {
+    try {
+      setSyncStatus('syncing');
+      const userId = auth.currentUser?.uid;
+      if (!userId) {
+        throw new Error("User not authenticated");
+      }
+
+      const syncedReports: string[] = [];
+      const failedReports: any[] = [];
+
+      for (const report of pendingReports) {
+        try {
+          // Add to Firebase
+          const docRef = await addDoc(collection(db, 'bdm_reports'), {
+            ...report,
+            userId,
+            syncedAt: Timestamp.fromDate(new Date())
+          });
+          
+          syncedReports.push(report.id);
+          console.log("Report synced with ID:", docRef.id);
+        } catch (error) {
+          console.error("Error syncing report:", error);
+          failedReports.push(report);
+        }
+      }
+
+      // Update pending reports in AsyncStorage
+      if (syncedReports.length > 0) {
+        const updatedPendingReports = pendingReports.filter(
+          report => !syncedReports.includes(report.id)
+        );
+        await AsyncStorage.setItem(
+          STORAGE_KEYS.PENDING_REPORTS, 
+          JSON.stringify(updatedPendingReports)
+        );
+      }
+
+      setSyncStatus('synced');
+    } catch (error) {
+      console.error("Error syncing pending reports:", error);
+      setSyncStatus('error');
     }
   };
 
@@ -231,7 +479,7 @@ const BDMReportScreen = () => {
     }
     
     try {
-      setIsLoading(true);
+      setIsSubmitting(true);
       
       const userId = auth.currentUser?.uid;
       if (!userId) {
@@ -239,28 +487,35 @@ const BDMReportScreen = () => {
       }
 
       const now = new Date();
+      const reportId = `report_${now.getTime()}`;
+      
       const reportData = {
+        id: reportId,
         userId,
-        date: Timestamp.fromDate(now),
+        date: now.toISOString(),
         numMeetings: Number(numMeetings),
         meetingDuration,
         positiveLeads: Number(positiveLeads),
         closingDetails,
         totalClosingAmount: totalAmount,
-        createdAt: Timestamp.fromDate(now),
-        updatedAt: Timestamp.fromDate(now)
+        createdAt: now.toISOString(),
+        updatedAt: now.toISOString(),
+        synced: false
       };
       
-      // Save to Firebase
-      const docRef = await addDoc(collection(db, 'bdm_reports'), reportData);
+      // Save to local storage first
+      await saveReportLocally(reportData);
       
-      // Save as last report in AsyncStorage
-      await AsyncStorage.setItem(STORAGE_KEYS.LAST_REPORT, JSON.stringify(reportData));
+      // Try to sync to Firebase
+      try {
+        await syncReportToFirebase(reportData);
+      } catch (error) {
+        console.error("Error syncing report to Firebase:", error);
+        // Report will be synced later
+      }
       
       // Clear draft after successful submission
       await AsyncStorage.removeItem(STORAGE_KEYS.DRAFT_REPORT);
-      
-      console.log("Report submitted with ID:", docRef.id);
       
       setModalVisible(true);
       setTimeout(() => {
@@ -278,7 +533,61 @@ const BDMReportScreen = () => {
       console.error("Error submitting report:", error);
       Alert.alert("Error", "Failed to submit report. Please try again.");
     } finally {
-      setIsLoading(false);
+      setIsSubmitting(false);
+    }
+  };
+
+  // Save report to local storage
+  const saveReportLocally = async (reportData: any) => {
+    try {
+      // Save as last report
+      await AsyncStorage.setItem(STORAGE_KEYS.LAST_REPORT, JSON.stringify(reportData));
+      
+      // Add to pending reports if not synced
+      if (!reportData.synced) {
+        const pendingReportsString = await AsyncStorage.getItem(STORAGE_KEYS.PENDING_REPORTS);
+        const pendingReports = pendingReportsString ? JSON.parse(pendingReportsString) : [];
+        pendingReports.push(reportData);
+        await AsyncStorage.setItem(STORAGE_KEYS.PENDING_REPORTS, JSON.stringify(pendingReports));
+      }
+    } catch (error) {
+      console.error("Error saving report locally:", error);
+      throw error;
+    }
+  };
+
+  // Sync report to Firebase
+  const syncReportToFirebase = async (reportData: any) => {
+    try {
+      const userId = auth.currentUser?.uid;
+      if (!userId) {
+        throw new Error("User not authenticated");
+      }
+
+      // Add to Firebase
+      const docRef = await addDoc(collection(db, 'bdm_reports'), {
+        ...reportData,
+        synced: true,
+        syncedAt: Timestamp.fromDate(new Date())
+      });
+      
+      console.log("Report synced with ID:", docRef.id);
+      
+      // Update pending reports in AsyncStorage
+      const pendingReportsString = await AsyncStorage.getItem(STORAGE_KEYS.PENDING_REPORTS);
+      if (pendingReportsString) {
+        const pendingReports = JSON.parse(pendingReportsString);
+        const updatedPendingReports = pendingReports.filter(
+          (report: any) => report.id !== reportData.id
+        );
+        await AsyncStorage.setItem(
+          STORAGE_KEYS.PENDING_REPORTS, 
+          JSON.stringify(updatedPendingReports)
+        );
+      }
+    } catch (error) {
+      console.error("Error syncing report to Firebase:", error);
+      throw error;
     }
   };
 
@@ -364,6 +673,21 @@ const BDMReportScreen = () => {
     setClosingDetails(newClosingDetails);
   };
 
+  // Update formatDuration function to handle zero duration
+  const formatDuration = (seconds: number) => {
+    if (!seconds || seconds === 0) return '0m';
+    
+    console.log("Formatting duration:", seconds, "seconds");
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    
+    if (hours > 0) {
+      return `${hours}h ${minutes}m`;
+    } else {
+      return `${minutes}m`;
+    }
+  };
+
   return (
     <AppGradient>
     <BDMMainLayout title="Daily Report" showBackButton>
@@ -377,50 +701,37 @@ const BDMReportScreen = () => {
               {/* Date Header */}
               <Text style={styles.dateText}>{currentDate}</Text>
               
+              {/* Sync Status */}
+              {syncStatus === 'syncing' && (
+                <View style={styles.syncStatusContainer}>
+                  <ActivityIndicator size="small" color="#FF8447" />
+                  <Text style={styles.syncStatusText}>Syncing reports...</Text>
+                </View>
+              )}
+              {syncStatus === 'synced' && (
+                <View style={styles.syncStatusContainer}>
+                  <MaterialIcons name="check-circle" size={16} color="#4CAF50" />
+                  <Text style={styles.syncStatusText}>Reports synced successfully</Text>
+                </View>
+              )}
+              {syncStatus === 'error' && (
+                <View style={styles.syncStatusContainer}>
+                  <MaterialIcons name="error" size={16} color="#F44336" />
+                  <Text style={styles.syncStatusText}>Error syncing reports</Text>
+                </View>
+              )}
+              
               {/* Meeting Information Section */}
               <View style={styles.section}>
-                <Text style={styles.label}>Number of Meetings</Text>
-                <TextInput
-                  style={[
-                    styles.input,
-                    errors.numMeetings ? styles.inputError : null
-                  ]}
-                  placeholder="Enter number of meetings"
-                  value={numMeetings}
-                  onChangeText={(text) => {
-                    setNumMeetings(text);
-                    if (errors.numMeetings) {
-                      const newErrors = {...errors};
-                      delete newErrors.numMeetings;
-                      setErrors(newErrors);
-                    }
-                  }}
-                  keyboardType="numeric"
-                />
-                {errors.numMeetings && (
-                  <Text style={styles.errorText}>{errors.numMeetings}</Text>
-                )}
+                <Text style={styles.label}>Number of Meetings (Today's Calls)</Text>
+                <View style={styles.readOnlyInputContainer}>
+                  <Text style={styles.readOnlyText}>{numMeetings || '0'}</Text>
+                </View>
 
-                <Text style={styles.label}>Meeting Duration</Text>
-                <TextInput
-                  style={[
-                    styles.input,
-                    errors.meetingDuration ? styles.inputError : null
-                  ]}
-                  placeholder="e.g., 1 hr 30 mins"
-                  value={meetingDuration}
-                  onChangeText={(text) => {
-                    setMeetingDuration(text);
-                    if (errors.meetingDuration) {
-                      const newErrors = {...errors};
-                      delete newErrors.meetingDuration;
-                      setErrors(newErrors);
-                    }
-                  }}
-                />
-                {errors.meetingDuration && (
-                  <Text style={styles.errorText}>{errors.meetingDuration}</Text>
-                )}
+                <Text style={styles.label}>Meeting Duration (Today's Call Duration)</Text>
+                <View style={styles.readOnlyInputContainer}>
+                  <Text style={styles.readOnlyText}>{meetingDuration || '0m'}</Text>
+                </View>
 
                 <Text style={styles.label}>
                   Prospective No. of Meetings <Text style={styles.requiredStar}>*</Text>
@@ -430,7 +741,7 @@ const BDMReportScreen = () => {
                     styles.input,
                     errors.positiveLeads ? styles.inputError : null
                   ]}
-                  placeholder="0"
+                  placeholder="Enter prospective number of meetings"
                   value={positiveLeads}
                   onChangeText={(text) => {
                     setPositiveLeads(text);
@@ -632,9 +943,9 @@ const BDMReportScreen = () => {
               <TouchableOpacity 
                 style={styles.submitButton} 
                 onPress={handleSubmit}
-                disabled={isLoading}
+                disabled={isSubmitting}
               >
-                {isLoading ? (
+                {isSubmitting ? (
                   <ActivityIndicator size="small" color="#FFFFFF" />
                 ) : (
               <Text style={styles.submitText}>Submit</Text>
@@ -1021,6 +1332,38 @@ const styles = StyleSheet.create({
   },
   removeProductButton: {
     padding: 2,
+  },
+  skeletonContainer: {
+    padding: 20,
+  },
+  skeletonTitle: {
+    marginBottom: 20,
+    borderRadius: 4,
+  },
+  skeletonInput: {
+    marginBottom: 16,
+    borderRadius: 8,
+  },
+  skeletonTextArea: {
+    marginBottom: 24,
+    borderRadius: 8,
+  },
+  skeletonButton: {
+    borderRadius: 8,
+  },
+  syncStatusContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F5F5F5',
+    padding: 8,
+    borderRadius: 8,
+    marginBottom: 16,
+  },
+  syncStatusText: {
+    marginLeft: 8,
+    fontSize: 14,
+    fontFamily: 'LexendDeca_400Regular',
+    color: '#666',
   },
 });
 

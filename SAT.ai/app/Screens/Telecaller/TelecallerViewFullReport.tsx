@@ -19,6 +19,7 @@ interface ChartData {
   datasets: Array<{
     data: number[];
   }>;
+  monthInfo?: { [key: string]: { year: number, month: string } };
 }
 
 interface ReportData {
@@ -49,6 +50,12 @@ interface DailyReport {
   userId: string;
 }
 
+interface MonthlyAchievement {
+  month: string;
+  highestAchievement: number;
+  weekCount: number;
+}
+
 const ViewFullReport = () => {
   const navigation = useNavigation();
   const [selectedPeriod, setSelectedPeriod] = useState('Weekly');
@@ -73,6 +80,11 @@ const ViewFullReport = () => {
   });
   const [highestAchievement, setHighestAchievement] = useState(0);
   const [averageAchievement, setAverageAchievement] = useState(0);
+
+  const [selectedMonth, setSelectedMonth] = useState(new Date());
+  const [monthlyAchievements, setMonthlyAchievements] = useState<MonthlyAchievement[]>([]);
+
+  const [currentMonthInfo, setCurrentMonthInfo] = useState<{ year: number, month: string } | null>(null);
 
   const getCurrentQuarter = (date: Date) => {
     const month = date.getMonth();
@@ -216,23 +228,25 @@ const ViewFullReport = () => {
     const userId = auth.currentUser?.uid;
     if (!userId) return { labels: [], datasets: [{ data: [] }] };
 
-    const achievementsRef = collection(db, 'telecaller_monthly_achievements');
+    const monthlySummaryRef = collection(db, 'telecaller_monthly_summaries');
     const currentYear = currentMonth.getFullYear();
     const currentQuarter = Math.floor(currentMonth.getMonth() / 3) + 1;
     const quarterStartMonth = (currentQuarter - 1) * 3;
     
     const monthlyData: number[] = [];
     const labels: string[] = [];
+    const monthlyAchievements: MonthlyAchievement[] = [];
     
     // Get data for each month of the current quarter
     for (let i = 0; i < 3; i++) {
       const monthStart = new Date(currentYear, quarterStartMonth + i, 1);
       const monthEnd = new Date(currentYear, quarterStartMonth + i + 1, 0);
       
-      labels.push(format(monthStart, 'MMM'));
+      // Create detailed label with month and year
+      labels.push(format(monthStart, 'MMM yyyy'));
       
       const monthQuery = query(
-        achievementsRef,
+        monthlySummaryRef,
         where('userId', '==', userId),
         where('monthStart', '==', Timestamp.fromDate(monthStart)),
         where('monthEnd', '==', Timestamp.fromDate(monthEnd))
@@ -241,14 +255,31 @@ const ViewFullReport = () => {
       const monthSnapshot = await getDocs(monthQuery);
       
       if (!monthSnapshot.empty) {
-        const monthAchievements = monthSnapshot.docs.map(doc => doc.data().percentageAchieved);
-        const monthAverage = monthAchievements.reduce((sum, val) => sum + val, 0) / monthAchievements.length;
-        monthlyData.push(Math.min(Math.max(Math.round(monthAverage * 10) / 10, 0), 100)); // Ensure value is between 0 and 100
+        const monthData = monthSnapshot.docs[0].data();
+        const weeklyAchievements = monthData.weeklyAchievements || [];
+        
+        // Calculate average achievement considering all weeks
+        const totalAchievement = weeklyAchievements.reduce((sum: number, week: any) => sum + week.achievement, 0);
+        const averageAchievement = totalAchievement / weeklyAchievements.length;
+        
+        monthlyData.push(Math.min(Math.max(Math.round(averageAchievement * 10) / 10, 0), 100));
+        
+        monthlyAchievements.push({
+          month: format(monthStart, 'MMMM yyyy'),
+          highestAchievement: averageAchievement,
+          weekCount: weeklyAchievements.length
+        });
       } else {
         monthlyData.push(0);
+        monthlyAchievements.push({
+          month: format(monthStart, 'MMMM yyyy'),
+          highestAchievement: 0,
+          weekCount: 0
+        });
       }
     }
 
+    setMonthlyAchievements(monthlyAchievements);
     return {
       labels,
       datasets: [{ data: monthlyData }]
@@ -263,46 +294,49 @@ const ViewFullReport = () => {
     const monthStart = startOfMonth(month);
     const monthEnd = endOfMonth(month);
     
-    const weeklyQuery = query(
-      achievementsRef,
-      where('userId', '==', userId),
-      where('weekStart', '>=', Timestamp.fromDate(monthStart)),
-      where('weekEnd', '<=', Timestamp.fromDate(monthEnd)),
-      orderBy('weekStart', 'asc')
-    );
-
-    const weeklySnapshot = await getDocs(weeklyQuery);
-    const data: number[] = [];
-    const labels: string[] = [];
-    
     // Get all weeks in the month
     const weeks = eachWeekOfInterval(
       { start: monthStart, end: monthEnd },
-      { weekStartsOn: 1 }
+      { weekStartsOn: 1 } // Start weeks on Monday
     );
 
-    // Initialize data for each week
-    weeks.forEach((weekStart, index) => {
+    const data: number[] = [];
+    const labels: string[] = [];
+    
+    // Get current week for highlighting
+    const currentDate = new Date();
+    const currentWeekStart = startOfWeek(currentDate, { weekStartsOn: 1 });
+    
+    // Process each week
+    for (let i = 0; i < weeks.length; i++) {
+      const weekStart = weeks[i];
       const weekEnd = endOfWeek(weekStart, { weekStartsOn: 1 });
-      const weekKey = `Week ${index + 1}`;
-      labels.push(weekKey);
+      
+      // Create label for this week
+      const weekNumber = i + 1;
+      const isCurrentWeek = isSameWeek(weekStart, currentWeekStart, { weekStartsOn: 1 });
+      labels.push(isCurrentWeek ? `Week ${weekNumber}*` : `Week ${weekNumber}`);
+      
+      // Query achievements for this week
+      const weekQuery = query(
+        achievementsRef,
+        where('userId', '==', userId),
+        where('weekStart', '>=', Timestamp.fromDate(weekStart)),
+        where('weekEnd', '<=', Timestamp.fromDate(weekEnd)),
+        orderBy('weekStart', 'asc')
+      );
 
-      // Find achievements for this week
-      const weekAchievements = weeklySnapshot.docs
-        .filter(doc => {
-          const achievement = doc.data();
-          const achievementDate = achievement.weekStart.toDate();
-          return achievementDate >= weekStart && achievementDate <= weekEnd;
-        })
-        .map(doc => doc.data().percentageAchieved);
-
-      if (weekAchievements.length > 0) {
-        const weekAverage = weekAchievements.reduce((sum, val) => sum + val, 0) / weekAchievements.length;
-        data.push(Math.min(Math.max(Math.round(weekAverage * 10) / 10, 0), 100)); // Ensure value is between 0 and 100
+      const weekSnapshot = await getDocs(weekQuery);
+      
+      if (!weekSnapshot.empty) {
+        // Get the highest achievement for this week
+        const weekAchievements = weekSnapshot.docs.map(doc => doc.data().percentageAchieved);
+        const highestAchievement = Math.max(...weekAchievements);
+        data.push(Math.min(Math.max(Math.round(highestAchievement * 10) / 10, 0), 100));
       } else {
         data.push(0);
       }
-    });
+    }
 
     return {
       labels,
@@ -314,12 +348,16 @@ const ViewFullReport = () => {
     const userId = auth.currentUser?.uid;
     if (!userId) return { labels: [], datasets: [{ data: [] }] };
 
-    const achievementsRef = collection(db, 'telecaller_monthly_achievements');
-    const startDate = new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 5, 1);
-    const endDate = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 0);
+    const monthlySummaryRef = collection(db, 'telecaller_monthly_summaries');
+    const currentYear = currentMonth.getFullYear();
+    const currentMonthIndex = currentMonth.getMonth();
+    
+    // Calculate start and end dates for the 6-month period
+    const startDate = new Date(currentYear, currentMonthIndex - 5, 1); // 5 months ago
+    const endDate = new Date(currentYear, currentMonthIndex + 1, 0); // Current month end
     
     const halfYearQuery = query(
-      achievementsRef,
+      monthlySummaryRef,
       where('userId', '==', userId),
       where('monthStart', '>=', Timestamp.fromDate(startDate)),
       where('monthEnd', '<=', Timestamp.fromDate(endDate)),
@@ -327,40 +365,45 @@ const ViewFullReport = () => {
     );
 
     const halfYearSnapshot = await getDocs(halfYearQuery);
-    const monthlyData: { [key: string]: number[] } = {};
+    const monthlyData: { [key: string]: number } = {};
     const labels: string[] = [];
+    const monthInfo: { [key: string]: { year: number, month: string } } = {};
 
-    // Generate labels for the last 6 months
+    // Generate labels for the last 6 months (current month and previous 5)
     for (let i = 5; i >= 0; i--) {
-      const monthDate = new Date(currentMonth.getFullYear(), currentMonth.getMonth() - i, 1);
+      const monthDate = new Date(currentYear, currentMonthIndex - i, 1);
       const monthKey = format(monthDate, 'MMM');
       labels.push(monthKey);
-      monthlyData[monthKey] = [];
+      monthlyData[monthKey] = 0; // Initialize with 0
+      monthInfo[monthKey] = {
+        year: monthDate.getFullYear(),
+        month: format(monthDate, 'MMMM')
+      };
     }
 
-    // Group achievements by month
+    // Process monthly achievements
     halfYearSnapshot.docs.forEach(doc => {
-      const achievement = doc.data();
-      const achievementDate = achievement.monthStart.toDate();
+      const monthData = doc.data();
+      const achievementDate = monthData.monthStart.toDate();
       const monthKey = format(achievementDate, 'MMM');
-      if (monthlyData[monthKey]) {
-        monthlyData[monthKey].push(achievement.percentageAchieved);
+      
+      if (monthlyData[monthKey] !== undefined) {
+        // Calculate average achievement from weekly achievements
+        const weeklyAchievements = monthData.weeklyAchievements || [];
+        if (weeklyAchievements.length > 0) {
+          const totalAchievement = weeklyAchievements.reduce((sum: number, week: any) => sum + week.achievement, 0);
+          monthlyData[monthKey] = Math.min(Math.max(Math.round((totalAchievement / weeklyAchievements.length) * 10) / 10, 0), 100);
+        }
       }
     });
 
-    // Calculate monthly averages
-    const data = labels.map(monthKey => {
-      const monthAchievements = monthlyData[monthKey];
-      if (monthAchievements.length > 0) {
-        const monthAverage = monthAchievements.reduce((sum, val) => sum + val, 0) / monthAchievements.length;
-        return Math.min(Math.max(Math.round(monthAverage * 10) / 10, 0), 100); // Ensure value is between 0 and 100
-      }
-      return 0;
-    });
+    // Convert to array in correct order
+    const data = labels.map(monthKey => monthlyData[monthKey]);
 
     return {
       labels,
-      datasets: [{ data }]
+      datasets: [{ data }],
+      monthInfo
     };
   };
 
@@ -385,6 +428,12 @@ const ViewFullReport = () => {
         case 'Half Yearly': {
           const halfYearData = await getHalfYearData(currentMonth);
           setHalfYearlyChartData(halfYearData);
+          // Store the current month info for display
+          const currentMonthKey = format(currentMonth, 'MMM');
+          const currentMonthInfo = halfYearData.monthInfo?.[currentMonthKey];
+          if (currentMonthInfo) {
+            setCurrentMonthInfo(currentMonthInfo);
+          }
           break;
         }
       }
@@ -469,6 +518,190 @@ const ViewFullReport = () => {
     </View>
   );
 
+  const saveEndOfWeekData = async (weekStart: Date, weekEnd: Date) => {
+    const userId = auth.currentUser?.uid;
+    if (!userId) return;
+
+    try {
+      const achievementsRef = collection(db, 'telecaller_achievements');
+      const weekQuery = query(
+        achievementsRef,
+        where('userId', '==', userId),
+        where('weekStart', '>=', Timestamp.fromDate(weekStart)),
+        where('weekEnd', '<=', Timestamp.fromDate(weekEnd)),
+        orderBy('weekStart', 'asc')
+      );
+
+      const weekSnapshot = await getDocs(weekQuery);
+      if (!weekSnapshot.empty) {
+        const weekAchievements = weekSnapshot.docs.map(doc => doc.data().percentageAchieved);
+        const highestAchievement = Math.max(...weekAchievements);
+        
+        // Save to weekly summary collection with more detailed data
+        const weeklySummaryRef = collection(db, 'telecaller_weekly_summaries');
+        const summaryData = {
+          userId,
+          weekStart: Timestamp.fromDate(weekStart),
+          weekEnd: Timestamp.fromDate(weekEnd),
+          highestAchievement,
+          totalWeeks: weekAchievements.length,
+          weekNumber: Math.ceil((weekStart.getDate() + new Date(weekStart.getFullYear(), weekStart.getMonth(), 1).getDay()) / 7),
+          month: weekStart.getMonth() + 1,
+          year: weekStart.getFullYear(),
+          createdAt: Timestamp.fromDate(new Date()),
+          updatedAt: Timestamp.fromDate(new Date())
+        };
+
+        // Check if summary exists for this week
+        const existingSummaryQuery = query(
+          weeklySummaryRef,
+          where('userId', '==', userId),
+          where('weekStart', '==', Timestamp.fromDate(weekStart)),
+          where('weekEnd', '==', Timestamp.fromDate(weekEnd))
+        );
+
+        const existingSummary = await getDocs(existingSummaryQuery);
+        if (existingSummary.empty) {
+          await addDoc(weeklySummaryRef, summaryData);
+        } else {
+          await updateDoc(existingSummary.docs[0].ref, {
+            ...summaryData,
+            updatedAt: Timestamp.fromDate(new Date())
+          });
+        }
+
+        // Calculate and save monthly total with more detailed data
+        const monthStart = startOfMonth(weekStart);
+        const monthEnd = endOfMonth(weekStart);
+        
+        const monthlySummaryRef = collection(db, 'telecaller_monthly_summaries');
+        const monthlyQuery = query(
+          monthlySummaryRef,
+          where('userId', '==', userId),
+          where('monthStart', '==', Timestamp.fromDate(monthStart)),
+          where('monthEnd', '==', Timestamp.fromDate(monthEnd))
+        );
+
+        const monthlySnapshot = await getDocs(monthlyQuery);
+        const monthlyData = {
+          userId,
+          monthStart: Timestamp.fromDate(monthStart),
+          monthEnd: Timestamp.fromDate(monthEnd),
+          totalAchievement: highestAchievement,
+          weekCount: 1,
+          month: monthStart.getMonth() + 1,
+          year: monthStart.getFullYear(),
+          weeklyAchievements: [{
+            weekNumber: summaryData.weekNumber,
+            achievement: highestAchievement,
+            weekStart: Timestamp.fromDate(weekStart),
+            weekEnd: Timestamp.fromDate(weekEnd)
+          }],
+          createdAt: Timestamp.fromDate(new Date()),
+          updatedAt: Timestamp.fromDate(new Date())
+        };
+
+        if (monthlySnapshot.empty) {
+          await addDoc(monthlySummaryRef, monthlyData);
+        } else {
+          const existingMonthly = monthlySnapshot.docs[0];
+          const currentData = existingMonthly.data();
+          const updatedWeeklyAchievements = [
+            ...(currentData.weeklyAchievements || []),
+            {
+              weekNumber: summaryData.weekNumber,
+              achievement: highestAchievement,
+              weekStart: Timestamp.fromDate(weekStart),
+              weekEnd: Timestamp.fromDate(weekEnd)
+            }
+          ];
+          
+          await updateDoc(existingMonthly.ref, {
+            totalAchievement: currentData.totalAchievement + highestAchievement,
+            weekCount: currentData.weekCount + 1,
+            weeklyAchievements: updatedWeeklyAchievements,
+            updatedAt: Timestamp.fromDate(new Date())
+          });
+        }
+      }
+    } catch (error) {
+      console.error('Error saving end-of-week data:', error);
+    }
+  };
+
+  useEffect(() => {
+    const checkAndSaveEndOfWeek = async () => {
+      const now = new Date();
+      const currentWeekStart = startOfWeek(now, { weekStartsOn: 1 });
+      const currentWeekEnd = endOfWeek(now, { weekStartsOn: 1 });
+      
+      // Check if it's Saturday (end of week)
+      if (now.getDay() === 6) {
+        await saveEndOfWeekData(currentWeekStart, currentWeekEnd);
+      }
+    };
+
+    checkAndSaveEndOfWeek();
+  }, []);
+
+  const getMonthSelector = () => {
+    // Generate last 12 months
+    const months = Array.from({ length: 12 }, (_, i) => {
+      const date = new Date();
+      date.setMonth(date.getMonth() - i);
+      return {
+        value: date,
+        label: format(date, 'MMM yyyy')
+      };
+    }).reverse();
+
+    const isCurrentMonth = (date: Date) => {
+      const now = new Date();
+      return date.getMonth() === now.getMonth() && date.getFullYear() === now.getFullYear();
+    };
+
+    return (
+      <View style={styles.monthSelectorContainer}>
+        <ScrollView 
+          horizontal 
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.monthSelectorScrollContent}
+        >
+          {months.map((month, index) => {
+            const isSelected = format(selectedMonth, 'MMM yyyy') === month.label;
+            const isCurrent = isCurrentMonth(month.value);
+            
+            return (
+              <TouchableOpacity
+                key={index}
+                style={[
+                  styles.monthSelectorItem,
+                  isSelected && styles.monthSelectorItemSelected,
+                  isCurrent && styles.monthSelectorItemCurrent
+                ]}
+                onPress={() => {
+                  setSelectedMonth(month.value);
+                  fetchPeriodData('Weekly', 0);
+                }}
+              >
+                <Text style={[
+                  styles.monthSelectorItemText,
+                  isSelected && styles.monthSelectorItemTextSelected,
+                  isCurrent && styles.monthSelectorItemTextCurrent
+                ]}>
+                  {month.label}
+                </Text>
+                {isCurrent && (
+                  <View style={styles.currentMonthIndicator} />
+                )}
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+      </View>
+    );
+  };
+
   if (isLoading) {
     return (
       <AppGradient>
@@ -516,6 +749,9 @@ const ViewFullReport = () => {
               ))}
             </View>
 
+            {/* Month Selector for Weekly View */}
+            {selectedPeriod === 'Weekly' && getMonthSelector()}
+
             {/* Period Label and Navigation */}
             {getPeriodLabel()}
 
@@ -525,11 +761,21 @@ const ViewFullReport = () => {
                 <MaterialIcons name="trending-up" size={24} color="#FF8447" />
                 <Text style={styles.quickStatValue}>{highestAchievement.toFixed(1)}%</Text>
                 <Text style={styles.quickStatLabel}>Highest Achievement</Text>
+                {selectedPeriod === 'Half Yearly' && currentMonthInfo && (
+                  <Text style={styles.quickStatDate}>
+                    {currentMonthInfo.month} {currentMonthInfo.year}
+                  </Text>
+                )}
               </View>
               <View style={styles.quickStatCard}>
                 <MaterialIcons name="assessment" size={24} color="#FF8447" />
                 <Text style={styles.quickStatValue}>{averageAchievement.toFixed(1)}%</Text>
                 <Text style={styles.quickStatLabel}>Average Achievement</Text>
+                {selectedPeriod === 'Half Yearly' && currentMonthInfo && (
+                  <Text style={styles.quickStatDate}>
+                    {currentMonthInfo.month} {currentMonthInfo.year}
+                  </Text>
+                )}
               </View>
             </View>
 
@@ -581,11 +827,21 @@ const ViewFullReport = () => {
                 withHorizontalLabels={true}
                 withShadow={false}
                 fromZero={true}
-                getDotProps={(value, index) => ({
-                  r: value === highestAchievement ? '8' : '6',
-                  strokeWidth: value === highestAchievement ? '3' : '2',
-                  stroke: value === highestAchievement ? '#FF8447' : '#FF8447',
-                })}
+                getDotProps={(value, index) => {
+                  const isCurrentMonth = selectedPeriod === 'Half Yearly' && 
+                    format(new Date(), 'MMM yyyy') === activeData.labels[index];
+                  return {
+                    r: isCurrentMonth ? '8' : '6',
+                    strokeWidth: isCurrentMonth ? '3' : '2',
+                    stroke: isCurrentMonth ? '#FF8447' : '#FF8447',
+                  };
+                }}
+                formatXLabel={(value) => {
+                  if (selectedPeriod === 'Half Yearly' || selectedPeriod === 'Quarterly') {
+                    return value; // Already formatted as 'MMM yyyy'
+                  }
+                  return value; // Keep week labels as is
+                }}
               />
             </View>
 
@@ -620,12 +876,13 @@ const ViewFullReport = () => {
             <View style={styles.legendContainer}>
               <View style={styles.legendItem}>
                 <View style={[styles.legendDot, { backgroundColor: "#FF8447" }]} />
-                <Text style={styles.legendText}>Achievement</Text>
+                <Text style={styles.legendText}>Weekly Achievement</Text>
               </View>
               <View style={styles.legendItem}>
                 <View style={[styles.legendDot, { backgroundColor: "#E5E7EB" }]} />
                 <Text style={styles.legendText}>Target</Text>
               </View>
+              <Text style={styles.currentWeekNote}>* Current Week</Text>
             </View>
           </ScrollView>
         </View>
@@ -781,6 +1038,13 @@ const styles = StyleSheet.create({
     color: '#666',
     textAlign: 'center',
   },
+  quickStatDate: {
+    fontSize: 12,
+    fontFamily: 'LexendDeca_400Regular',
+    color: '#666',
+    marginTop: 4,
+    textAlign: 'center',
+  },
   insightsContainer: {
     marginTop: 24,
   },
@@ -864,6 +1128,90 @@ const styles = StyleSheet.create({
     backgroundColor: '#E5E7EB',
     borderRadius: 16,
     marginBottom: 12,
+  },
+  currentWeekNote: {
+    fontSize: 12,
+    fontFamily: "LexendDeca_400Regular",
+    color: "#666",
+    fontStyle: "italic",
+    marginTop: 4,
+  },
+  monthSelectorContainer: {
+    marginBottom: 20,
+    backgroundColor: 'white',
+    borderRadius: 16,
+    padding: 16,
+    elevation: 2,
+  },
+  monthSelectorScrollContent: {
+    paddingHorizontal: 4,
+  },
+  monthSelectorItem: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    marginHorizontal: 8,
+    borderRadius: 20,
+    backgroundColor: '#F3F4F6',
+  },
+  monthSelectorItemSelected: {
+    backgroundColor: '#FF8447',
+  },
+  monthSelectorItemCurrent: {
+    borderWidth: 2,
+    borderColor: '#FF8447',
+  },
+  monthSelectorItemText: {
+    fontSize: 14,
+    fontFamily: 'LexendDeca_500Medium',
+    color: '#666',
+  },
+  monthSelectorItemTextSelected: {
+    color: 'white',
+  },
+  monthSelectorItemTextCurrent: {
+    color: '#FF8447',
+  },
+  currentMonthIndicator: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#FF8447',
+  },
+  monthlyAchievementsContainer: {
+    marginTop: 24,
+  },
+  monthlyAchievementsTitle: {
+    fontSize: 18,
+    fontFamily: 'LexendDeca_600SemiBold',
+    color: '#333',
+    marginBottom: 16,
+  },
+  monthlyAchievementCard: {
+    backgroundColor: 'white',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 12,
+    elevation: 2,
+  },
+  monthlyAchievementMonth: {
+    fontSize: 16,
+    fontFamily: 'LexendDeca_500Medium',
+    color: '#333',
+    marginBottom: 8,
+  },
+  monthlyAchievementValue: {
+    fontSize: 24,
+    fontFamily: 'LexendDeca_600SemiBold',
+    color: '#FF8447',
+    marginBottom: 4,
+  },
+  monthlyAchievementWeeks: {
+    fontSize: 14,
+    fontFamily: 'LexendDeca_400Regular',
+    color: '#666',
   },
 });
 

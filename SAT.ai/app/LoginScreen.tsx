@@ -106,8 +106,12 @@ const LoginScreen = () => {
         return;
       }
 
-      // Store user role in AsyncStorage for future reference
-      await AsyncStorage.setItem('userRole', userData.role.toLowerCase());
+      // Store user role and session data in AsyncStorage
+      await AsyncStorage.multiSet([
+        ['userRole', userData.role.toLowerCase()],
+        ['sessionToken', userCredential.user.uid],
+        ['lastActiveTime', new Date().toISOString()]
+      ]);
 
       // Show success message
       showCustomAlert('Welcome back! Login successful.', 'success');

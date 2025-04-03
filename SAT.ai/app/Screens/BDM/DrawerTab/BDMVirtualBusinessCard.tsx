@@ -19,7 +19,7 @@ interface UserProfile {
   firstName: string;
   lastName: string;
   designation: string;
-  phone: string;
+  phoneNumber: string;
   email: string;
   profileImage?: string;
 }
@@ -64,7 +64,7 @@ const BDMVirtualBusinessCard = () => {
             firstName: nameParts[0] || '',
             lastName: nameParts.slice(1).join(' ') || '',
             designation: userData.designation || 'Business Development Manager',
-            phone: userData.mobileNumber || '',
+            phoneNumber: userData.phoneNumber || '',
             email: userData.email || auth.currentUser?.email || '',
             profileImage: userData.profileImageUrl
           });
@@ -190,7 +190,7 @@ const BDMVirtualBusinessCard = () => {
             <View style={styles.infoContainer}>
               <View style={styles.infoRow}>
                 <MaterialIcons name="phone" size={20} color="#ff7b42" />
-                <Text style={styles.infoText}>{userProfile?.phone || 'Not provided'}</Text>
+                <Text style={styles.infoText}>{userProfile?.phoneNumber || 'Not provided'}</Text>
               </View>
               <View style={styles.infoRow}>
                 <MaterialIcons name="email" size={20} color="#ff7b42" />
@@ -208,6 +208,10 @@ const BDMVirtualBusinessCard = () => {
                   Office No. B-03, KPCT Mall, Near Vishal Mega Mart, Fatima Nagar, Wanawadi, Pune 411013.
                 </Text>
               </View>
+              <View style={styles.infoRow}>
+                  <MaterialIcons name="phone" size={20} color="#ff7b42" />
+                  <Text style={styles.infoText}>18001200771</Text>
+                </View>
             </View>
             <View style={styles.bottomLine} />
           </Animated.View>
@@ -315,7 +319,7 @@ const styles = StyleSheet.create({
     textAlign: "left",
     color: '#004a77',
     marginLeft: 20,
-    top: 50,
+    top: 45,
   },
   highlight: {
     color: '#EC691F',
@@ -332,7 +336,7 @@ const styles = StyleSheet.create({
     marginLeft: 20,
   },
   infoContainer: {
-    marginTop: 30,
+    marginTop: 15,
     marginLeft: 20,
     marginRight: 20,
   },
@@ -370,7 +374,6 @@ const styles = StyleSheet.create({
     height: 10,
     backgroundColor: '#EC691F', 
     width: 300,
-    marginTop: 25, 
     borderBottomLeftRadius: 15,
     borderBottomRightRadius: 15,
     alignSelf: "center",

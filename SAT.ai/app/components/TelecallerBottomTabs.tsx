@@ -45,7 +45,7 @@ const TelecallerBottomTabs = () => {
 
       <TouchableOpacity 
         style={[styles.tabItem, styles.centerTab]} 
-        onPress={() => navigation.navigate('AlertScreen' as never)}
+        onPress={() => navigation.navigate('TelecallerIdleTimerScreen' as never)}
       >
         <View style={styles.centerButton}>
           <MaterialIcons name="notifications-active" size={28} color="#FFF" />

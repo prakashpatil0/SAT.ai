@@ -26,6 +26,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useProfile } from '@/app/context/ProfileContext';
 import FormInput from "@/app/components/FormInput";
 import AppGradient from "@/app/components/AppGradient";
+import WaveSkeleton from '@/app/components/WaveSkeleton';
 
 const { width } = Dimensions.get('window');
 
@@ -39,9 +40,8 @@ type ProfileImage = {
 interface User {
   id: string;
   name: string;
-  designation: string;
   email: string;
-  mobileNumber: string;
+  phoneNumber: string;
   dateOfBirth: Date;
   profileImageUrl: string | null;
 }
@@ -53,23 +53,67 @@ interface DateTimePickerEvent {
   };
 }
 
+// Add ProfileSkeleton component
+const ProfileSkeleton = () => {
+  return (
+    <View style={styles.skeletonContainer}>
+      <View style={styles.headerContainer}>
+        <LinearGradient
+          colors={['#FF8447', '#FF6D24']}
+          style={styles.headerGradient}
+        >
+          <WaveSkeleton 
+            width={120} 
+            height={120} 
+            style={styles.profileImageSkeleton} 
+          />
+          <WaveSkeleton 
+            width={200} 
+            height={24} 
+            style={styles.skeletonText} 
+          />
+          <WaveSkeleton 
+            width={150} 
+            height={16} 
+            style={styles.skeletonText} 
+          />
+        </LinearGradient>
+      </View>
+      <View style={styles.contentContainer}>
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <WaveSkeleton width={200} height={24} />
+          </View>
+          <View style={styles.formContainer}>
+            <WaveSkeleton width="100%" height={60} style={styles.inputSkeleton} />
+            <WaveSkeleton width="100%" height={60} style={styles.inputSkeleton} />
+            <WaveSkeleton width="100%" height={60} style={styles.inputSkeleton} />
+            <WaveSkeleton width="100%" height={60} style={styles.inputSkeleton} />
+            <WaveSkeleton width="100%" height={60} style={styles.inputSkeleton} />
+          </View>
+        </View>
+      </View>
+    </View>
+  );
+};
+
 const BDMProfile = () => {
   const navigation = useNavigation();
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
   const { profileImage: contextProfileImage, updateProfileImage } = useProfile();
   const [formData, setFormData] = useState<User>({
     id: '',
     name: "",
-    designation: "",
     email: "",
-    mobileNumber: "",
+    phoneNumber: "",
     dateOfBirth: new Date(),
     profileImageUrl: "",
   });
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [profileImage, setProfileImage] = useState<ProfileImage>({ 
-    default: require("@/assets/images/girl.png") 
+    default: require("@/assets/images/person.png") 
   });
   const [errors, setErrors] = useState({
     name: '',
@@ -121,9 +165,8 @@ const BDMProfile = () => {
         setFormData({
           id: userId,
           name: data.name || "",
-          designation: data.designation || "",
           email: data.email || auth.currentUser?.email || "",
-          mobileNumber: data.mobileNumber || "",
+          phoneNumber: data.phoneNumber || "",
           dateOfBirth: data.dateOfBirth?.toDate() || new Date(),
           profileImageUrl: data.profileImageUrl || "",
         });
@@ -136,7 +179,9 @@ const BDMProfile = () => {
       console.error("Error fetching profile:", error);
       Alert.alert("Error", "Failed to load profile data");
     } finally {
-      setIsLoading(false);
+      setTimeout(() => {
+        setIsLoading(false);
+      }, 1000);
     }
   };
 
@@ -183,7 +228,7 @@ const BDMProfile = () => {
   const validateMobileNumber = (text: string) => {
     // Keep only numbers
     const cleaned = text.replace(/\D/g, '');
-    setFormData(prev => ({ ...prev, mobileNumber: cleaned }));
+    setFormData(prev => ({ ...prev, phoneNumber: cleaned }));
     
     if (!touched.mobileNumber) return true;
     
@@ -206,15 +251,14 @@ const BDMProfile = () => {
     if (field === 'name') {
       validateName(formData.name);
     } else if (field === 'mobileNumber') {
-      validateMobileNumber(formData.mobileNumber);
+      validateMobileNumber(formData.phoneNumber);
     }
   };
 
   const handleSaveChanges = async () => {
     try {
-      // Validate all fields
       const isNameValid = validateName(formData.name);
-      const isMobileValid = validateMobileNumber(formData.mobileNumber);
+      const isMobileValid = validateMobileNumber(formData.phoneNumber);
       
       if (!isNameValid || !isMobileValid) {
         return;
@@ -229,7 +273,6 @@ const BDMProfile = () => {
 
       let profileImageUrl = formData.profileImageUrl;
 
-      // Only attempt upload if there's a new image
       if ('uri' in profileImage && profileImage.uri && profileImage.uri !== formData.profileImageUrl) {
         try {
           profileImageUrl = await uploadImage(profileImage.uri);
@@ -243,12 +286,11 @@ const BDMProfile = () => {
         }
       }
 
-      // Update Firestore document
       const userRef = doc(db, "users", userId);
       const updateData = {
         name: formData.name,
-        designation: formData.designation,
-        mobileNumber: formData.mobileNumber,
+        designation: "BDM",
+        phoneNumber: formData.phoneNumber,
         dateOfBirth: formData.dateOfBirth,
         updatedAt: serverTimestamp(),
         profileImageUrl: profileImageUrl || formData.profileImageUrl
@@ -256,11 +298,11 @@ const BDMProfile = () => {
 
       await setDoc(userRef, updateData, { merge: true });
       
-      // Update context and local state
       if (profileImageUrl && updateProfileImage) {
         updateProfileImage(profileImageUrl);
       }
 
+      setIsEditing(false);
       Alert.alert("Success", "Profile updated successfully");
     } catch (error) {
       console.error("Save changes error:", error);
@@ -377,167 +419,194 @@ const BDMProfile = () => {
 
   if (isLoading) {
     return (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#FF8447" />
-          <Text style={styles.loadingText}>Loading profile...</Text>
-        </View>
+      <AppGradient>
+        <BDMMainLayout title="Profile" showBackButton showDrawer={true}>
+          <ProfileSkeleton />
+        </BDMMainLayout>
+      </AppGradient>
     );
   }
 
   return (
     <AppGradient>
-    <BDMMainLayout title="Profile" showBackButton showDrawer={true}>
-      <Animated.ScrollView
-        contentContainerStyle={styles.scrollContainer}
-        showsVerticalScrollIndicator={false}
-        scrollEventThrottle={16}
-        onScroll={Animated.event(
-          [{ nativeEvent: { contentOffset: { y: scrollY } } }],
-          { useNativeDriver: false }
-        )}
+      <BDMMainLayout 
+        title="Profile" 
+        showBackButton 
+        showDrawer={true}
+        rightComponent={
+          <TouchableOpacity 
+            onPress={() => setIsEditing(!isEditing)}
+            style={styles.editButton}
+          >
+            <MaterialIcons 
+              name={isEditing ? "close" : "edit"} 
+              size={24} 
+              color="#FF8447" 
+            />
+          </TouchableOpacity>
+        }
       >
-        {/* Profile Header */}
-        <Animated.View style={[
-          styles.headerContainer,
-          { 
-            height: headerHeight,
-            opacity: headerOpacity
-          }
-        ]}>
-          <LinearGradient
-            colors={['#FF8447', '#FF6D24']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.headerGradient}
-          >
-            <TouchableWithoutFeedback onPress={openImagePicker}>
-              <Animated.View style={[
-                styles.profileImageContainer,
-                { transform: [{ scale: scaleAnim }] }
-              ]}>
-                <Image
-                  source={
-                    'uri' in profileImage
-                      ? { uri: profileImage.uri }
-                      : profileImage.default
-                  }
-                  style={styles.profileImage}
-                />
-                <View style={styles.editIconContainer}>
-                  <MaterialIcons name="camera-alt" size={18} color="#FFF" />
-                </View>
-              </Animated.View>
-            </TouchableWithoutFeedback>
-            
-            <Text style={styles.profileName}>
-              {formData.name || 'Your Name'}
-            </Text>
-            <Text style={styles.profileRole}>
-              {formData.designation || 'Your Designation'}
-            </Text>
-          </LinearGradient>
-        </Animated.View>
-
-        {/* Profile Content */}
-        <View style={styles.contentContainer}>
-          {/* Personal Information Section */}
-          <View style={styles.section}>
-            <View style={styles.sectionHeader}>
-              <MaterialIcons name="person" size={22} color="#FF8447" />
-              <Text style={styles.sectionTitle}>Personal Information</Text>
-      </View>
-
-            <View style={styles.formContainer}>
-              <FormInput
-                label="Full Name"
-                value={formData.name}
-                onChangeText={validateName}
-                onBlur={() => handleBlur('name')}
-                error={touched.name ? errors.name : undefined}
-                leftIcon="account"
-              />
-              
-              <FormInput
-                label="Designation"
-                value={formData.designation}
-                onChangeText={(text) => setFormData(prev => ({ ...prev, designation: text }))}
-                leftIcon="briefcase"
-              />
-              
-              <FormInput
-                label="Email"
-                value={formData.email}
-                onChangeText={(text) => setFormData(prev => ({ ...prev, email: text }))}
-                keyboardType="email-address"
-                autoCapitalize="none"
-                leftIcon="email"
-                autoComplete="email"
-              />
-              
-              <FormInput
-                label="Mobile Number"
-                value={formData.mobileNumber}
-                onChangeText={validateMobileNumber}
-                onBlur={() => handleBlur('mobileNumber')}
-                error={touched.mobileNumber ? errors.mobileNumber : undefined}
-                keyboardType="phone-pad"
-                leftIcon="phone"
-                autoComplete="tel"
-              />
-              
-              <TouchableOpacity 
-                style={styles.datePickerButton}
-                onPress={handleShowDatePicker}
-              >
-                <View style={styles.datePickerContent}>
-                  <MaterialIcons name="calendar-today" size={24} color="#777" style={styles.dateIcon} />
-                  <View>
-                    <Text style={styles.datePickerLabel}>Date of Birth</Text>
-                    <Text style={styles.datePickerValue}>
-                      {formatDate(formData.dateOfBirth)}
-                    </Text>
-                  </View>
-                  <MaterialIcons name="arrow-drop-down" size={24} color="#FF8447" />
-                </View>
-      </TouchableOpacity>
-
-      {showDatePicker && (
-                <DateTimePicker
-                  value={formData.dateOfBirth}
-                  mode="date"
-                  display={Platform.OS === "ios" ? "spinner" : "default"}
-                  onChange={handleDateChange}
-                  maximumDate={new Date()}
-                  minimumDate={new Date(1950, 0, 1)}
-                />
-      )}
-      </View>
-          </View>
-          
-          {/* Save Button */}
-          <TouchableOpacity
-            style={styles.saveButton}
-            onPress={handleSaveChanges}
-            disabled={isSaving}
-          >
+        <Animated.ScrollView
+          contentContainerStyle={styles.scrollContainer}
+          showsVerticalScrollIndicator={false}
+          scrollEventThrottle={16}
+          onScroll={Animated.event(
+            [{ nativeEvent: { contentOffset: { y: scrollY } } }],
+            { useNativeDriver: false }
+          )}
+        >
+          {/* Profile Header */}
+          <Animated.View style={[
+            styles.headerContainer,
+            { 
+              height: headerHeight,
+              opacity: headerOpacity
+            }
+          ]}>
             <LinearGradient
               colors={['#FF8447', '#FF6D24']}
-              style={styles.saveGradient}
               start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.headerGradient}
             >
-              {isSaving ? (
-                <ActivityIndicator size="small" color="#FFFFFF" />
-              ) : (
-        <Text style={styles.saveButtonText}>Save Changes</Text>
-              )}
+              <TouchableWithoutFeedback onPress={isEditing ? openImagePicker : undefined}>
+                <Animated.View style={[
+                  styles.profileImageContainer,
+                  { transform: [{ scale: scaleAnim }] }
+                ]}>
+                  <Image
+                    source={
+                      'uri' in profileImage
+                        ? { uri: profileImage.uri }
+                        : profileImage.default
+                    }
+                    style={styles.profileImage}
+                  />
+                  {isEditing && (
+                    <View style={styles.editIconContainer}>
+                      <MaterialIcons name="camera-alt" size={18} color="#FFF" />
+                    </View>
+                  )}
+                </Animated.View>
+              </TouchableWithoutFeedback>
+              
+              <Text style={styles.profileName}>
+                {formData.name || 'Your Name'}
+              </Text>
+              <Text style={styles.profileRole}>
+                Business Development Manager
+              </Text>
             </LinearGradient>
-      </TouchableOpacity>
-          
-          <View style={styles.spacer} />
-        </View>
-      </Animated.ScrollView>
-    </BDMMainLayout>
+          </Animated.View>
+
+          {/* Profile Content */}
+          <View style={styles.contentContainer}>
+            <View style={styles.section}>
+              <View style={styles.sectionHeader}>
+                <MaterialIcons name="person" size={22} color="#FF8447" />
+                <Text style={styles.sectionTitle}>Personal Information</Text>
+              </View>
+
+              <View style={styles.formContainer}>
+                <FormInput
+                  label="Full Name"
+                  value={formData.name}
+                  onChangeText={validateName}
+                  onBlur={() => handleBlur('name')}
+                  error={touched.name ? errors.name : undefined}
+                  leftIcon="account"
+                  disabled={!isEditing}
+                />
+                
+                <FormInput
+                  label="Designation"
+                  value="BDM"
+                  onChangeText={() => {}}
+                  leftIcon="briefcase"
+                  disabled={true}
+                />
+                
+                <FormInput
+                  label="Email"
+                  value={formData.email}
+                  onChangeText={() => {}}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  leftIcon="email"
+                  autoComplete="email"
+                  disabled={true}
+                />
+                
+                <FormInput
+                  label="Phone Number"
+                  value={formData.phoneNumber}
+                  onChangeText={validateMobileNumber}
+                  onBlur={() => handleBlur('mobileNumber')}
+                  error={touched.mobileNumber ? errors.mobileNumber : undefined}
+                  keyboardType="phone-pad"
+                  leftIcon="phone"
+                  autoComplete="tel"
+                  disabled={!isEditing}
+                />
+                
+                <TouchableOpacity 
+                  style={[
+                    styles.datePickerButton,
+                    !isEditing && styles.datePickerDisabled
+                  ]}
+                  onPress={isEditing ? handleShowDatePicker : undefined}
+                >
+                  <View style={styles.datePickerContent}>
+                    <MaterialIcons name="calendar-today" size={24} color="#777" style={styles.dateIcon} />
+                    <View>
+                      <Text style={styles.datePickerLabel}>Date of Birth</Text>
+                      <Text style={styles.datePickerValue}>
+                        {formatDate(formData.dateOfBirth)}
+                      </Text>
+                    </View>
+                    {isEditing && <MaterialIcons name="arrow-drop-down" size={24} color="#FF8447" />}
+                  </View>
+                </TouchableOpacity>
+
+                {showDatePicker && (
+                  <DateTimePicker
+                    value={formData.dateOfBirth}
+                    mode="date"
+                    display={Platform.OS === "ios" ? "spinner" : "default"}
+                    onChange={handleDateChange}
+                    maximumDate={new Date()}
+                    minimumDate={new Date(1950, 0, 1)}
+                  />
+                )}
+              </View>
+            </View>
+            
+            {/* Save Button */}
+            {isEditing && (
+              <TouchableOpacity
+                style={styles.saveButton}
+                onPress={handleSaveChanges}
+                disabled={isSaving}
+              >
+                <LinearGradient
+                  colors={['#FF8447', '#FF6D24']}
+                  style={styles.saveGradient}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                >
+                  {isSaving ? (
+                    <ActivityIndicator size="small" color="#FFFFFF" />
+                  ) : (
+                    <Text style={styles.saveButtonText}>Save Changes</Text>
+                  )}
+                </LinearGradient>
+              </TouchableOpacity>
+            )}
+            
+            <View style={styles.spacer} />
+          </View>
+        </Animated.ScrollView>
+      </BDMMainLayout>
     </AppGradient>
   );
 };
@@ -558,7 +627,7 @@ const styles = StyleSheet.create({
     fontFamily: 'LexendDeca_400Regular',
   },
   headerContainer: {
-    height: 250,
+    height: 100,
     width: '100%',
     overflow: 'hidden',
   },
@@ -566,7 +635,7 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingTop: 20,
+    paddingTop: 10,
   },
   profileImageContainer: {
     width: 120,
@@ -608,7 +677,7 @@ const styles = StyleSheet.create({
   profileRole: {
     fontSize: 16,
     fontFamily: 'LexendDeca_400Regular',
-    color: 'rgba(255, 255, 255, 0.9)',
+    color: 'white',
     marginTop: 4,
   },
   contentContainer: {
@@ -626,6 +695,8 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 2,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
   },
   sectionHeader: {
     flexDirection: 'row',
@@ -634,15 +705,17 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     borderBottomWidth: 1,
     borderBottomColor: '#f0f0f0',
+    backgroundColor: '#FFF5E6',
   },
   sectionTitle: {
     fontSize: 18,
     fontFamily: 'LexendDeca_500Medium',
-    color: '#333',
+    color: '#FF8447',
     marginLeft: 10,
   },
   formContainer: {
     padding: 16,
+    backgroundColor: '#FFFFFF',
   },
   datePickerButton: {
     marginTop: 8,
@@ -651,18 +724,19 @@ const styles = StyleSheet.create({
   datePickerContent: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#f9f9f9',
+    backgroundColor: '#FFF5E6',
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#ddd',
+    borderColor: '#FFE0B2',
     padding: 12,
   },
   dateIcon: {
     marginRight: 12,
+    color: '#FF8447',
   },
   datePickerLabel: {
     fontSize: 12,
-    color: '#666',
+    color: '#FF8447',
     fontFamily: 'LexendDeca_400Regular',
   },
   datePickerValue: {
@@ -685,6 +759,7 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: '#FF8447',
   },
   saveButtonText: {
     color: "#FFFFFF",
@@ -693,6 +768,30 @@ const styles = StyleSheet.create({
   },
   spacer: {
     height: 40,
+  },
+  editButton: {
+    padding: 8,
+    backgroundColor: '#FFF5E6',
+    borderRadius: 8,
+  },
+  datePickerDisabled: {
+    opacity: 0.7,
+    backgroundColor: '#F5F5F5',
+  },
+  skeletonContainer: {
+    flex: 1,
+  },
+  profileImageSkeleton: {
+    borderRadius: 60,
+    marginBottom: 16,
+  },
+  skeletonText: {
+    borderRadius: 4,
+    marginVertical: 4,
+  },
+  inputSkeleton: {
+    borderRadius: 8,
+    marginVertical: 8,
   },
 });
 

@@ -19,6 +19,7 @@ interface FormInputProps {
   numberOfLines?: number;
   style?: any;
   onBlur?: () => void;
+  disabled?: boolean;
   autoComplete?: 'off' | 'username' | 'password' | 'email' | 'name' | 'tel' | 'street-address' | 'postal-code' | 'cc-number' | 'cc-csc' | 'cc-exp' | 'cc-exp-month' | 'cc-exp-year';
 }
 
@@ -39,6 +40,7 @@ const FormInput: React.FC<FormInputProps> = ({
   numberOfLines = 1,
   style,
   onBlur,
+  disabled = false,
   autoComplete,
 }) => {
   const [showPassword, setShowPassword] = useState(false);
@@ -99,11 +101,13 @@ const FormInput: React.FC<FormInputProps> = ({
         style={[
           styles.input,
           error ? styles.inputError : null,
-          multiline ? { height: numberOfLines * 25 + 20 } : null
+          multiline ? { height: numberOfLines * 25 + 20 } : null,
+          disabled ? styles.inputDisabled : null
         ]}
         error={!!error}
+        disabled={disabled}
         autoComplete={autoComplete}
-        left={leftIcon ? <TextInput.Icon icon={leftIcon} color="#B1B1B1" /> : undefined}
+        left={leftIcon ? <TextInput.Icon icon={leftIcon} color={disabled ? "#D1D1D1" : "#B1B1B1"} /> : undefined}
         right={
           showTogglePassword ? (
             <TextInput.Icon
@@ -114,7 +118,7 @@ const FormInput: React.FC<FormInputProps> = ({
           ) : rightIcon ? (
             <TextInput.Icon
               icon={rightIcon}
-              color="#B1B1B1"
+              color={disabled ? "#D1D1D1" : "#B1B1B1"}
               onPress={onRightIconPress}
             />
           ) : undefined
@@ -126,6 +130,7 @@ const FormInput: React.FC<FormInputProps> = ({
             text: "#333",
             placeholder: "#999",
             error: "#DC3545",
+            disabled: "#F5F5F5",
           },
           fonts: {
             regular: {
@@ -165,6 +170,10 @@ const styles = StyleSheet.create({
   },
   inputError: {
     borderColor: '#DC3545',
+  },
+  inputDisabled: {
+    backgroundColor: '#F5F5F5',
+    opacity: 0.8,
   },
   errorContainer: {
     overflow: 'hidden',

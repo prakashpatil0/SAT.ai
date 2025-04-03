@@ -10,37 +10,119 @@ service cloud.firestore {
       return isAuthenticated() && 
         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'bdm';
     }
+
+    function isTelecaller() {
+      return isAuthenticated() && 
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'telecaller';
+    }
+    
+    function isAdmin() {
+      return isAuthenticated() && 
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
     
     function isOwner(userId) {
       return isAuthenticated() && request.auth.uid == userId;
     }
 
+    function isWithinWorkingHours() {
+      let hour = request.time.toDate().getHours();
+      return hour >= 9 && hour < 18;  // 9 AM to 6 PM
+    }
+
+    function hasValidDeviceInfo() {
+      return request.resource.data.deviceInfo != null &&
+             request.resource.data.deviceInfo.isJailbroken == false &&
+             request.resource.data.deviceInfo.isEmulator == false;
+    }
+
+    function isValidLocation(location) {
+      // Define allowed office locations
+      let officeLocations = [
+        { lat: YOUR_OFFICE_LAT, lng: YOUR_OFFICE_LNG, radius: 100 }  // 100m radius
+      ];
+      
+      return location != null &&
+             location.latitude != null &&
+             location.longitude != null;
+    }
+
     // Users collection
     match /users/{userId} {
       allow read: if isAuthenticated();
-      allow write: if isOwner(userId);
+      allow create: if isAdmin();
+      allow update: if isOwner(userId) || isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    // Attendance collection
+    match /attendance/{userId}/{date}/{type} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow create: if isOwner(userId) && 
+                   isWithinWorkingHours() && 
+                   hasValidDeviceInfo() &&
+                   isValidLocation(request.resource.data.location);
+      allow update: if isAdmin();
+      allow delete: if false;  // No deletion allowed
+    }
+
+    // Call logs collection
+    match /callLogs/{logId} {
+      allow read: if isAuthenticated() && (
+        isOwner(resource.data.userId) || 
+        isAdmin()
+      );
+      allow create: if isAuthenticated() && 
+                   hasValidDeviceInfo() &&
+                   request.resource.data.userId == request.auth.uid;
+      allow update: if false;  // No updates allowed
+      allow delete: if false;  // No deletion allowed
+    }
+
+    // User activities collection
+    match /userActivities/{activityId} {
+      allow read: if isAdmin();
+      allow create: if isAuthenticated() && 
+                   request.resource.data.userId == request.auth.uid &&
+                   hasValidDeviceInfo();
+      allow update, delete: if false;  // No modifications allowed
+    }
+
+    // Security violations collection
+    match /securityViolations/{violationId} {
+      allow read: if isAdmin();
+      allow create: if isAuthenticated();
+      allow update, delete: if false;  // No modifications allowed
     }
 
     // Meetings collection
     match /meetings/{meetingId} {
       allow read: if isAuthenticated();
-      allow create: if isBDM();
-      allow update, delete: if isBDM() && 
-        resource.data.bdmId == request.auth.uid;
+      allow create: if isBDM() && 
+                   isWithinWorkingHours() &&
+                   hasValidDeviceInfo();
+      allow update: if isBDM() && 
+                   resource.data.bdmId == request.auth.uid &&
+                   isWithinWorkingHours();
+      allow delete: if isAdmin();
     }
 
     // Companies collection
     match /companies/{companyId} {
       allow read: if isAuthenticated();
-      allow create: if isBDM();
-      allow update, delete: if isBDM() && 
-        resource.data.assignedBdm == request.auth.uid;
+      allow create: if isBDM() && hasValidDeviceInfo();
+      allow update: if isBDM() && 
+                   resource.data.assignedBdm == request.auth.uid;
+      allow delete: if isAdmin();
     }
 
     // Contacts collection
     match /contacts/{contactId} {
       allow read: if isAuthenticated();
-      allow write: if isBDM();
+      allow create: if (isBDM() || isTelecaller()) && hasValidDeviceInfo();
+      allow update: if isAuthenticated() && 
+                   (resource.data.createdBy == request.auth.uid || isAdmin());
+      allow delete: if isAdmin();
     }
 
     // Deals collection
@@ -59,17 +141,34 @@ service cloud.firestore {
         resource.data.bdmId == request.auth.uid;
     }
 
+    // OTP verification
     match /otps/{email} {
-      allow read, write: if request.auth != null;
+      allow read: if request.auth != null && 
+                 request.auth.token.email == email;
+      allow write: if request.auth != null;
     }
   }
 }
 
 service firebase.storage {
   match /b/{bucket}/o {
+    // Profile images
     match /profileImages/{userId}/{fileName} {
-      allow read: if true;  // Anyone can view profile images
-      allow write: if request.auth != null && request.auth.uid == userId;  // Only authenticated users can upload their own images
+      allow read: if true;  // Public read access
+      allow write: if request.auth != null && 
+                  request.auth.uid == userId &&
+                  request.resource.size < 5 * 1024 * 1024 && // 5MB max
+                  request.resource.contentType.matches('image/.*');
+    }
+
+    // Attendance photos
+    match /attendance/{userId}/{fileName} {
+      allow read: if request.auth != null && 
+                 (request.auth.uid == userId || isAdmin());
+      allow write: if request.auth != null && 
+                  request.auth.uid == userId &&
+                  request.resource.size < 10 * 1024 * 1024 && // 10MB max
+                  request.resource.contentType.matches('image/.*');
     }
   }
 } 

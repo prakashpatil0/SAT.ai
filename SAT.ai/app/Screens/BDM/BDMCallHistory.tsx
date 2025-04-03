@@ -1,5 +1,5 @@
 import React, { useCallback, useMemo, memo } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, FlatList } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, FlatList, ScrollView } from 'react-native';
 import { useNavigation, RouteProp } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -151,16 +151,18 @@ const EmptyState = memo(() => (
 
 const CallHistoryScreen: React.FC<CallHistoryScreenProps> = ({ route }) => {
   const navigation = useNavigation<StackNavigationProp<BDMStackParamList>>();
-  const { customerName, phoneNumber, meetings, isCompany, companyInfo } = route.params || { 
+  const { customerName, phoneNumber, meetings = [], isCompany, companyInfo } = route.params || { 
     customerName: 'Unknown', 
     meetings: []
   };
 
   const navigateToPersonNote = useCallback((meeting: Meeting) => {
+    if (!meeting) return;
+    
     navigation.navigate('BDMPersonNote', {
       name: customerName,
-      time: meeting.time,
-      duration: meeting.duration,
+      time: meeting.time || '',
+      duration: meeting.duration || '0 mins',
       type: meeting.status?.toLowerCase() || 'prospect',
       notes: meeting.notes || []
     });
@@ -201,20 +203,16 @@ const CallHistoryScreen: React.FC<CallHistoryScreenProps> = ({ route }) => {
   const groupedMeetings = useMemo(() => groupMeetingsByDate(meetings), [meetings]);
 
   return (
+    
     <AppGradient>
       <BDMMainLayout
-        title="Meeting History"
+        title={customerName}
         showBackButton
         showDrawer={true}
         showBottomTabs={true}
       >
+      <ScrollView>
         <View style={styles.container}>
-          <CustomerCard
-            customerName={customerName}
-            phoneNumber={phoneNumber}
-            isCompany={isCompany}
-            companyInfo={companyInfo}
-          />
 
           <View style={styles.meetingHistoryContainer}>
             <Text style={styles.sectionTitle}>Meeting History</Text>
@@ -236,6 +234,7 @@ const CallHistoryScreen: React.FC<CallHistoryScreenProps> = ({ route }) => {
             )}
           </View>
         </View>
+        </ScrollView>
       </BDMMainLayout>
     </AppGradient>
   );
@@ -264,15 +263,23 @@ const groupMeetingsByDate = (meetings: Meeting[]) => {
 };
 
 const calculateTotalDuration = (meetings: Meeting[]): string => {
+  if (!meetings || meetings.length === 0) {
+    return '0 mins';
+  }
+
   let totalHours = 0;
   let totalMinutes = 0;
   
   meetings.forEach(meeting => {
+    if (!meeting.duration) return;
+    
     const durationParts = meeting.duration.split(' ');
     
     for (let i = 0; i < durationParts.length; i += 2) {
       const value = parseInt(durationParts[i], 10);
       const unit = durationParts[i + 1];
+      
+      if (!unit) continue;
       
       if (unit.startsWith('hr')) {
         totalHours += value;

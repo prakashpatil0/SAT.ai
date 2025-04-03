@@ -468,37 +468,26 @@ const BDMMyScheduleScreen = () => {
       const followUpTime = followUp.startTime.split(':');
       followUpDate.setHours(parseInt(followUpTime[0]), parseInt(followUpTime[1]));
 
-      // One day before notification
-      const oneDayBefore = subDays(followUpDate, 1);
-      oneDayBefore.setHours(9, 0); // Set to 9 AM
-      if (oneDayBefore > new Date()) {
+      // Schedule notification for 8 AM on the scheduled day
+      const eightAMNotification = new Date(followUpDate);
+      eightAMNotification.setHours(8, 0);
+      if (eightAMNotification > new Date()) {
         notifications.push({
           followUpId: followUp.id,
-          title: 'Follow-up Tomorrow',
-          body: `Reminder: You have a follow-up with ${followUp.contactName} tomorrow at ${followUp.startTime}`,
-          triggerDate: oneDayBefore
+          title: 'Follow-up Today',
+          body: `Reminder: You have a follow-up with ${followUp.contactName} today at ${followUp.startTime}`,
+          triggerDate: eightAMNotification
         });
       }
 
-      // Two hours before notification
-      const twoHoursBefore = subHours(followUpDate, 2);
-      if (twoHoursBefore > new Date()) {
+      // Schedule notification for 2 hours after the scheduled time
+      const twoHoursAfter = addHours(followUpDate, 2);
+      if (twoHoursAfter > new Date()) {
         notifications.push({
           followUpId: followUp.id,
           title: 'Follow-up in 2 Hours',
           body: `Upcoming follow-up with ${followUp.contactName} in 2 hours`,
-          triggerDate: twoHoursBefore
-        });
-      }
-
-      // One hour before notification
-      const oneHourBefore = subHours(followUpDate, 1);
-      if (oneHourBefore > new Date()) {
-        notifications.push({
-          followUpId: followUp.id,
-          title: 'Follow-up in 1 Hour',
-          body: `Upcoming follow-up with ${followUp.contactName} in 1 hour`,
-          triggerDate: oneHourBefore
+          triggerDate: twoHoursAfter
         });
       }
 
@@ -619,6 +608,7 @@ const BDMMyScheduleScreen = () => {
 
   useEffect(() => {
     fetchFollowUps();
+    loadScheduleData(); // Load saved schedule data
   }, [selectedDate, view]);
 
   useEffect(() => {
@@ -641,6 +631,26 @@ const BDMMyScheduleScreen = () => {
       }
     } catch (error) {
       console.error('Error setting up notifications:', error);
+    }
+  };
+
+  const saveScheduleData = async (events: Event[]) => {
+    try {
+      await AsyncStorage.setItem('bdm_schedule_data', JSON.stringify(events));
+    } catch (error) {
+      console.error('Error saving schedule data:', error);
+    }
+  };
+
+  const loadScheduleData = async () => {
+    try {
+      const scheduleDataString = await AsyncStorage.getItem('bdm_schedule_data');
+      if (scheduleDataString) {
+        const scheduleData = JSON.parse(scheduleDataString);
+        setFollowUps(scheduleData);
+      }
+    } catch (error) {
+      console.error('Error loading schedule data:', error);
     }
   };
 

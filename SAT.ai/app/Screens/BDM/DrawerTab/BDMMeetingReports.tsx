@@ -19,6 +19,10 @@ import BDMMainLayout from '@/app/components/BDMMainLayout';
 import AppGradient from '@/app/components/AppGradient';
 import { auth, db } from '@/firebaseConfig';
 import { collection, query, where, getDocs, orderBy, Timestamp } from 'firebase/firestore';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+// Add storage key constant
+const MEETING_LOGS_STORAGE_KEY = 'bdm_meeting_logs';
 
 interface Individual {
   name: string;
@@ -39,9 +43,18 @@ interface Meeting {
   userId: string;
   notes: string;
   status: 'planned' | 'completed' | 'cancelled';
-  createdAt: Timestamp;
-  meetingDateTime: Timestamp;
+  createdAt: Date | Timestamp;
+  meetingDateTime: Date | Timestamp;
+  syncStatus?: 'synced' | 'pending';
 }
+
+// Helper function to convert Timestamp or Date to Date
+const toDate = (date: Date | Timestamp): Date => {
+  if (date && 'toDate' in date) {
+    return (date as Timestamp).toDate();
+  }
+  return date as Date;
+};
 
 type FilterType = 'all' | 'individual' | 'company' | 'today' | 'upcoming' | 'past';
 
@@ -74,32 +87,79 @@ const BDMMeetingReports = () => {
         Alert.alert('Authentication Error', 'User not authenticated');
         return;
       }
-      
-      const meetingsRef = collection(db, 'meetings');
-      const q = query(
-        meetingsRef, 
-        where('userId', '==', userId),
-        orderBy('meetingDateTime', 'desc')
-      );
-      
-      const querySnapshot = await getDocs(q);
-      const fetchedMeetings: Meeting[] = [];
-      
-      querySnapshot.forEach((doc) => {
-        const meetingData = doc.data() as Omit<Meeting, 'id'>;
-        fetchedMeetings.push({
-          id: doc.id,
-          ...meetingData,
-          date: meetingData.meetingDateTime ? 
-            format(meetingData.meetingDateTime.toDate(), 'dd MMM yyyy') : 
-            'Date not set',
-          time: meetingData.meetingDateTime ? 
-            format(meetingData.meetingDateTime.toDate(), 'hh:mm a') : 
-            'Time not set'
+
+      let allMeetings: Meeting[] = [];
+
+      // Fetch from AsyncStorage first
+      try {
+        const localLogsStr = await AsyncStorage.getItem(MEETING_LOGS_STORAGE_KEY);
+        if (localLogsStr) {
+          const localLogs = JSON.parse(localLogsStr);
+          const localMeetings = localLogs.map((log: any) => ({
+            id: log.id,
+            date: log.meetingDateTime ? 
+              format(new Date(log.meetingDateTime), 'dd MMM yyyy') : 
+              'Date not set',
+            time: log.meetingDateTime ? 
+              format(new Date(log.meetingDateTime), 'hh:mm a') : 
+              'Time not set',
+            locationUrl: log.locationUrl,
+            companyName: log.companyName,
+            individuals: log.individuals,
+            meetingType: log.meetingType,
+            userId: log.userId,
+            notes: log.notes,
+            status: log.status,
+            createdAt: new Date(log.createdAt),
+            meetingDateTime: new Date(log.meetingDateTime),
+            syncStatus: log.syncStatus
+          }));
+          allMeetings = [...allMeetings, ...localMeetings];
+        }
+      } catch (error) {
+        console.error('Error fetching local meetings:', error);
+      }
+
+      // Fetch from Firebase
+      try {
+        const meetingsRef = collection(db, 'meetings');
+        const q = query(
+          meetingsRef, 
+          where('userId', '==', userId),
+          orderBy('meetingDateTime', 'desc')
+        );
+        
+        const querySnapshot = await getDocs(q);
+        const firebaseMeetings: Meeting[] = [];
+        
+        querySnapshot.forEach((doc) => {
+          const meetingData = doc.data() as Omit<Meeting, 'id'>;
+          firebaseMeetings.push({
+            id: doc.id,
+            ...meetingData,
+            date: meetingData.meetingDateTime ? 
+              format(toDate(meetingData.meetingDateTime), 'dd MMM yyyy') : 
+              'Date not set',
+            time: meetingData.meetingDateTime ? 
+              format(toDate(meetingData.meetingDateTime), 'hh:mm a') : 
+              'Time not set',
+            syncStatus: 'synced'
+          });
         });
+
+        allMeetings = [...allMeetings, ...firebaseMeetings];
+      } catch (error) {
+        console.error('Error fetching Firebase meetings:', error);
+      }
+
+      // Sort all meetings by date and time
+      allMeetings.sort((a, b) => {
+        const dateA = toDate(a.meetingDateTime);
+        const dateB = toDate(b.meetingDateTime);
+        return dateB.getTime() - dateA.getTime();
       });
       
-      setMeetings(fetchedMeetings);
+      setMeetings(allMeetings);
     } catch (error) {
       console.error('Error fetching meetings:', error);
       Alert.alert('Error', 'Failed to fetch meetings');
@@ -130,7 +190,7 @@ const BDMMeetingReports = () => {
       case 'today':
         filtered = meetings.filter(meeting => {
           if (!meeting.meetingDateTime) return false;
-          const meetingDate = meeting.meetingDateTime.toDate();
+          const meetingDate = toDate(meeting.meetingDateTime);
           return meetingDate.getDate() === today.getDate() &&
                  meetingDate.getMonth() === today.getMonth() &&
                  meetingDate.getFullYear() === today.getFullYear();
@@ -139,14 +199,14 @@ const BDMMeetingReports = () => {
       case 'upcoming':
         filtered = meetings.filter(meeting => {
           if (!meeting.meetingDateTime) return false;
-          const meetingDate = meeting.meetingDateTime.toDate();
+          const meetingDate = toDate(meeting.meetingDateTime);
           return meetingDate > now;
         });
         break;
       case 'past':
         filtered = meetings.filter(meeting => {
           if (!meeting.meetingDateTime) return false;
-          const meetingDate = meeting.meetingDateTime.toDate();
+          const meetingDate = toDate(meeting.meetingDateTime);
           return meetingDate < now;
         });
         break;
@@ -192,7 +252,10 @@ const BDMMeetingReports = () => {
 
   const renderMeetingItem = ({ item }: { item: Meeting }) => (
     <TouchableOpacity
-      style={styles.meetingCard}
+      style={[
+        styles.meetingCard,
+        item.syncStatus === 'pending' && styles.pendingMeetingCard
+      ]}
       onPress={() => handleMeetingPress(item)}
     >
       <View style={styles.meetingHeader}>
@@ -207,9 +270,17 @@ const BDMMeetingReports = () => {
           </Text>
         </View>
         
-        <Text style={styles.meetingDateTime}>
-          {item.date} • {item.time}
-        </Text>
+        <View style={styles.meetingDateTimeContainer}>
+          <Text style={styles.meetingDateTime}>
+            {item.date} • {item.time}
+          </Text>
+          {item.syncStatus === 'pending' && (
+            <View style={styles.syncStatusContainer}>
+              <MaterialIcons name="sync" size={16} color="#FF8447" />
+              <Text style={styles.syncStatusText}>Syncing...</Text>
+            </View>
+          )}
+        </View>
       </View>
       
       <View style={styles.meetingDetails}>
@@ -275,6 +346,10 @@ const BDMMeetingReports = () => {
   const renderMeetingDetails = () => {
     if (!selectedMeeting) return null;
 
+    const meetingDate = toDate(selectedMeeting.meetingDateTime);
+    const formattedDate = format(meetingDate, 'dd MMMM yyyy');
+    const formattedTime = format(meetingDate, 'hh:mm a');
+
     return (
       <Modal
         visible={showMeetingDetails}
@@ -299,7 +374,7 @@ const BDMMeetingReports = () => {
 
               <View style={styles.detailSection}>
                 <Text style={styles.detailLabel}>Date & Time</Text>
-                <Text style={styles.detailText}>{selectedMeeting.date} at {selectedMeeting.time}</Text>
+                <Text style={styles.detailText}>{formattedDate} at {formattedTime}</Text>
               </View>
 
               <View style={styles.detailSection}>
@@ -346,6 +421,18 @@ const BDMMeetingReports = () => {
                   <Text style={styles.detailText}>{selectedMeeting.notes}</Text>
                 </View>
               )}
+
+              <View style={styles.detailSection}>
+                <Text style={styles.detailLabel}>Status</Text>
+                <Text style={styles.detailText}>{selectedMeeting.status}</Text>
+              </View>
+
+              <View style={styles.detailSection}>
+                <Text style={styles.detailLabel}>Sync Status</Text>
+                <Text style={styles.detailText}>
+                  {selectedMeeting.syncStatus === 'pending' ? 'Syncing...' : 'Synced'}
+                </Text>
+              </View>
             </ScrollView>
           </View>
         </View>
@@ -525,6 +612,9 @@ const styles = StyleSheet.create({
     color: '#666',
     marginLeft: 6,
   },
+  meetingDateTimeContainer: {
+    alignItems: 'flex-end',
+  },
   meetingDateTime: {
     fontSize: 14,
     fontFamily: 'LexendDeca_400Regular',
@@ -675,6 +765,21 @@ const styles = StyleSheet.create({
     fontFamily: 'LexendDeca_400Regular',
     color: '#FF8447',
     marginLeft: 8,
+  },
+  pendingMeetingCard: {
+    borderLeftWidth: 4,
+    borderLeftColor: '#FF8447',
+  },
+  syncStatusContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  syncStatusText: {
+    fontSize: 12,
+    fontFamily: 'LexendDeca_400Regular',
+    color: '#FF8447',
+    marginLeft: 4,
   },
 });
 

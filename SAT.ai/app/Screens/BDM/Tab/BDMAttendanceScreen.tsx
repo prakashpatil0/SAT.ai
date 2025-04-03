@@ -12,6 +12,7 @@ import { collection, addDoc, getDocs, query, where, Timestamp, updateDoc } from 
 import { db, auth } from '@/firebaseConfig';
 import BDMMainLayout from '@/app/components/BDMMainLayout';
 import AppGradient from '@/app/components/AppGradient';
+import WaveSkeleton from '@/app/components/WaveSkeleton';
 
 type RootStackParamList = {
   BDMCameraScreen: {
@@ -40,803 +41,38 @@ type AttendanceRecord = {
   location?: { latitude: number; longitude: number };
 };
 
-const BDMAttendanceScreen = () => {
-  // Map and location states
-  const [location, setLocation] = useState<Location.LocationObject | null>(null);
-  const [mapError, setMapError] = useState(false);
-  const [permissionStatus, setPermissionStatus] = useState<string>('unknown');
-  const [locationServiceEnabled, setLocationServiceEnabled] = useState<boolean | null>(null);
-  const [mapReady, setMapReady] = useState(false);
-  
-  // Attendance states
-  const [currentDate, setCurrentDate] = useState(new Date());
-  const [punchInTime, setPunchInTime] = useState<string>('');
-  const [punchOutTime, setPunchOutTime] = useState<string>('');
-  const [isPunchedIn, setIsPunchedIn] = useState(false);
-  const [isPunchButtonDisabled, setIsPunchButtonDisabled] = useState(false);
-  const [todayRecord, setTodayRecord] = useState<AttendanceRecord | null>(null);
-  const [attendanceHistory, setAttendanceHistory] = useState<AttendanceRecord[]>([]);
-  const [filteredHistory, setFilteredHistory] = useState<AttendanceRecord[]>([]);
-  const [activeFilter, setActiveFilter] = useState<'Present' | 'Half Day' | 'On Leave' | null>(null);
-  const [statusCounts, setStatusCounts] = useState({
-    Present: 0,
-    'Half Day': 0,
-    'On Leave': 0
-  });
+// Add new interfaces for month selection
+interface MonthOption {
+  value: number;
+  label: string;
+}
 
-  const navigation = useNavigation<BDMAttendanceScreenNavigationProp>();
-  const route = useRoute<BDMAttendanceScreenRouteProp>();
+const MONTHS: MonthOption[] = [
+  { value: 0, label: 'January' },
+  { value: 1, label: 'February' },
+  { value: 2, label: 'March' },
+  { value: 3, label: 'April' },
+  { value: 4, label: 'May' },
+  { value: 5, label: 'June' },
+  { value: 6, label: 'July' },
+  { value: 7, label: 'August' },
+  { value: 8, label: 'September' },
+  { value: 9, label: 'October' },
+  { value: 10, label: 'November' },
+  { value: 11, label: 'December' }
+];
 
-  const weekDays = ['M', 'T', 'W', 'T', 'F', 'S'];
-  const [weekDaysStatus, setWeekDaysStatus] = useState<Array<{ day: string, date?: string, status: 'active' | 'inactive' | 'Present' | 'Half Day' | 'On Leave' }>>([
-    { day: 'M', status: 'inactive' },
-    { day: 'T', status: 'inactive' },
-    { day: 'W', status: 'inactive' },
-    { day: 'T', status: 'inactive' },
-    { day: 'F', status: 'inactive' },
-    { day: 'S', status: 'inactive' }
-  ]);
-
-  // Set default location
-  const defaultLocation = {
-    coords: {
-      latitude: DEFAULT_LOCATION.latitude,
-      longitude: DEFAULT_LOCATION.longitude,
-      altitude: null,
-      accuracy: 5,
-      altitudeAccuracy: null,
-      heading: null,
-      speed: null
-    },
-    timestamp: Date.now()
-  };
-
-  useEffect(() => {
-    // Request location permission immediately on screen load
-    (async () => {
-      try {
-        const enabled = await Location.hasServicesEnabledAsync();
-        setLocationServiceEnabled(enabled);
-        
-        if (!enabled) {
-          Alert.alert(
-            "Location Services Required",
-            "Please enable location services to use the attendance feature.",
-            [
-              { text: "Open Settings", onPress: () => Linking.openSettings() },
-              { text: "Cancel", style: "cancel" }
-            ]
-          );
-          return;
-        }
-        
-        const { status } = await Location.requestForegroundPermissionsAsync();
-        setPermissionStatus(status);
-        
-        if (status !== 'granted') {
-          Alert.alert(
-            "Location Permission Required",
-            "Please grant location permission to use the attendance feature.",
-            [
-              { text: "Open Settings", onPress: () => Linking.openSettings() },
-              { text: "Cancel", style: "cancel" }
-            ]
-          );
-          return;
-        }
-        
-        // If all permissions are granted, proceed with loading the map
-        await loadLocation();
-      } catch (error) {
-        console.error('Error setting up location services:', error);
-        setMapError(true);
-      }
-    })();
-    
-    // Initialize the current date and update weekly days
-    initializeDate();
-    
-    // Fetch attendance history
-    fetchAttendanceHistory();
-  }, []);
-
-  // Add filtered history effect
-  useEffect(() => {
-    if (activeFilter) {
-      setFilteredHistory(attendanceHistory.filter(record => record.status === activeFilter));
-    } else {
-      setFilteredHistory(attendanceHistory);
-    }
-  }, [activeFilter, attendanceHistory]);
-
-  // Add punch button disabled effect
-  useEffect(() => {
-    const checkPunchButtonState = () => {
-      // If already punched out today, disable until 8 AM tomorrow
-      if (punchInTime && punchOutTime) {
-        const now = new Date();
-        const tomorrow = new Date();
-        tomorrow.setDate(tomorrow.getDate() + 1);
-        tomorrow.setHours(8, 0, 0, 0); // 8 AM tomorrow
-        
-        if (now < tomorrow) {
-          setIsPunchButtonDisabled(true);
-          
-          // Set a timeout to re-enable the button at 8 AM tomorrow
-          const timeUntil8AM = tomorrow.getTime() - now.getTime();
-          const timeoutId = setTimeout(() => {
-            setIsPunchButtonDisabled(false);
-          }, timeUntil8AM);
-          
-          return () => clearTimeout(timeoutId);
-        }
-      } else {
-        setIsPunchButtonDisabled(false);
-      }
-    };
-    
-    checkPunchButtonState();
-    
-    // Set up an interval to check every minute
-    const intervalId = setInterval(checkPunchButtonState, 60000);
-    return () => clearInterval(intervalId);
-  }, [punchInTime, punchOutTime]);
-
-  useEffect(() => {
-    // Process camera data when returned from BDMCameraScreen
-    if (route.params && route.params.photo && route.params.location) {
-      try {
-        const { photo, location, isPunchIn } = route.params;
-        saveAttendance(isPunchIn || false, photo.uri, location.coords);
-      } catch (error) {
-        console.error("Error processing camera data:", error);
-        Alert.alert("Error", "Failed to process camera data. Please try again.");
-      }
-    }
-  }, [route.params]);
-
-  const initializeDate = () => {
-    const today = new Date();
-    setCurrentDate(today);
-    
-    // Create default week days status first
-    const dayOfWeek = today.getDay(); // 0 = Sunday, 1 = Monday, etc.
-    const adjustedDay = dayOfWeek === 0 ? 6 : dayOfWeek - 1; // Adjust to our 0-indexed array (M=0, T=1, etc.)
-    
-    // Calculate the date for Monday of this week
-    const startOfWeek = new Date(today);
-    startOfWeek.setDate(today.getDate() - adjustedDay); // Go back to Monday
-    
-    const updatedWeekDays = weekDaysStatus.map((day, index) => {
-      // Calculate the date for this weekday
-      const currentDate = new Date(startOfWeek);
-      currentDate.setDate(startOfWeek.getDate() + index);
-      const dateStr = format(currentDate, 'dd');
-      
-      return { 
-        day: day.day,
-        date: dateStr,
-        status: (index <= adjustedDay ? 'active' : 'inactive') as 'active' | 'inactive' | 'Present' | 'Half Day' | 'On Leave'
-      };
-    });
-    
-    setWeekDaysStatus(updatedWeekDays);
-  };
-
-  const loadLocation = async () => {
-    try {
-      setMapError(false);
-      const currentLocation = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.High
-      });
-      
-      if (currentLocation) {
-        setLocation(currentLocation);
-      } else {
-        // Fallback to default location
-        console.log('Using default location');
-        setLocation(defaultLocation as Location.LocationObject);
-        setMapError(true);
-      }
-    } catch (error) {
-      console.error('Error loading location:', error);
-      setMapError(true);
-      setLocation(defaultLocation as Location.LocationObject);
-    }
-  };
-
-  const fetchAttendanceHistory = async () => {
-    try {
-      const userId = auth.currentUser?.uid;
-      if (!userId) {
-        Alert.alert('Error', 'User not authenticated');
-        return;
-      }
-
-      const attendanceRef = collection(db, 'users', userId, 'attendance');
-      const querySnapshot = await getDocs(attendanceRef);
-      
-      const history: AttendanceRecord[] = [];
-      const today = format(new Date(), 'dd');
-      
-      querySnapshot.forEach((doc) => {
-        const data = doc.data();
-        history.push({
-          date: data.date,
-          day: data.day,
-          punchIn: data.punchIn,
-          punchOut: data.punchOut,
-          status: data.status,
-          userId: data.userId,
-          timestamp: data.timestamp.toDate(),
-          photoUri: data.photoUri,
-          location: data.location
-        });
-
-        // Update today's punch in/out status
-        if (data.date === today) {
-          setTodayRecord({
-            date: data.date,
-            day: data.day,
-            punchIn: data.punchIn,
-            punchOut: data.punchOut,
-            status: data.status,
-            userId: data.userId,
-            timestamp: data.timestamp.toDate(),
-            photoUri: data.photoUri,
-            location: data.location
-          });
-          
-          setPunchInTime(data.punchIn ? format(new Date(`2000-01-01T${data.punchIn}`), 'hh:mm a') : '');
-          setPunchOutTime(data.punchOut ? format(new Date(`2000-01-01T${data.punchOut}`), 'hh:mm a') : '');
-          setIsPunchedIn(!!data.punchIn && !data.punchOut);
-        }
-      });
-
-      const sortedHistory = history.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
-      setAttendanceHistory(sortedHistory);
-
-      // Check if there are any records for the current month
-      const currentMonthRecords = sortedHistory.filter(record => {
-        const recordDate = new Date(record.timestamp);
-        return format(recordDate, 'MM') === format(new Date(), 'MM') && 
-               format(recordDate, 'yyyy') === format(new Date(), 'yyyy');
-      });
-
-      if (currentMonthRecords.length > 0) {
-        calculateStatusCounts(sortedHistory);
-        updateWeekDaysStatus(sortedHistory);
-      } else {
-        // If no records, set absent days to zero
-        setStatusCounts({ Present: 0, 'Half Day': 0, 'On Leave': 0 });
-      }
-    } catch (error) {
-      console.error('Error fetching attendance history:', error);
-    }
-  };
-
-  const updateWeekDaysStatus = (history: AttendanceRecord[]) => {
-    const today = new Date();
-    const startOfWeek = new Date(today);
-    startOfWeek.setDate(today.getDate() - today.getDay() + 1); // Start from Monday
-    
-    const updatedWeekDays = weekDaysStatus.map((day, index) => {
-      const currentDate = new Date(startOfWeek);
-      currentDate.setDate(startOfWeek.getDate() + index);
-      
-      // Find attendance record for this date
-      const dateStr = format(currentDate, 'dd');
-      const attendanceRecord = history.find(record => record.date === dateStr);
-      
-      // Default to 'inactive' for future dates, use attendance status for past dates
-      let status: 'active' | 'inactive' | 'Present' | 'Half Day' | 'On Leave';
-      if (currentDate > today) {
-        status = 'inactive';
-      } else if (attendanceRecord) {
-        status = attendanceRecord.status as 'Present' | 'Half Day' | 'On Leave';
-      } else {
-        status = 'On Leave';
-      }
-      
-      return {
-        day: day.day,
-        date: dateStr,
-        status
-      };
-    });
-    
-    setWeekDaysStatus(updatedWeekDays);
-  };
-
-  const calculateStatusCounts = (history: AttendanceRecord[]) => {
-    const currentMonth = format(new Date(), 'MM');
-    const currentYear = format(new Date(), 'yyyy');
-    
-    const counts = {
-      Present: 0,
-      'Half Day': 0,
-      'On Leave': 0
-    };
-
-    // Get the number of days in current month
-    const daysInMonth = new Date(parseInt(currentYear), parseInt(currentMonth), 0).getDate();
-    
-    // Create array of all dates in current month (excluding Sundays)
-    const allDates = Array.from({ length: daysInMonth }, (_, i) => {
-      const date = new Date(parseInt(currentYear), parseInt(currentMonth) - 1, i + 1);
-      return {
-        dateStr: format(date, 'dd'),
-        isSunday: format(date, 'EEEE') === 'Sunday'
-      };
-    });
-
-    // Filter records for current month and count statuses
-    const currentMonthRecords = history.filter(record => {
-      const recordDate = new Date(record.timestamp);
-      return format(recordDate, 'MM') === currentMonth && 
-             format(recordDate, 'yyyy') === currentYear;
-    });
-
-    currentMonthRecords.forEach(record => {
-      if (record.status in counts) {
-        counts[record.status]++;
-      }
-    });
-
-    // Calculate On Leave days (days without any attendance record)
-    const attendedDates = currentMonthRecords.map(record => record.date);
-    
-    // Get current date for comparison
-    const today = format(new Date(), 'dd');
-    
-    // Filter dates that are:
-    // 1. Not Sundays
-    // 2. Not attended
-    // 3. Are in the past or today
-    const onLeaveDates = allDates.filter(({ dateStr, isSunday }) => 
-      !isSunday && // Exclude Sundays
-      !attendedDates.includes(dateStr) && // Not attended
-      parseInt(dateStr) <= parseInt(today) // Past or today
-    );
-    
-    counts['On Leave'] = onLeaveDates.length;
-
-    setStatusCounts(counts);
-  };
-
-  const saveAttendance = async (isPunchIn: boolean, photoUri: string, locationCoords: any) => {
-    try {
-      const userId = auth.currentUser?.uid;
-      if (!userId) {
-        Alert.alert('Error', 'User not authenticated');
-        return;
-      }
-
-      const currentTime = new Date();
-      const dateStr = format(currentTime, 'dd');
-      const dayStr = format(currentTime, 'EEE').toUpperCase();
-      const timeStr = format(currentTime, 'HH:mm'); // Changed to 24-hour format for easier calculations
-
-      const attendanceRef = collection(db, 'users', userId, 'attendance');
-      const todayQuery = query(
-        attendanceRef,
-        where('date', '==', dateStr),
-        where('userId', '==', userId)
-      );
-
-      const querySnapshot = await getDocs(todayQuery);
-      
-      if (querySnapshot.empty) {
-        // Create new attendance record
-        await addDoc(attendanceRef, {
-          date: dateStr,
-          day: dayStr,
-          punchIn: isPunchIn ? timeStr : '',
-          punchOut: !isPunchIn ? timeStr : '',
-          status: isPunchIn ? 'Half Day' : 'On Leave',
-          userId,
-          timestamp: Timestamp.fromDate(currentTime),
-          photoUri,
-          location: locationCoords
-        });
-      } else {
-        // Update existing record
-        const docRef = querySnapshot.docs[0].ref;
-        const existingData = querySnapshot.docs[0].data();
-        const newPunchIn = isPunchIn ? timeStr : existingData.punchIn;
-        const newPunchOut = !isPunchIn ? timeStr : existingData.punchOut;
-        
-        let newStatus = 'Half Day';
-        if (newPunchIn && newPunchOut) {
-          // Calculate time difference for full day vs half day
-          const punchInTime = new Date(`2000-01-01T${newPunchIn}`);
-          const punchOutTime = new Date(`2000-01-01T${newPunchOut}`);
-          const diffMs = punchOutTime.getTime() - punchInTime.getTime();
-          const diffHrs = diffMs / (1000 * 60 * 60);
-          
-          newStatus = diffHrs >= 8 ? 'Present' : 'Half Day';
-        } else if (!newPunchIn && !newPunchOut) {
-          newStatus = 'On Leave';
-        }
-        
-        await updateDoc(docRef, {
-          punchIn: newPunchIn,
-          punchOut: newPunchOut,
-          status: newStatus,
-          photoUri: !isPunchIn ? photoUri : existingData.photoUri,
-          location: !isPunchIn ? locationCoords : existingData.location
-        });
-      }
-
-      // Update local state
-      if (isPunchIn) {
-        setPunchInTime(format(currentTime, 'hh:mm a')); // Display in 12-hour format
-        setIsPunchedIn(true);
-      } else {
-        setPunchOutTime(format(currentTime, 'hh:mm a')); // Display in 12-hour format
-        setIsPunchedIn(false);
-      }
-
-      // Refresh attendance history
-      fetchAttendanceHistory();
-    } catch (error) {
-      console.error('Error saving attendance:', error);
-      Alert.alert('Error', 'Failed to save attendance');
-    }
-  };
-
-  const handlePunch = () => {
-    if (isPunchButtonDisabled) {
-      Alert.alert(
-        "Punch Disabled",
-        "You've already completed today's attendance. Punch will be available at 8 AM tomorrow."
-      );
-      return;
-    }
-
-    if (permissionStatus !== 'granted') {
-      Alert.alert(
-        "Location Permission Required",
-        "Please grant location permission to punch in/out."
-      );
-      return;
-    }
-    
-    navigation.navigate('BDMCameraScreen', {
-      type: isPunchedIn ? 'out' : 'in'
-    });
-  };
-
-  const openMapsApp = () => {
-    if (location) {
-      const url = Platform.select({
-        ios: `maps:?q=My+Location&ll=${location.coords.latitude},${location.coords.longitude}`,
-        android: `geo:${location.coords.latitude},${location.coords.longitude}?q=${location.coords.latitude},${location.coords.longitude}(My+Location)`
-      });
-      
-      if (url) {
-        Linking.openURL(url).catch(err => {
-          console.error('Error opening maps app:', err);
-          Alert.alert('Error', 'Could not open maps application');
-        });
-      }
-    }
-  };
-
-  const getStatusCircleColor = (status: string) => {
-    switch (status) {
-      case 'Present':
-        return '#4CAF50';
-      case 'Half Day':
-        return '#FFC107';
-      case 'On Leave':
-        return '#FF5252';
-      case 'active':
-        return '#FF8447';
-      default:
-        return 'white';
-    }
-  };
-
-  const getStatusBorderColor = (status: string) => {
-    switch (status) {
-      case 'Present':
-      case 'Half Day':
-      case 'On Leave':
-      case 'active':
-        return 'transparent';
-      default:
-        return '#DDD';
-    }
-  };
-
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case 'Present':
-        return <MaterialIcons name="check" size={20} color="#FFF" />;
-      case 'Half Day':
-        return <MaterialIcons name="remove" size={20} color="#FFF" />;
-      case 'On Leave':
-        return <MaterialIcons name="close" size={20} color="#FFF" />;
-      default:
-        return null;
-    }
-  };
-
-  const handleMapReady = () => {
-    setMapReady(true);
-    console.log('Map is ready');
-  };
-
-  const renderMapFallback = () => (
-    <TouchableOpacity 
-      style={styles.mapFallback}
-      onPress={loadLocation}
-    >
-      <MaterialIcons name="map" size={48} color="#FF8447" />
-      <Text style={styles.mapFallbackText}>
-        {locationServiceEnabled === false 
-          ? 'Location services are disabled. Tap to retry.' 
-          : permissionStatus !== 'granted' 
-            ? 'Location permission required to show map. Tap to request again.' 
-            : 'Could not load map. Tap to retry.'}
-      </Text>
-    </TouchableOpacity>
-  );
-
-  const getStatusStyle = (status: string) => {
-    switch (status) {
-      case 'Present':
-        return styles.presentStatus;
-      case 'Half Day':
-        return styles.halfDayStatus;
-      case 'On Leave':
-        return styles.leaveStatus;
-      default:
-        return styles.presentStatus;
-    }
-  };
-
-  const getStatusTextStyle = (status: string) => {
-    switch (status) {
-      case 'Present':
-        return styles.presentText;
-      case 'Half Day':
-        return styles.halfDayText;
-      case 'On Leave':
-        return styles.leaveText;
-      default:
-        return styles.presentText;
-    }
-  };
-
-  const handleSummaryItemPress = (status: 'Present' | 'Half Day' | 'On Leave') => {
-    if (activeFilter === status) {
-      // If clicking the same filter again, clear it
-      setActiveFilter(null);
-    } else {
-      setActiveFilter(status);
-    }
-  };
-
-  const getSummaryItemStyle = (status: 'Present' | 'Half Day' | 'On Leave') => {
-    // Return different styles based on whether this item is the active filter
-    return [
-      styles.summaryItem,
-      activeFilter && activeFilter !== status ? styles.summaryItemBlurred : null,
-      activeFilter === status ? styles.summaryItemActive : null
-    ];
-  };
-
-  return (
-    <AppGradient>
-      <BDMMainLayout 
-        title="Attendance"
-        showBackButton
-        showDrawer={true}
-      >
-        <ScrollView style={styles.scrollView}>
-          {/* Map View */}
-          <View style={styles.mapContainer}>
-            {mapError ? (
-              renderMapFallback()
-            ) : location ? (
-              <MapView
-                provider={PROVIDER_GOOGLE}
-                style={styles.map}
-                initialRegion={{
-                  latitude: location.coords.latitude,
-                  longitude: location.coords.longitude,
-                  latitudeDelta: DEFAULT_MAP_DELTA.latitudeDelta,
-                  longitudeDelta: DEFAULT_MAP_DELTA.longitudeDelta,
-                }}
-                customMapStyle={GOOGLE_MAPS_STYLE}
-                showsUserLocation={true}
-                showsMyLocationButton={true}
-                followsUserLocation={true}
-                loadingEnabled={true}
-                loadingIndicatorColor="#FF8447"
-                loadingBackgroundColor="#FFF8F0"
-                onMapReady={handleMapReady}
-              >
-                {mapReady && (
-                  <Marker
-                    coordinate={{
-                      latitude: location.coords.latitude,
-                      longitude: location.coords.longitude,
-                    }}
-                  >
-                    <View style={styles.markerContainer}>
-                      <MaterialIcons name="location-pin" size={36} color="#E53935" />
-                    </View>
-                  </Marker>
-                )}
-              </MapView>
-            ) : (
-              <View style={styles.loadingLocation}>
-                <ActivityIndicator size="large" color="#FF8447" />
-                <Text style={styles.loadingText}>Getting your location...</Text>
-              </View>
-            )}
-          </View>
-
-          {/* Punch In/Out Section */}
-          <View style={styles.punchCard}>
-            <View style={styles.punchInfo}>
-              <Text style={styles.punchLabel}>Take Attendance</Text>
-              <TouchableOpacity
-                style={[
-                  styles.punchButton, 
-                  isPunchedIn && styles.punchOutButton,
-                  isPunchButtonDisabled && styles.punchButtonDisabled
-                ]}
-                onPress={handlePunch}
-                disabled={isPunchButtonDisabled}
-              >
-                <Text style={[
-                  styles.punchButtonText,
-                  isPunchButtonDisabled && styles.punchButtonTextDisabled
-                ]}>
-                  {isPunchedIn ? 'Punch Out' : 'Punch In'}
-                </Text>
-              </TouchableOpacity>
-            </View>
-            <View style={styles.timeInfo}>
-              <View style={styles.timeColumn}>
-                <Text style={styles.timeLabel}>Punch In</Text>
-                <Text style={styles.timeValue}>{punchInTime || '-----'}</Text>
-              </View>
-              <View style={styles.timeColumn}>
-                <Text style={styles.timeLabel}>Punch Out</Text>
-                <Text style={styles.timeValue}>{punchOutTime || '-----'}</Text>
-              </View>
-            </View>
-            {isPunchButtonDisabled && (
-              <Text style={styles.nextPunchInfo}>
-                Next punch available at 8:00 AM tomorrow
-              </Text>
-            )}
-          </View>
-
-          {/* Week View */}
-          <View style={styles.weekCard}>
-            <Text style={styles.dateText}>{format(currentDate, 'dd MMMM (EEEE)')}</Text>
-            <View style={styles.weekDays}>
-              {weekDaysStatus.map((day, index) => (
-                <View key={index} style={styles.dayContainer}>
-                <View 
-                  style={[
-                    styles.dayCircle,
-                      { 
-                        backgroundColor: getStatusCircleColor(day.status),
-                        borderColor: getStatusBorderColor(day.status)
-                      }
-                    ]}
-                  >
-                    {getStatusIcon(day.status)}
-                  </View>
-                  <Text style={styles.weekDayText}>{day.day}</Text>
-                  {day.date && <Text style={styles.weekDateText}>{day.date}</Text>}
-                </View>
-              ))}
-            </View>
-          </View>
-
-          {/* Attendance Summary */}
-          <View style={styles.summaryContainer}>
-            <TouchableOpacity 
-              style={getSummaryItemStyle('Present')}
-              onPress={() => handleSummaryItemPress('Present')}
-            >
-              <Text style={styles.summaryStatusPresent}>Present</Text>
-              <Text style={styles.summaryCount}>{statusCounts.Present} days</Text>
-            </TouchableOpacity>
-            <TouchableOpacity 
-              style={getSummaryItemStyle('Half Day')}
-              onPress={() => handleSummaryItemPress('Half Day')}
-            >
-              <Text style={styles.summaryStatusHalfDay}>Half Day</Text>
-              <Text style={styles.summaryCount}>{statusCounts["Half Day"]} days</Text>
-            </TouchableOpacity>
-            <TouchableOpacity 
-              style={getSummaryItemStyle('On Leave')}
-              onPress={() => handleSummaryItemPress('On Leave')}
-            >
-              <Text style={styles.summaryStatusAbsent}>Absent</Text>
-              <Text style={styles.summaryCount}>{statusCounts["On Leave"]} days</Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* Attendance History */}
-          <View style={styles.historySection}>
-            <View style={styles.historyHeader}>
-              <Text style={styles.sectionTitle}>Attendance History</Text>
-              {activeFilter && (
-                <TouchableOpacity
-                  style={styles.clearFilterButton}
-                  onPress={() => setActiveFilter(null)}
-                >
-                  <Text style={styles.clearFilterText}>Clear Filter</Text>
-                  <MaterialIcons name="clear" size={16} color="#FF8447" />
-                </TouchableOpacity>
-              )}
-            </View>
-            
-            {filteredHistory.length === 0 ? (
-              <View style={styles.emptyHistoryContainer}>
-                <MaterialIcons name="event-busy" size={48} color="#999" />
-                <Text style={styles.emptyHistoryText}>
-                  {activeFilter 
-                    ? `No ${activeFilter} records found` 
-                    : "No attendance records found"}
-                </Text>
-                <Text style={styles.emptyHistorySubText}>
-                  {activeFilter 
-                    ? "Try selecting a different filter" 
-                    : "Your attendance history will appear here"}
-                </Text>
-              </View>
-            ) : (
-              filteredHistory.map((record, index) => (
-                <View key={index} style={styles.historyCard}>
-                  <View style={styles.dateColumn}>
-                    <Text style={styles.dateNumber}>{record.date}</Text>
-                    <Text style={styles.dateDay}>{record.day}</Text>
-                  </View>
-                  <View style={styles.punchDetails}>
-                    <View style={styles.punchTimeContainer}>
-                      <Text style={styles.punchTime}>{record.punchIn ? format(new Date(`2000-01-01T${record.punchIn}`), 'hh:mm a') : '-----'}</Text>
-                      <Text style={styles.punchType}>Punch In</Text>
-                    </View>
-                    <View style={styles.punchTimeContainer}>
-                      <Text style={styles.punchTime}>{record.punchOut ? format(new Date(`2000-01-01T${record.punchOut}`), 'hh:mm a') : '-----'}</Text>
-                      <Text style={styles.punchType}>Punch Out</Text>
-                    </View>
-                  </View>
-                  <View style={[styles.statusBadge, getStatusStyle(record.status)]}>
-                    <Text style={[styles.statusText, getStatusTextStyle(record.status)]}>{record.status}</Text>
-                  </View>
-                </View>
-              ))
-            )}
-          </View>
-        </ScrollView>
-      </BDMMainLayout>
-    </AppGradient>
-  );
-};
-
+// Add styles first
 const styles = StyleSheet.create({
   scrollView: {
     flex: 1,
     backgroundColor: '#FFF8F0',
   },
   mapContainer: {
-    height: 200,
-    borderRadius: 12,
+    height: 180,
+    borderRadius: 8,
     overflow: 'hidden',
-    margin: 16,
-    marginBottom: 12,
+    marginBottom: 16,
   },
   map: {
     flex: 1,
@@ -1188,6 +424,1021 @@ const styles = StyleSheet.create({
     color: '#FF8447',
     marginRight: 4,
   },
+  monthScrollContainer: {
+    marginVertical: 8,
+  },
+  monthScrollContent: {
+    paddingHorizontal: 16,
+  },
+  monthItem: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    marginRight: 8,
+    borderRadius: 20,
+    backgroundColor: '#F5F5F5',
+  },
+  selectedMonthItem: {
+    backgroundColor: '#FF8447',
+  },
+  pastMonthItem: {
+    opacity: 0.6,
+  },
+  monthText: {
+    fontSize: 14,
+    color: '#666',
+    fontFamily: 'LexendDeca_400Regular',
+  },
+  selectedMonthText: {
+    color: '#FFFFFF',
+    fontFamily: 'LexendDeca_500Medium',
+  },
+  pastMonthText: {
+    color: '#999',
+  },
+  skeletonContainer: {
+    padding: 16,
+  },
+  skeletonMap: {
+    borderRadius: 12,
+    marginBottom: 16,
+  },
+  skeletonPunchCard: {
+    borderRadius: 12,
+    marginBottom: 16,
+  },
+  skeletonWeekCard: {
+    borderRadius: 12,
+    marginBottom: 16,
+  },
+  skeletonSummary: {
+    borderRadius: 12,
+    marginBottom: 16,
+  },
+  skeletonHistory: {
+    borderRadius: 12,
+  },
 });
+
+// Add AttendanceSkeleton component
+const AttendanceSkeleton = () => {
+  return (
+    <View style={styles.skeletonContainer}>
+      <WaveSkeleton width="100%" height={200} style={styles.skeletonMap} />
+      <WaveSkeleton width="100%" height={120} style={styles.skeletonPunchCard} />
+      <WaveSkeleton width="100%" height={100} style={styles.skeletonWeekCard} />
+      <WaveSkeleton width="100%" height={80} style={styles.skeletonSummary} />
+      <WaveSkeleton width="100%" height={200} style={styles.skeletonHistory} />
+    </View>
+  );
+};
+
+// Add MonthScroll component
+const MonthScroll = ({ 
+  selectedMonth,
+  onSelectMonth 
+}: { 
+  selectedMonth: number;
+  onSelectMonth: (month: number) => void;
+}) => {
+  const currentMonth = new Date().getMonth();
+  
+  return (
+    <ScrollView 
+      horizontal 
+      showsHorizontalScrollIndicator={false}
+      style={styles.monthScrollContainer}
+      contentContainerStyle={styles.monthScrollContent}
+    >
+      {MONTHS.map((month, index) => (
+        <TouchableOpacity
+          key={month.value}
+          style={[
+            styles.monthItem,
+            selectedMonth === month.value && styles.selectedMonthItem,
+            index < currentMonth && styles.pastMonthItem
+          ]}
+          onPress={() => onSelectMonth(month.value)}
+        >
+          <Text style={[
+            styles.monthText,
+            selectedMonth === month.value && styles.selectedMonthText,
+            index < currentMonth && styles.pastMonthText
+          ]}>
+            {month.label.substring(0, 3)}
+          </Text>
+        </TouchableOpacity>
+      ))}
+    </ScrollView>
+  );
+};
+
+const BDMAttendanceScreen = () => {
+  // Map and location states
+  const [location, setLocation] = useState<Location.LocationObject | null>(null);
+  const [mapError, setMapError] = useState(false);
+  const [permissionStatus, setPermissionStatus] = useState<string>('unknown');
+  const [locationServiceEnabled, setLocationServiceEnabled] = useState<boolean | null>(null);
+  const [mapReady, setMapReady] = useState(false);
+  
+  // Attendance states
+  const [currentDate, setCurrentDate] = useState(new Date());
+  const [punchInTime, setPunchInTime] = useState<string>('');
+  const [punchOutTime, setPunchOutTime] = useState<string>('');
+  const [isPunchedIn, setIsPunchedIn] = useState(false);
+  const [isPunchButtonDisabled, setIsPunchButtonDisabled] = useState(false);
+  const [todayRecord, setTodayRecord] = useState<AttendanceRecord | null>(null);
+  const [attendanceHistory, setAttendanceHistory] = useState<AttendanceRecord[]>([]);
+  const [filteredHistory, setFilteredHistory] = useState<AttendanceRecord[]>([]);
+  const [activeFilter, setActiveFilter] = useState<'Present' | 'Half Day' | 'On Leave' | null>(null);
+  const [statusCounts, setStatusCounts] = useState({
+    Present: 0,
+    'Half Day': 0,
+    'On Leave': 0
+  });
+  const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
+  const [isLoading, setIsLoading] = useState(true);
+  const [showMonthSelector, setShowMonthSelector] = useState(false);
+
+  const navigation = useNavigation<BDMAttendanceScreenNavigationProp>();
+  const route = useRoute<BDMAttendanceScreenRouteProp>();
+
+  const weekDays = ['M', 'T', 'W', 'T', 'F', 'S'];
+  const [weekDaysStatus, setWeekDaysStatus] = useState<Array<{ day: string, date?: string, status: 'active' | 'inactive' | 'Present' | 'Half Day' | 'On Leave' }>>([
+    { day: 'M', status: 'inactive' },
+    { day: 'T', status: 'inactive' },
+    { day: 'W', status: 'inactive' },
+    { day: 'T', status: 'inactive' },
+    { day: 'F', status: 'inactive' },
+    { day: 'S', status: 'inactive' }
+  ]);
+
+  // Set default location
+  const defaultLocation = {
+    coords: {
+      latitude: DEFAULT_LOCATION.latitude,
+      longitude: DEFAULT_LOCATION.longitude,
+      altitude: null,
+      accuracy: 5,
+      altitudeAccuracy: null,
+      heading: null,
+      speed: null
+    },
+    timestamp: Date.now()
+  };
+
+  // Add checkAndRequestPermissions function
+  const checkAndRequestPermissions = async () => {
+    try {
+      const enabled = await Location.hasServicesEnabledAsync();
+      setLocationServiceEnabled(enabled);
+      
+      if (!enabled) {
+        Alert.alert(
+          "Location Services Required",
+          "Please enable location services to use the attendance feature.",
+          [
+            { text: "Open Settings", onPress: () => Linking.openSettings() },
+            { text: "Cancel", style: "cancel" }
+          ]
+        );
+        return;
+      }
+      
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      setPermissionStatus(status);
+      
+      if (status !== 'granted') {
+        Alert.alert(
+          "Location Permission Required",
+          "Please grant location permission to use the attendance feature.",
+          [
+            { text: "Open Settings", onPress: () => Linking.openSettings() },
+            { text: "Cancel", style: "cancel" }
+          ]
+        );
+        return;
+      }
+      
+      // If all permissions are granted, proceed with loading the map
+      await loadLocation();
+    } catch (error) {
+      console.error('Error setting up location services:', error);
+      setMapError(true);
+    }
+  };
+
+  // Add effect for initial loading
+  useEffect(() => {
+    const loadInitialData = async () => {
+      setIsLoading(true);
+      await Promise.all([
+        checkAndRequestPermissions(),
+        fetchAttendanceHistory()
+      ]);
+      setIsLoading(false);
+    };
+
+    loadInitialData();
+  }, []);
+
+  useEffect(() => {
+    // Request location permission immediately on screen load
+    (async () => {
+      try {
+        const enabled = await Location.hasServicesEnabledAsync();
+        setLocationServiceEnabled(enabled);
+        
+        if (!enabled) {
+          Alert.alert(
+            "Location Services Required",
+            "Please enable location services to use the attendance feature.",
+            [
+              { text: "Open Settings", onPress: () => Linking.openSettings() },
+              { text: "Cancel", style: "cancel" }
+            ]
+          );
+          return;
+        }
+        
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        setPermissionStatus(status);
+        
+        if (status !== 'granted') {
+          Alert.alert(
+            "Location Permission Required",
+            "Please grant location permission to use the attendance feature.",
+            [
+              { text: "Open Settings", onPress: () => Linking.openSettings() },
+              { text: "Cancel", style: "cancel" }
+            ]
+          );
+          return;
+        }
+        
+        // If all permissions are granted, proceed with loading the map
+        await loadLocation();
+      } catch (error) {
+        console.error('Error setting up location services:', error);
+        setMapError(true);
+      }
+    })();
+    
+    // Initialize the current date and update weekly days
+    initializeDate();
+    
+    // Fetch attendance history
+    fetchAttendanceHistory();
+  }, []);
+
+  // Add filtered history effect
+  useEffect(() => {
+    if (activeFilter) {
+      setFilteredHistory(attendanceHistory.filter(record => record.status === activeFilter));
+    } else {
+      setFilteredHistory(attendanceHistory);
+    }
+  }, [activeFilter, attendanceHistory]);
+
+  // Add punch button disabled effect
+  useEffect(() => {
+    const checkPunchButtonState = () => {
+      // If already punched out today, disable until 8 AM tomorrow
+      if (punchInTime && punchOutTime) {
+        const now = new Date();
+        const tomorrow = new Date();
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        tomorrow.setHours(8, 0, 0, 0); // 8 AM tomorrow
+        
+        if (now < tomorrow) {
+          setIsPunchButtonDisabled(true);
+          
+          // Set a timeout to re-enable the button at 8 AM tomorrow
+          const timeUntil8AM = tomorrow.getTime() - now.getTime();
+          const timeoutId = setTimeout(() => {
+            setIsPunchButtonDisabled(false);
+          }, timeUntil8AM);
+          
+          return () => clearTimeout(timeoutId);
+        }
+      } else {
+        setIsPunchButtonDisabled(false);
+      }
+    };
+    
+    checkPunchButtonState();
+    
+    // Set up an interval to check every minute
+    const intervalId = setInterval(checkPunchButtonState, 60000);
+    return () => clearInterval(intervalId);
+  }, [punchInTime, punchOutTime]);
+
+  useEffect(() => {
+    // Process camera data when returned from BDMCameraScreen
+    if (route.params && route.params.photo && route.params.location) {
+      try {
+        const { photo, location, isPunchIn } = route.params;
+        saveAttendance(isPunchIn || false, photo.uri, location.coords);
+      } catch (error) {
+        console.error("Error processing camera data:", error);
+        Alert.alert("Error", "Failed to process camera data. Please try again.");
+      }
+    }
+  }, [route.params]);
+
+  const initializeDate = () => {
+    const today = new Date();
+    setCurrentDate(today);
+    
+    // Create default week days status first
+    const dayOfWeek = today.getDay(); // 0 = Sunday, 1 = Monday, etc.
+    const adjustedDay = dayOfWeek === 0 ? 6 : dayOfWeek - 1; // Adjust to our 0-indexed array (M=0, T=1, etc.)
+    
+    // Calculate the date for Monday of this week
+    const startOfWeek = new Date(today);
+    startOfWeek.setDate(today.getDate() - adjustedDay); // Go back to Monday
+    
+    const updatedWeekDays = weekDaysStatus.map((day, index) => {
+      // Calculate the date for this weekday
+      const currentDate = new Date(startOfWeek);
+      currentDate.setDate(startOfWeek.getDate() + index);
+      const dateStr = format(currentDate, 'dd');
+      
+      return { 
+        day: day.day,
+        date: dateStr,
+        status: (index <= adjustedDay ? 'active' : 'inactive') as 'active' | 'inactive' | 'Present' | 'Half Day' | 'On Leave'
+      };
+    });
+    
+    setWeekDaysStatus(updatedWeekDays);
+  };
+
+  const loadLocation = async () => {
+    try {
+      setMapError(false);
+      const currentLocation = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.High
+      });
+      
+      if (currentLocation) {
+        setLocation(currentLocation);
+      } else {
+        // Fallback to default location
+        console.log('Using default location');
+        setLocation(defaultLocation as Location.LocationObject);
+        setMapError(true);
+      }
+    } catch (error) {
+      console.error('Error loading location:', error);
+      setMapError(true);
+      setLocation(defaultLocation as Location.LocationObject);
+    }
+  };
+
+  const fetchAttendanceHistory = async () => {
+    try {
+      const userId = auth.currentUser?.uid;
+      if (!userId) {
+        Alert.alert('Error', 'User not authenticated');
+        return;
+      }
+
+      const attendanceRef = collection(db, 'users', userId, 'attendance');
+      const querySnapshot = await getDocs(attendanceRef);
+      
+      const history: AttendanceRecord[] = [];
+      const today = format(new Date(), 'dd');
+      
+      querySnapshot.forEach((doc) => {
+        const data = doc.data();
+        const recordDate = data.timestamp.toDate();
+        
+        // Only include records from selected month
+        if (recordDate.getMonth() === selectedMonth) {
+          history.push({
+            date: data.date,
+            day: data.day,
+            punchIn: data.punchIn,
+            punchOut: data.punchOut,
+            status: data.status,
+            userId: data.userId,
+            timestamp: recordDate,
+            photoUri: data.photoUri,
+            location: data.location
+          });
+
+          // Update today's punch in/out status
+          if (data.date === today) {
+            setTodayRecord({
+              date: data.date,
+              day: data.day,
+              punchIn: data.punchIn,
+              punchOut: data.punchOut,
+              status: data.status,
+              userId: data.userId,
+              timestamp: recordDate,
+              photoUri: data.photoUri,
+              location: data.location
+            });
+            
+            setPunchInTime(data.punchIn ? format(new Date(`2000-01-01T${data.punchIn}`), 'hh:mm a') : '');
+            setPunchOutTime(data.punchOut ? format(new Date(`2000-01-01T${data.punchOut}`), 'hh:mm a') : '');
+            setIsPunchedIn(!!data.punchIn && !data.punchOut);
+          }
+        }
+      });
+
+      const sortedHistory = history.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
+      setAttendanceHistory(sortedHistory);
+      calculateStatusCounts(sortedHistory);
+      updateWeekDaysStatus(sortedHistory);
+    } catch (error) {
+      console.error('Error fetching attendance history:', error);
+    }
+  };
+
+  const updateWeekDaysStatus = (history: AttendanceRecord[]) => {
+    const today = new Date();
+    const startOfWeek = new Date(today);
+    startOfWeek.setDate(today.getDate() - today.getDay() + 1); // Start from Monday
+    
+    const updatedWeekDays = weekDaysStatus.map((day, index) => {
+      const currentDate = new Date(startOfWeek);
+      currentDate.setDate(startOfWeek.getDate() + index);
+      
+      // Find attendance record for this date
+      const dateStr = format(currentDate, 'dd');
+      const attendanceRecord = history.find(record => record.date === dateStr);
+      
+      // Default to 'inactive' for future dates, use attendance status for past dates
+      let status: 'active' | 'inactive' | 'Present' | 'Half Day' | 'On Leave';
+      if (currentDate > today) {
+        status = 'inactive';
+      } else if (attendanceRecord) {
+        status = attendanceRecord.status as 'Present' | 'Half Day' | 'On Leave';
+      } else {
+        status = 'On Leave';
+      }
+      
+      return {
+        day: day.day,
+        date: dateStr,
+        status
+      };
+    });
+    
+    setWeekDaysStatus(updatedWeekDays);
+  };
+
+  const calculateStatusCounts = (history: AttendanceRecord[]) => {
+    const currentMonth = format(new Date(), 'MM');
+    const currentYear = format(new Date(), 'yyyy');
+    
+    const counts = {
+      Present: 0,
+      'Half Day': 0,
+      'On Leave': 0
+    };
+
+    // Get the number of days in current month
+    const daysInMonth = new Date(parseInt(currentYear), parseInt(currentMonth), 0).getDate();
+    
+    // Create array of all dates in current month (excluding Sundays)
+    const allDates = Array.from({ length: daysInMonth }, (_, i) => {
+      const date = new Date(parseInt(currentYear), parseInt(currentMonth) - 1, i + 1);
+      return {
+        dateStr: format(date, 'dd'),
+        isSunday: format(date, 'EEEE') === 'Sunday'
+      };
+    });
+
+    // Filter records for current month and count statuses
+    const currentMonthRecords = history.filter(record => {
+      const recordDate = new Date(record.timestamp);
+      return format(recordDate, 'MM') === currentMonth && 
+             format(recordDate, 'yyyy') === currentYear;
+    });
+
+    currentMonthRecords.forEach(record => {
+      if (record.status in counts) {
+        counts[record.status]++;
+      }
+    });
+
+    // Calculate On Leave days (days without any attendance record)
+    const attendedDates = currentMonthRecords.map(record => record.date);
+    
+    // Get current date for comparison
+    const today = format(new Date(), 'dd');
+    
+    // Filter dates that are:
+    // 1. Not Sundays
+    // 2. Not attended
+    // 3. Are in the past or today
+    const onLeaveDates = allDates.filter(({ dateStr, isSunday }) => 
+      !isSunday && // Exclude Sundays
+      !attendedDates.includes(dateStr) && // Not attended
+      parseInt(dateStr) <= parseInt(today) // Past or today
+    );
+    
+    counts['On Leave'] = onLeaveDates.length;
+
+    setStatusCounts(counts);
+  };
+
+  const calculateAttendanceStatus = (punchIn: string, punchOut: string): 'Present' | 'Half Day' | 'On Leave' => {
+    if (!punchIn) return 'On Leave';
+
+    const punchInTime = new Date(`2000-01-01T${punchIn}`);
+    const punchOutTime = punchOut ? new Date(`2000-01-01T${punchOut}`) : null;
+
+    // Convert times to minutes for easier comparison
+    const punchInMinutes = punchInTime.getHours() * 60 + punchInTime.getMinutes();
+    const punchOutMinutes = punchOutTime ? punchOutTime.getHours() * 60 + punchOutTime.getMinutes() : null;
+
+    // Define time thresholds
+    const PRESENT_PUNCH_IN_THRESHOLD = 9 * 60 + 45; // 9:45 AM
+    const HALF_DAY_PUNCH_IN_THRESHOLD = 14 * 60; // 2:00 PM
+    const MIN_PUNCH_OUT_TIME = 18 * 60 + 30; // 6:30 PM
+
+    if (punchInMinutes <= PRESENT_PUNCH_IN_THRESHOLD && punchOutMinutes && punchOutMinutes >= MIN_PUNCH_OUT_TIME) {
+      return 'Present';
+    } else if (punchInMinutes <= HALF_DAY_PUNCH_IN_THRESHOLD && punchOutMinutes && punchOutMinutes >= MIN_PUNCH_OUT_TIME) {
+      return 'Half Day';
+    } else {
+      return 'On Leave';
+    }
+  };
+
+  const saveAttendance = async (isPunchIn: boolean, photoUri: string, locationCoords: any) => {
+    try {
+      const userId = auth.currentUser?.uid;
+      if (!userId) {
+        Alert.alert('Error', 'User not authenticated');
+        return;
+      }
+
+      const currentTime = new Date();
+      const dateStr = format(currentTime, 'dd');
+      const dayStr = format(currentTime, 'EEE').toUpperCase();
+      const timeStr = format(currentTime, 'HH:mm');
+
+      const attendanceRef = collection(db, 'users', userId, 'attendance');
+      const todayQuery = query(
+        attendanceRef,
+        where('date', '==', dateStr),
+        where('userId', '==', userId)
+      );
+
+      const querySnapshot = await getDocs(todayQuery);
+      
+      if (querySnapshot.empty) {
+        // Create new attendance record
+        await addDoc(attendanceRef, {
+          date: dateStr,
+          day: dayStr,
+          punchIn: isPunchIn ? timeStr : '',
+          punchOut: !isPunchIn ? timeStr : '',
+          status: isPunchIn ? 'Half Day' : 'On Leave',
+          userId,
+          timestamp: Timestamp.fromDate(currentTime),
+          photoUri,
+          location: locationCoords
+        });
+      } else {
+        // Update existing record
+        const docRef = querySnapshot.docs[0].ref;
+        const existingData = querySnapshot.docs[0].data();
+        const newPunchIn = isPunchIn ? timeStr : existingData.punchIn;
+        const newPunchOut = !isPunchIn ? timeStr : existingData.punchOut;
+        
+        // Calculate new status based on punch times
+        const newStatus = calculateAttendanceStatus(newPunchIn, newPunchOut);
+        
+        await updateDoc(docRef, {
+          punchIn: newPunchIn,
+          punchOut: newPunchOut,
+          status: newStatus,
+          photoUri: !isPunchIn ? photoUri : existingData.photoUri,
+          location: !isPunchIn ? locationCoords : existingData.location
+        });
+      }
+
+      // Update local state
+      if (isPunchIn) {
+        setPunchInTime(format(currentTime, 'hh:mm a'));
+        setIsPunchedIn(true);
+      } else {
+        setPunchOutTime(format(currentTime, 'hh:mm a'));
+        setIsPunchedIn(false);
+      }
+
+      // Refresh attendance history
+      fetchAttendanceHistory();
+    } catch (error) {
+      console.error('Error saving attendance:', error);
+      Alert.alert('Error', 'Failed to save attendance');
+    }
+  };
+
+  const handlePunch = async () => {
+    if (isPunchButtonDisabled) {
+      Alert.alert(
+        "Punch Disabled",
+        "You've already completed today's attendance. Punch will be available at 8 AM tomorrow."
+      );
+      return;
+    }
+
+    try {
+      // First check if it's too late to punch in
+      const currentTime = new Date();
+      const currentHours = currentTime.getHours();
+      const currentMinutes = currentTime.getMinutes();
+      const currentTimeInMinutes = currentHours * 60 + currentMinutes;
+      const PUNCH_IN_DEADLINE = 14 * 60; // 2:00 PM
+
+      if (!isPunchedIn && currentTimeInMinutes >= PUNCH_IN_DEADLINE) {
+        Alert.alert(
+          "Punch In Not Allowed",
+          "You cannot punch in after 2:00 PM. You will be marked as On Leave for today."
+        );
+        return;
+      }
+
+      // Check location permission
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert(
+          "Location Permission Required",
+          "Please grant location permission to punch in/out."
+        );
+        return;
+      }
+
+      // Get current location with timeout
+      const locationPromise = Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced,
+        timeInterval: 5000
+      });
+
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('Location timeout')), 10000);
+      });
+
+      const location = await Promise.race([locationPromise, timeoutPromise])
+        .catch(error => {
+          console.error('Location error:', error);
+          // Use last known location if available
+          return defaultLocation;
+        });
+
+      if (location) {
+        setLocation(location as Location.LocationObject);
+        navigation.navigate('BDMCameraScreen', {
+          type: isPunchedIn ? 'out' : 'in'
+        });
+      } else {
+        Alert.alert(
+          "Location Error",
+          "Could not get your location. Please try again."
+        );
+      }
+    } catch (error) {
+      console.error('Error getting location:', error);
+      Alert.alert(
+        "Location Error",
+        "Failed to get your location. Please try again."
+      );
+    }
+  };
+
+  const openMapsApp = () => {
+    if (location) {
+      const url = Platform.select({
+        ios: `maps:?q=My+Location&ll=${location.coords.latitude},${location.coords.longitude}`,
+        android: `geo:${location.coords.latitude},${location.coords.longitude}?q=${location.coords.latitude},${location.coords.longitude}(My+Location)`
+      });
+      
+      if (url) {
+        Linking.openURL(url).catch(err => {
+          console.error('Error opening maps app:', err);
+          Alert.alert('Error', 'Could not open maps application');
+        });
+      }
+    }
+  };
+
+  const getStatusCircleColor = (status: string) => {
+    switch (status) {
+      case 'Present':
+        return '#4CAF50';
+      case 'Half Day':
+        return '#FFC107';
+      case 'On Leave':
+        return '#FF5252';
+      case 'active':
+        return '#FF8447';
+      default:
+        return 'white';
+    }
+  };
+
+  const getStatusBorderColor = (status: string) => {
+    switch (status) {
+      case 'Present':
+      case 'Half Day':
+      case 'On Leave':
+      case 'active':
+        return 'transparent';
+      default:
+        return '#DDD';
+    }
+  };
+
+  const getStatusIcon = (status: string) => {
+    switch (status) {
+      case 'Present':
+        return <MaterialIcons name="check" size={20} color="#FFF" />;
+      case 'Half Day':
+        return <MaterialIcons name="remove" size={20} color="#FFF" />;
+      case 'On Leave':
+        return <MaterialIcons name="close" size={20} color="#FFF" />;
+      default:
+        return null;
+    }
+  };
+
+  const handleMapReady = () => {
+    setMapReady(true);
+    console.log('Map is ready');
+  };
+
+  const renderMapFallback = () => (
+    <TouchableOpacity 
+      style={styles.mapFallback}
+      onPress={loadLocation}
+    >
+      <MaterialIcons name="map" size={48} color="#FF8447" />
+      <Text style={styles.mapFallbackText}>
+        {locationServiceEnabled === false 
+          ? 'Location services are disabled. Tap to retry.' 
+          : permissionStatus !== 'granted' 
+            ? 'Location permission required to show map. Tap to request again.' 
+            : 'Could not load map. Tap to retry.'}
+      </Text>
+    </TouchableOpacity>
+  );
+
+  const getStatusStyle = (status: string) => {
+    switch (status) {
+      case 'Present':
+        return styles.presentStatus;
+      case 'Half Day':
+        return styles.halfDayStatus;
+      case 'On Leave':
+        return styles.leaveStatus;
+      default:
+        return styles.presentStatus;
+    }
+  };
+
+  const getStatusTextStyle = (status: string) => {
+    switch (status) {
+      case 'Present':
+        return styles.presentText;
+      case 'Half Day':
+        return styles.halfDayText;
+      case 'On Leave':
+        return styles.leaveText;
+      default:
+        return styles.presentText;
+    }
+  };
+
+  const handleSummaryItemPress = (status: 'Present' | 'Half Day' | 'On Leave') => {
+    if (activeFilter === status) {
+      // If clicking the same filter again, clear it
+      setActiveFilter(null);
+    } else {
+      setActiveFilter(status);
+    }
+  };
+
+  const getSummaryItemStyle = (status: 'Present' | 'Half Day' | 'On Leave') => {
+    // Return different styles based on whether this item is the active filter
+    return [
+      styles.summaryItem,
+      activeFilter && activeFilter !== status ? styles.summaryItemBlurred : null,
+      activeFilter === status ? styles.summaryItemActive : null
+    ];
+  };
+
+  return (
+    <AppGradient>
+      <BDMMainLayout 
+        title="Attendance"
+        showBackButton
+        showDrawer={true}
+      >
+        <ScrollView style={styles.scrollView}>
+          {isLoading ? (
+            <AttendanceSkeleton />
+          ) : (
+            <>
+              {/* Punch Card with Map */}
+              <View style={styles.punchCard}>
+                {/* Map View */}
+                <View style={styles.mapContainer}>
+                  {mapError ? (
+                    renderMapFallback()
+                  ) : location ? (
+                    <MapView
+                      provider={PROVIDER_GOOGLE}
+                      style={styles.map}
+                      initialRegion={{
+                        latitude: location.coords.latitude,
+                        longitude: location.coords.longitude,
+                        latitudeDelta: DEFAULT_MAP_DELTA.latitudeDelta,
+                        longitudeDelta: DEFAULT_MAP_DELTA.longitudeDelta,
+                      }}
+                      customMapStyle={GOOGLE_MAPS_STYLE}
+                      showsUserLocation={true}
+                      showsMyLocationButton={true}
+                      followsUserLocation={true}
+                      loadingEnabled={true}
+                      loadingIndicatorColor="#FF8447"
+                      loadingBackgroundColor="#FFF8F0"
+                      onMapReady={handleMapReady}
+                    >
+                      {mapReady && (
+                        <Marker
+                          coordinate={{
+                            latitude: location.coords.latitude,
+                            longitude: location.coords.longitude,
+                          }}
+                        >
+                          <View style={styles.markerContainer}>
+                            <MaterialIcons name="location-pin" size={36} color="#E53935" />
+                          </View>
+                        </Marker>
+                      )}
+                    </MapView>
+                  ) : (
+                    <View style={styles.loadingLocation}>
+                      <ActivityIndicator size="large" color="#FF8447" />
+                      <Text style={styles.loadingText}>Getting your location...</Text>
+                    </View>
+                  )}
+                </View>
+
+                {/* Punch Info */}
+                <View style={styles.punchInfo}>
+                  <Text style={styles.punchLabel}>Take Attendance</Text>
+                  <TouchableOpacity
+                    style={[
+                      styles.punchButton, 
+                      isPunchedIn && styles.punchOutButton,
+                      isPunchButtonDisabled && styles.punchButtonDisabled
+                    ]}
+                    onPress={handlePunch}
+                    disabled={isPunchButtonDisabled}
+                  >
+                    <Text style={[
+                      styles.punchButtonText,
+                      isPunchButtonDisabled && styles.punchButtonTextDisabled
+                    ]}>
+                      {isPunchedIn ? 'Punch Out' : 'Punch In'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+
+                <View style={styles.timeInfo}>
+                  <View style={styles.timeColumn}>
+                    <Text style={styles.timeLabel}>Punch In</Text>
+                    <Text style={styles.timeValue}>{punchInTime || '-----'}</Text>
+                  </View>
+                  <View style={styles.timeColumn}>
+                    <Text style={styles.timeLabel}>Punch Out</Text>
+                    <Text style={styles.timeValue}>{punchOutTime || '-----'}</Text>
+                  </View>
+                </View>
+              </View>
+
+              {/* Week View */}
+              <View style={styles.weekCard}>
+                <Text style={styles.dateText}>{format(currentDate, 'dd MMMM (EEEE)')}</Text>
+                <View style={styles.weekDays}>
+                  {weekDaysStatus.map((day, index) => (
+                    <View key={index} style={styles.dayContainer}>
+                      <View 
+                        style={[
+                          styles.dayCircle,
+                          { 
+                            backgroundColor: getStatusCircleColor(day.status),
+                            borderColor: getStatusBorderColor(day.status)
+                          }
+                        ]}
+                      >
+                        {getStatusIcon(day.status)}
+                      </View>
+                      <Text style={styles.weekDayText}>{day.day}</Text>
+                      {day.date && <Text style={styles.weekDateText}>{day.date}</Text>}
+                    </View>
+                  ))}
+                </View>
+              </View>
+
+              {/* Month Scroll */}
+              <MonthScroll 
+                selectedMonth={selectedMonth}
+                onSelectMonth={setSelectedMonth}
+              />
+
+              {/* Attendance Summary */}
+              <View style={styles.summaryContainer}>
+                <TouchableOpacity 
+                  style={getSummaryItemStyle('Present')}
+                  onPress={() => handleSummaryItemPress('Present')}
+                >
+                  <Text style={styles.summaryStatusPresent}>Present</Text>
+                  <Text style={styles.summaryCount}>{statusCounts.Present} days</Text>
+                </TouchableOpacity>
+                <TouchableOpacity 
+                  style={getSummaryItemStyle('Half Day')}
+                  onPress={() => handleSummaryItemPress('Half Day')}
+                >
+                  <Text style={styles.summaryStatusHalfDay}>Half Day</Text>
+                  <Text style={styles.summaryCount}>{statusCounts["Half Day"]} days</Text>
+                </TouchableOpacity>
+                <TouchableOpacity 
+                  style={getSummaryItemStyle('On Leave')}
+                  onPress={() => handleSummaryItemPress('On Leave')}
+                >
+                  <Text style={styles.summaryStatusAbsent}>Absent</Text>
+                  <Text style={styles.summaryCount}>{statusCounts["On Leave"]} days</Text>
+                </TouchableOpacity>
+              </View>
+
+              {/* Attendance History */}
+              <View style={styles.historySection}>
+                <View style={styles.historyHeader}>
+                  <Text style={styles.sectionTitle}>Attendance History</Text>
+                  {activeFilter && (
+                    <TouchableOpacity
+                      style={styles.clearFilterButton}
+                      onPress={() => setActiveFilter(null)}
+                    >
+                      <Text style={styles.clearFilterText}>Clear Filter</Text>
+                      <MaterialIcons name="clear" size={16} color="#FF8447" />
+                    </TouchableOpacity>
+                  )}
+                </View>
+                
+                {filteredHistory.length === 0 ? (
+                  <View style={styles.emptyHistoryContainer}>
+                    <MaterialIcons name="event-busy" size={48} color="#999" />
+                    <Text style={styles.emptyHistoryText}>
+                      {activeFilter 
+                        ? `No ${activeFilter} records found` 
+                        : "No attendance records found"}
+                    </Text>
+                    <Text style={styles.emptyHistorySubText}>
+                      {activeFilter 
+                        ? "Try selecting a different filter" 
+                        : "Your attendance history will appear here"}
+                    </Text>
+                  </View>
+                ) : (
+                  filteredHistory.map((record, index) => (
+                    <View key={index} style={styles.historyCard}>
+                      <View style={styles.dateColumn}>
+                        <Text style={styles.dateNumber}>{record.date}</Text>
+                        <Text style={styles.dateDay}>{record.day}</Text>
+                      </View>
+                      <View style={styles.punchDetails}>
+                        <View style={styles.punchTimeContainer}>
+                          <Text style={styles.punchTime}>{record.punchIn ? format(new Date(`2000-01-01T${record.punchIn}`), 'hh:mm a') : '-----'}</Text>
+                          <Text style={styles.punchType}>Punch In</Text>
+                        </View>
+                        <View style={styles.punchTimeContainer}>
+                          <Text style={styles.punchTime}>{record.punchOut ? format(new Date(`2000-01-01T${record.punchOut}`), 'hh:mm a') : '-----'}</Text>
+                          <Text style={styles.punchType}>Punch Out</Text>
+                        </View>
+                      </View>
+                      <View style={[styles.statusBadge, getStatusStyle(record.status)]}>
+                        <Text style={[styles.statusText, getStatusTextStyle(record.status)]}>{record.status}</Text>
+                      </View>
+                    </View>
+                  ))
+                )}
+              </View>
+            </>
+          )}
+        </ScrollView>
+      </BDMMainLayout>
+    </AppGradient>
+  );
+};
 
 export default BDMAttendanceScreen; 

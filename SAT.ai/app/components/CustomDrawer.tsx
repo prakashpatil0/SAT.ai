@@ -8,6 +8,7 @@ import { DrawerContentComponentProps } from "@react-navigation/drawer";
 import { getAuth, signOut } from "firebase/auth";
 import { useProfile } from '@/app/context/ProfileContext';
 import { LinearGradient } from 'expo-linear-gradient';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const CustomDrawer = (props: DrawerContentComponentProps) => {
   const navigation = useNavigation();
@@ -37,6 +38,8 @@ const CustomDrawer = (props: DrawerContentComponentProps) => {
           onPress: async () => {
             try {
               setLoading(true);
+              // Clear session data
+              await AsyncStorage.multiRemove(['sessionToken', 'lastActiveTime', 'userRole']);
               await signOut(auth);
               navigation.reset({
                 index: 0,

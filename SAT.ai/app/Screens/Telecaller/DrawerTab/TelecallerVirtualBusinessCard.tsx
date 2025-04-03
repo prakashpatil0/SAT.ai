@@ -198,6 +198,10 @@ const VirtualBusinessCard = () => {
                   <MaterialIcons name="location-on" size={20} color="#ff7b42" />
                   <Text style={styles.infoText}>{userProfile?.address}</Text>
                 </View>
+                <View style={styles.infoRow}>
+                  <MaterialIcons name="phone" size={20} color="#ff7b42" />
+                  <Text style={styles.infoText}>18001200771</Text>
+                </View>
               </View>
               <View style={styles.bottomLine} />
             </Animated.View>
@@ -300,7 +304,7 @@ const styles = StyleSheet.create({
     marginLeft: 20,
   },
   infoContainer: {
-    marginTop: 30,
+    marginTop: 10,
     marginLeft: 20,
     marginRight: 20,
   },
@@ -338,7 +342,7 @@ const styles = StyleSheet.create({
     height: 10,
     backgroundColor: '#EC691F', 
     width: 300,
-    marginTop: 25, 
+    marginTop: 0, 
     borderBottomLeftRadius: 15,
     borderBottomRightRadius: 15,
     alignSelf: "center",

@@ -81,5 +81,5 @@ export type RootStackParamList = {
       isNewContact: boolean;
     }
   };
-  TelecallerIdleTimer: undefined;
+  TelecallerIdleTimer: { activateImmediately: boolean };
 }; 

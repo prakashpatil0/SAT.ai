@@ -33,7 +33,7 @@ export const IdleTimerProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   }, []);
 
   useEffect(() => {
-    const IDLE_TIMEOUT = 5 * 60 * 1000; // 5 minutes
+    const IDLE_TIMEOUT = 1 * 60 * 1000; // 1 minute
     let idleCheckInterval: NodeJS.Timeout;
 
     const checkIdleTime = () => {

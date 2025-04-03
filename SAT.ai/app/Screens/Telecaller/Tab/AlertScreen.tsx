@@ -11,7 +11,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 const AlertScreen = () => {
   const navigation = useNavigation();
   const { resetIdleTimer, isTimerActive } = useIdleTimer();
-  const initialTime = 15 * 60; // 15 minutes in seconds
+  const initialTime = 1 * 60; // 2 minutes in seconds
   const [secondsRemaining, setSecondsRemaining] = useState(initialTime);
   const [isRinging, setIsRinging] = useState(false);
   const [sound, setSound] = useState(null);
@@ -44,7 +44,6 @@ const AlertScreen = () => {
 
     if (secondsRemaining <= 0) {
       startAlertSound();
-      navigation.navigate('TelecallerIdleTimer' as never);
       return;
     }
 
@@ -79,7 +78,7 @@ const AlertScreen = () => {
     }
 
     // Navigate to TelecallerIdleTimer screen
-    navigation.navigate('TelecallerIdleTimer' as never);
+    navigation.navigate('TelecallerIdleTimer', { activateImmediately: true });
   };
 
   const stopAlertSound = async () => {

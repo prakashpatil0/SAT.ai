@@ -5,7 +5,8 @@ import AppGradient from "@/app/components/AppGradient";
 import * as Animatable from "react-native-animatable";
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Notifications from 'expo-notifications';
-import { useNavigation } from "@react-navigation/native";
+import { useNavigation, useRoute, RouteProp } from "@react-navigation/native";
+import { RootStackParamList } from "@/types/navigation"; // Adjust the path if needed
 
 const { width } = Dimensions.get('window');
 
@@ -18,16 +19,26 @@ Notifications.setNotificationHandler({
   }),
 });
 
+type TelecallerIdleTimerRouteProp = RouteProp<RootStackParamList, 'TelecallerIdleTimer'>;
+
 const IDLE_TIMEOUT = 5 * 60 * 1000; // 5 minutes
 const FINAL_TIMEOUT = 10 * 60 * 1000; // 10 minutes
 const WARNING_INTERVALS = [5, 3, 1]; // Minutes before final timeout
 
 const TelecallerIdleTimer = () => {
   const navigation = useNavigation();
+  const route = useRoute<TelecallerIdleTimerRouteProp>();
+
   const [idleTime, setIdleTime] = useState(0);
   const [warningCount, setWarningCount] = useState(0);
   const [isActive, setIsActive] = useState(false);
   const [idleCount, setIdleCount] = useState(0);
+
+  useEffect(() => {
+    if (route.params?.activateImmediately) {
+      setIsActive(true);
+    }
+  }, [route.params]);
 
   useEffect(() => {
     loadIdleCount();
@@ -87,11 +98,8 @@ const TelecallerIdleTimer = () => {
       } else if (timeDiff >= IDLE_TIMEOUT) {
         setIdleTime(timeDiff);
         setIsActive(true);
-        
-        // Calculate remaining time until final timeout
+
         const remainingTime = (FINAL_TIMEOUT - timeDiff) / (60 * 1000);
-        
-        // Show warnings at specific intervals
         if (WARNING_INTERVALS.includes(Math.floor(remainingTime)) && warningCount < WARNING_INTERVALS.length) {
           showWarningNotification(Math.floor(remainingTime));
           setWarningCount(prev => prev + 1);
@@ -114,9 +122,7 @@ const TelecallerIdleTimer = () => {
     const handleLogout = async () => {
       const newCount = await incrementIdleCount();
 
-      // Check if the user should be logged out
       if (newCount >= 3) {
-        // Show logout notification
         await Notifications.scheduleNotificationAsync({
           content: {
             title: 'Session Terminated',
@@ -135,12 +141,10 @@ const TelecallerIdleTimer = () => {
       }
     };
 
-    // Setup
     setupNotifications();
     const appStateSubscription = AppState.addEventListener('change', handleAppStateChange);
     timer = setInterval(checkIdleTime, 1000);
 
-    // Cleanup
     return () => {
       clearInterval(timer);
       appStateSubscription.remove();
@@ -162,71 +166,73 @@ const TelecallerIdleTimer = () => {
     return `${minutes}:${seconds.toString().padStart(2, '0')}`;
   };
 
-  if (!isActive) return null;
-
-  return (
-    <AppGradient>
-      <TelecallerMainLayout showDrawer showBackButton={false} title="Idle Timer Warning">
-        <View style={styles.container}>
-          <Animatable.View 
-            animation="pulse" 
-            easing="ease-out" 
-            iterationCount="infinite"
-            duration={2000}
-            style={styles.imageContainer}
-          >
-            <Image 
-              source={require('@/assets/images/siren.gif')} 
-              style={styles.alertImage}
-              resizeMode="contain"
-            />
-          </Animatable.View>
-          
-          <Animatable.Text 
-            animation="flash" 
-            iterationCount="infinite" 
-            duration={2000}
-            style={styles.infoText}
-          >
-            You have been Idle for {formatTime(idleTime)}
-          </Animatable.Text>
-
-          <View style={styles.timerContainer}>
-            <Text style={styles.timerText}>
-              Auto logout in: {formatTime(FINAL_TIMEOUT - idleTime)}
-            </Text>
+  if (!isActive) {
+    return (
+      <AppGradient>
+        <TelecallerMainLayout showDrawer showBackButton={false} title="Idle Timer Warning">
+          <View style={styles.container}>
+            <Animatable.View
+              animation="pulse"
+              easing="ease-out"
+              iterationCount="infinite"
+              duration={2000}
+              style={styles.imageContainer}
+            >
+              <Image
+                source={require('@/assets/images/siren.gif')}
+                style={styles.alertImage}
+                resizeMode="contain"
+              />
+            </Animatable.View>
+  
+            <Animatable.Text
+              animation="flash"
+              iterationCount="infinite"
+              duration={2000}
+              style={styles.infoText}
+            >
+              You have been Idle for {formatTime(idleTime)}
+            </Animatable.Text>
+  
+            <View style={styles.timerContainer}>
+              <Text style={styles.timerText}>
+                Auto logout in: {formatTime(FINAL_TIMEOUT - idleTime)}
+              </Text>
+            </View>
+  
+            <View style={styles.instructionsContainer}>
+              <Text style={styles.instructionsHeader}>Warning Information</Text>
+              <View style={styles.instructionItem}>
+                <Text style={styles.bulletPoint}>•</Text>
+                <Text style={styles.instructionsText}>System detected no activity for 5 minutes</Text>
+              </View>
+              <View style={styles.instructionItem}>
+                <Text style={styles.bulletPoint}>•</Text>
+                <Text style={styles.instructionsText}>You will be automatically logged out in 10 minutes of inactivity</Text>
+              </View>
+              <View style={styles.instructionItem}>
+                <Text style={styles.bulletPoint}>•</Text>
+                <Text style={styles.instructionsText}>Click anywhere to resume your session</Text>
+              </View>
+              <View style={styles.instructionItem}>
+                <Text style={styles.bulletPoint}>•</Text>
+                <Text style={styles.instructionsText}>Total idle timeouts: {idleCount}</Text>
+              </View>
+            </View>
+  
+            <TouchableOpacity
+              style={styles.resumeButton}
+              onPress={() => setIsActive(true)}
+            >
+              <Text style={styles.resumeButtonText}>Resume Session</Text>
+            </TouchableOpacity>
           </View>
+        </TelecallerMainLayout>
+      </AppGradient>
+    );
+  }
 
-          <View style={styles.instructionsContainer}>
-            <Text style={styles.instructionsHeader}>Warning Information</Text>
-            <View style={styles.instructionItem}>
-              <Text style={styles.bulletPoint}>•</Text>
-              <Text style={styles.instructionsText}>System detected no activity for 5 minutes</Text>
-            </View>
-            <View style={styles.instructionItem}>
-              <Text style={styles.bulletPoint}>•</Text>
-              <Text style={styles.instructionsText}>You will be automatically logged out in 10 minutes of inactivity</Text>
-            </View>
-            <View style={styles.instructionItem}>
-              <Text style={styles.bulletPoint}>•</Text>
-              <Text style={styles.instructionsText}>Click anywhere to resume your session</Text>
-            </View>
-            <View style={styles.instructionItem}>
-              <Text style={styles.bulletPoint}>•</Text>
-              <Text style={styles.instructionsText}>Total idle timeouts: {idleCount}</Text>
-            </View>
-          </View>
 
-          <TouchableOpacity 
-            style={styles.resumeButton}
-            onPress={() => setIsActive(false)}
-          >
-            <Text style={styles.resumeButtonText}>Resume Session</Text>
-          </TouchableOpacity>
-        </View>
-      </TelecallerMainLayout>
-    </AppGradient>
-  );
 };
 
 const styles = StyleSheet.create({

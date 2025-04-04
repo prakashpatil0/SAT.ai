@@ -13,7 +13,9 @@ import {
   NativeScrollEvent,
   Platform,
   RefreshControl,
-  PermissionsAndroid
+  PermissionsAndroid,
+  ScrollView,
+  Easing
 } from "react-native";
 import { ProgressBar, Card } from "react-native-paper";
 import { useNavigation } from "@react-navigation/native";
@@ -33,6 +35,9 @@ import { getFirestore, onSnapshot, updateDoc } from 'firebase/firestore';
 import api from '@/app/services/api';
 import { getCurrentWeekAchievements } from "@/app/services/targetService";
 import TelecallerAddContactModal from '@/app/Screens/Telecaller/TelecallerAddContactModal';
+import { useSharedValue, withRepeat, withSequence, withTiming, withDelay, useAnimatedStyle } from 'react-native-reanimated';
+import { LinearGradient } from 'react-native-linear-gradient';
+import AnimatedReanimated from 'react-native-reanimated';
 
 interface CallLogEntry {
   phoneNumber: string;
@@ -179,6 +184,46 @@ const detectCompany = (phoneNumber: string, contactName: string): { isCompany: b
   return { isCompany: false };
 };
 
+const SkeletonLoader = ({ width, height, style }: { width: number | string; height: number; style?: any }) => {
+  const [opacity] = useState(new Animated.Value(0.3));
+
+  useEffect(() => {
+    const animation = Animated.loop(
+      Animated.sequence([
+        Animated.timing(opacity, {
+          toValue: 0.7,
+          duration: 1000,
+          useNativeDriver: true,
+          easing: Easing.inOut(Easing.ease),
+        }),
+        Animated.timing(opacity, {
+          toValue: 0.3,
+          duration: 1000,
+          useNativeDriver: true,
+          easing: Easing.inOut(Easing.ease),
+        }),
+      ])
+    );
+    animation.start();
+    return () => animation.stop();
+  }, []);
+
+  return (
+    <Animated.View
+      style={[
+        {
+          width,
+          height,
+          backgroundColor: '#E5E7EB',
+          borderRadius: 8,
+          opacity,
+        },
+        style,
+      ]}
+    />
+  );
+};
+
 const BDMHomeScreen = () => {
   const [callLogs, setCallLogs] = useState<GroupedCallLog[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -204,6 +249,7 @@ const BDMHomeScreen = () => {
     totalDuration: 0
   });
   const statsUpdateInterval = useRef<NodeJS.Timeout | null>(null);
+  const [waveAnimation] = useState(new Animated.Value(0));
   
   const navigation = useNavigation<StackNavigationProp<BDMStackParamList>>();
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -266,6 +312,30 @@ const BDMHomeScreen = () => {
     }).start();
     
   }, []);
+
+  // Add wave animation effect
+  useEffect(() => {
+    if (isLoading) {
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(waveAnimation, {
+            toValue: 1,
+            duration: 1000,
+            useNativeDriver: true,
+            easing: Easing.inOut(Easing.ease),
+          }),
+          Animated.timing(waveAnimation, {
+            toValue: 0,
+            duration: 1000,
+            useNativeDriver: true,
+            easing: Easing.inOut(Easing.ease),
+          }),
+        ])
+      ).start();
+    } else {
+      waveAnimation.setValue(0);
+    }
+  }, [isLoading]);
 
   const checkAndRequestPermissions = async () => {
     try {
@@ -331,26 +401,26 @@ const BDMHomeScreen = () => {
       const userId = auth.currentUser?.uid;
       if (!userId) {
         console.log('No user ID found for call logs');
-          return;
+        return;
       }
 
       const now = new Date();
-      const thirtyDaysAgo = new Date(now.getTime() - THIRTY_DAYS_MS);
+      const startOfToday = new Date(now.setHours(0, 0, 0, 0));
 
       const callLogsRef = collection(db, 'callLogs');
 
-      // Set up real-time listener for all logs in the last 30 days
+      // Set up real-time listener for today's logs
       const logsQuery = query(
         callLogsRef,
         where('userId', '==', userId),
-        where('timestamp', '>=', thirtyDaysAgo),
+        where('timestamp', '>=', startOfToday),
         orderBy('timestamp', 'desc')
       );
 
       // Set up real-time listener
       const unsubscribe = onSnapshot(logsQuery, async (snapshot) => {
         const logs = await processCallLogs(snapshot);
-        updateCallLogsState(logs, 'all');
+        updateCallLogsState(logs, 'current');
         
         // Fetch device call logs immediately when logs update
         if (Platform.OS === 'android') {
@@ -408,153 +478,44 @@ const BDMHomeScreen = () => {
     return logs;
   };
 
-  const updateCallLogsState = (newLogs: CallLog[], type: 'current' | 'older' | 'all') => {
-    setCallLogs(prevLogs => {
-      let updatedLogs: CallLog[];
+  const updateCallLogsState = (logs: CallLog[], type: 'current' | 'all') => {
+    // Group logs by phone number
+    const groupedLogs = logs.reduce((acc: { [key: string]: GroupedCallLog }, log) => {
+      // Skip logs with invalid phone numbers
+      if (!log.phoneNumber) return acc;
       
-      if (type === 'current') {
-        // Replace only current day logs
-        const olderLogs = prevLogs.filter(log => {
-          const logDate = new Date(log.timestamp);
-          const startOfToday = new Date().setHours(0, 0, 0, 0);
-          return logDate.getTime() < startOfToday;
-        });
-        updatedLogs = [...newLogs, ...olderLogs];
-      } else if (type === 'older') {
-        // Replace only older logs
-        const currentDayLogs = prevLogs.filter(log => {
-          const logDate = new Date(log.timestamp);
-          const startOfToday = new Date().setHours(0, 0, 0, 0);
-          return logDate.getTime() >= startOfToday;
-        });
-        updatedLogs = [...currentDayLogs, ...newLogs];
+      const key = log.phoneNumber;
+      if (!acc[key]) {
+        acc[key] = {
+          ...log,
+          callCount: 1,
+          allCalls: [log]
+        };
       } else {
-        updatedLogs = newLogs;
-      }
-
-      // Sort logs by timestamp in descending order
-      updatedLogs.sort((a, b) => {
-        const aTime = a.timestamp instanceof Date ? a.timestamp.getTime() : new Date(a.timestamp).getTime();
-        const bTime = b.timestamp instanceof Date ? b.timestamp.getTime() : new Date(b.timestamp).getTime();
-        return bTime - aTime;
-      });
-
-      // Group the logs
-      return groupCallLogs(updatedLogs);
-    });
-  };
-
-  const groupCallLogs = (logs: CallLog[]): GroupedCallLog[] => {
-    const groupedByPhone: { [key: string]: CallLog[] } = {};
-    const monthlyHistory: { [key: string]: MonthlyCallHistory } = {};
-    
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-    
-    // First, collect all calls for the last 30 days
-    logs.forEach(log => {
-      if (!log.phoneNumber) return;
-      
-      const logDate = new Date(log.timestamp);
-      if (logDate >= thirtyDaysAgo) {
-        if (!monthlyHistory[log.phoneNumber]) {
-          monthlyHistory[log.phoneNumber] = {
-            phoneNumber: log.phoneNumber,
-            totalCalls: 0,
-            lastCallDate: logDate,
-            callTypes: {
-              incoming: 0,
-              outgoing: 0,
-              missed: 0,
-              rejected: 0
-            },
-            totalDuration: 0,
-            dailyCalls: {}
-          };
-        }
-        
-        // Update total calls and duration
-        monthlyHistory[log.phoneNumber].totalCalls++;
-        monthlyHistory[log.phoneNumber].totalDuration += log.duration || 0;
-        
-        // Update call types
-        if (log.type === 'incoming') {
-          monthlyHistory[log.phoneNumber].callTypes.incoming++;
-        } else if (log.type === 'outgoing') {
-          monthlyHistory[log.phoneNumber].callTypes.outgoing++;
-        } else if (log.type === 'missed') {
-          monthlyHistory[log.phoneNumber].callTypes.missed++;
-        } else if (log.type === 'rejected') {
-          monthlyHistory[log.phoneNumber].callTypes.rejected++;
-        }
-
-        // Update daily calls
-        const dateKey = logDate.toISOString().split('T')[0];
-        if (!monthlyHistory[log.phoneNumber].dailyCalls[dateKey]) {
-          monthlyHistory[log.phoneNumber].dailyCalls[dateKey] = {
-            count: 0,
-            duration: 0,
-            callTypes: {
-              incoming: 0,
-              outgoing: 0,
-              missed: 0,
-              rejected: 0
-            }
-          };
-        }
-
-        monthlyHistory[log.phoneNumber].dailyCalls[dateKey].count++;
-        monthlyHistory[log.phoneNumber].dailyCalls[dateKey].duration += log.duration || 0;
-        
-        if (log.type === 'incoming') {
-          monthlyHistory[log.phoneNumber].dailyCalls[dateKey].callTypes.incoming++;
-        } else if (log.type === 'outgoing') {
-          monthlyHistory[log.phoneNumber].dailyCalls[dateKey].callTypes.outgoing++;
-        } else if (log.type === 'missed') {
-          monthlyHistory[log.phoneNumber].dailyCalls[dateKey].callTypes.missed++;
-        } else if (log.type === 'rejected') {
-          monthlyHistory[log.phoneNumber].dailyCalls[dateKey].callTypes.rejected++;
-        }
-
-        if (logDate > monthlyHistory[log.phoneNumber].lastCallDate) {
-          monthlyHistory[log.phoneNumber].lastCallDate = logDate;
+        acc[key].callCount++;
+        acc[key].allCalls.push(log);
+        // Update the most recent call details
+        // Ensure both timestamps are valid before comparing
+        if (log.timestamp && acc[key].timestamp && log.timestamp > acc[key].timestamp) {
+          acc[key].timestamp = log.timestamp;
+          acc[key].duration = log.duration;
+          acc[key].type = log.type;
+          acc[key].status = log.status;
+          acc[key].contactName = log.contactName;
         }
       }
-    });
+      return acc;
+    }, {});
 
-    // Then group calls for display
-    logs.forEach(log => {
-      if (!log.phoneNumber) return;
-      
-      if (!groupedByPhone[log.phoneNumber]) {
-        groupedByPhone[log.phoneNumber] = [];
-      }
-      groupedByPhone[log.phoneNumber].push(log);
-    });
-
-    // Convert grouped calls to array and sort by latest timestamp
-    return Object.entries(groupedByPhone).map(([phoneNumber, calls]) => {
-      // Sort calls by timestamp descending (latest first)
-      const sortedCalls = [...calls].sort((a, b) => {
-        const aTime = a.timestamp instanceof Date ? a.timestamp.getTime() : new Date(a.timestamp).getTime();
-        const bTime = b.timestamp instanceof Date ? b.timestamp.getTime() : new Date(b.timestamp).getTime();
-        return bTime - aTime;
-      });
-      
-      // Use the most recent call as the main log
-      const latestCall = sortedCalls[0];
-          
-          return {
-        ...latestCall,
-        callCount: monthlyHistory[phoneNumber]?.totalCalls || 0,
-        allCalls: sortedCalls,
-        monthlyHistory: monthlyHistory[phoneNumber]
-      };
-    }).sort((a, b) => {
-      const aTime = a.timestamp ? new Date(a.timestamp).getTime() : 0;
-      const bTime = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+    // Convert to array and sort by timestamp with proper error handling
+    const sortedLogs = Object.values(groupedLogs).sort((a, b) => {
+      // Ensure both timestamps are valid Date objects
+      const aTime = a.timestamp instanceof Date ? a.timestamp.getTime() : 0;
+      const bTime = b.timestamp instanceof Date ? b.timestamp.getTime() : 0;
       return bTime - aTime;
     });
+
+    setCallLogs(sortedLogs);
   };
 
   const fetchDeviceCallLogs = async () => {
@@ -640,31 +601,47 @@ const BDMHomeScreen = () => {
   };
 
   const fetchFreshLogs = async () => {
-    if (Platform.OS === 'android') {
-      const hasPermission = await requestCallLogPermission();
-      
-      if (hasPermission) {
-        const logs = await CallLog.loadAll();
-        console.log('Device call logs:', logs);
+    try {
+      const permission = await PermissionsAndroid.request(
+        PermissionsAndroid.PERMISSIONS.READ_CALL_LOG,
+        {
+          title: 'Call Log Permission',
+          message: 'This app needs access to your call log to track your calls.',
+          buttonNeutral: 'Ask Me Later',
+          buttonNegative: 'Cancel',
+          buttonPositive: 'OK',
+        }
+      );
 
-        const thirtyDaysAgo = new Date();
-        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+      if (permission === PermissionsAndroid.RESULTS.GRANTED) {
+        const now = Date.now();
+        const thirtyDaysAgo = new Date(now - THIRTY_DAYS_MS);
         
-        // Filter logs from last 30 days and deduplicate
-        const recentLogs = deduplicateCallLogs(logs.filter((log: any) => {
-          const logTimestamp = parseInt(log.timestamp);
-          return logTimestamp >= thirtyDaysAgo.getTime();
-        }));
+        const logs = await CallLog.loadAll();
+        const recentLogs = logs.filter((log: CallLogEntry) => {
+          // Ensure timestamp is a valid number
+          const timestamp = parseInt(log.timestamp);
+          return !isNaN(timestamp) && timestamp >= thirtyDaysAgo.getTime();
+        });
 
-        const formattedLogs = recentLogs.map((log: any) => ({
-          id: String(log.timestamp),
-          phoneNumber: log.phoneNumber,
-          contactName: log.name && log.name !== "Unknown" ? log.name : log.phoneNumber,
-          timestamp: new Date(parseInt(log.timestamp)),
-          duration: parseInt(log.duration) || 0,
-          type: (log.type || 'OUTGOING').toLowerCase() as 'incoming' | 'outgoing' | 'missed',
-          status: (log.type === 'MISSED' ? 'missed' : 'completed') as 'missed' | 'completed' | 'in-progress'
-        }));
+        const formattedLogs = recentLogs.map((log: CallLogEntry) => {
+          // Ensure timestamp is a valid number
+          const timestamp = parseInt(log.timestamp);
+          if (isNaN(timestamp)) {
+            console.warn('Invalid timestamp found:', log.timestamp);
+            return null;
+          }
+
+          return {
+            id: log.timestamp.toString(),
+            phoneNumber: log.phoneNumber || '',
+            contactName: log.name && log.name !== "Unknown" ? log.name : (log.phoneNumber || ''),
+            timestamp: new Date(timestamp),
+            duration: parseInt(log.duration) || 0,
+            type: (log.type || 'OUTGOING').toLowerCase() as 'incoming' | 'outgoing' | 'missed',
+            status: (log.type === 'MISSED' ? 'missed' : 'completed') as 'missed' | 'completed' | 'in-progress'
+          };
+        }).filter((log): log is NonNullable<typeof log> => log !== null);
 
         // Store logs in AsyncStorage
         await AsyncStorage.setItem(CALL_LOGS_STORAGE_KEY, JSON.stringify(formattedLogs));
@@ -673,6 +650,11 @@ const BDMHomeScreen = () => {
         // Update logs in state
         updateCallLogsState(formattedLogs, 'all');
       }
+    } catch (error) {
+      console.error('Error fetching fresh logs:', error);
+      Alert.alert('Error', 'Failed to fetch call logs');
+    } finally {
+      setIsLoadingSimLogs(false);
     }
   };
 
@@ -1102,7 +1084,7 @@ const BDMHomeScreen = () => {
                 const bTime = b.timestamp ? new Date(b.timestamp).getTime() : 0;
                 return bTime - aTime;
               })}
-              keyExtractor={item => item.id}
+              keyExtractor={item => `${new Date(item.timestamp).toISOString()}-${item.phoneNumber}`}
               renderItem={renderCallCard}
               refreshControl={
                 <RefreshControl 
@@ -1135,7 +1117,7 @@ const BDMHomeScreen = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    padding: 20,
+    padding: 16,
   },
   welcomeSection: {
     marginBottom: 24,
@@ -1329,6 +1311,24 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontFamily: 'LexendDeca_400Regular',
     color: '#FF8447',
+  },
+  skeletonContainer: {
+    padding: 20,
+  },
+  skeletonTitle: {
+    marginBottom: 20,
+    borderRadius: 4,
+  },
+  skeletonInput: {
+    marginBottom: 16,
+    borderRadius: 8,
+  },
+  skeletonTextArea: {
+    marginBottom: 24,
+    borderRadius: 8,
+  },
+  skeletonButton: {
+    borderRadius: 8,
   },
 });
 

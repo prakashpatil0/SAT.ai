@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Linking, Platform, Alert, Image, ActivityIndicator } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Linking, Platform, Alert, Image, ActivityIndicator, Share } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
@@ -7,12 +7,14 @@ import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import PermissionsService from '@/app/services/PermissionsService';
 import { DEFAULT_LOCATION, DEFAULT_MAP_DELTA, GOOGLE_MAPS_STYLE } from '@/app/utils/MapUtils';
-import { format } from 'date-fns';
-import { collection, addDoc, getDocs, query, where, Timestamp, updateDoc } from 'firebase/firestore';
+import { format, startOfMonth, endOfMonth, parseISO } from 'date-fns';
+import { collection, addDoc, getDocs, query, where, Timestamp, updateDoc, doc, setDoc, getDoc } from 'firebase/firestore';
 import { db, auth } from '@/firebaseConfig';
 import BDMMainLayout from '@/app/components/BDMMainLayout';
 import AppGradient from '@/app/components/AppGradient';
 import WaveSkeleton from '@/app/components/WaveSkeleton';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as FileSystem from 'expo-file-system';
 
 type RootStackParamList = {
   BDMCameraScreen: {
@@ -495,10 +497,12 @@ const AttendanceSkeleton = () => {
 // Add MonthScroll component
 const MonthScroll = ({ 
   selectedMonth,
-  onSelectMonth 
+  onSelectMonth,
+  onLongPressMonth
 }: { 
   selectedMonth: number;
   onSelectMonth: (month: number) => void;
+  onLongPressMonth: (month: number) => void;
 }) => {
   const currentMonth = new Date().getMonth();
   
@@ -518,6 +522,7 @@ const MonthScroll = ({
             index < currentMonth && styles.pastMonthItem
           ]}
           onPress={() => onSelectMonth(month.value)}
+          onLongPress={() => onLongPressMonth(month.value)}
         >
           <Text style={[
             styles.monthText,
@@ -558,6 +563,12 @@ const BDMAttendanceScreen = () => {
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
   const [isLoading, setIsLoading] = useState(true);
   const [showMonthSelector, setShowMonthSelector] = useState(false);
+
+  // Add new state for location caching
+  const [isMapReady, setIsMapReady] = useState(false);
+  const mapRef = useRef<MapView | null>(null);
+  const locationCacheKey = 'bdm_location_cache';
+  const locationCacheTimeout = 5 * 60 * 1000; // 5 minutes
 
   const navigation = useNavigation<BDMAttendanceScreenNavigationProp>();
   const route = useRoute<BDMAttendanceScreenRouteProp>();
@@ -773,25 +784,92 @@ const BDMAttendanceScreen = () => {
     setWeekDaysStatus(updatedWeekDays);
   };
 
+  // Optimize map loading with caching
   const loadLocation = async () => {
     try {
-      setMapError(false);
-      const currentLocation = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.High
+      // First try to get cached location
+      const cachedLocation = await getCachedLocation();
+      if (cachedLocation) {
+        setLocation(cachedLocation);
+        return;
+      }
+
+      // If no cached location, request new location
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      setPermissionStatus(status);
+      
+      if (status !== 'granted') {
+        setMapError(true);
+        return;
+      }
+      
+      const locationService = await Location.hasServicesEnabledAsync();
+      setLocationServiceEnabled(locationService);
+      
+      if (!locationService) {
+        setMapError(true);
+        return;
+      }
+      
+      // Get location with high accuracy but with a timeout
+      const location = await Promise.race([
+        Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.High,
+          timeInterval: 5000
+        }),
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Location timeout')), 10000)
+        )
+      ]).catch(async () => {
+        // Fallback to lower accuracy if high accuracy times out
+        return Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced,
+          timeInterval: 5000
+        });
       });
       
-      if (currentLocation) {
-        setLocation(currentLocation);
+      if (location && typeof location === 'object' && 'coords' in location) {
+        const locationObj = location as Location.LocationObject;
+        setLocation(locationObj);
+        await cacheLocation(locationObj);
       } else {
-        // Fallback to default location
-        console.log('Using default location');
-        setLocation(defaultLocation as Location.LocationObject);
-        setMapError(true);
+        throw new Error('Invalid location data');
       }
     } catch (error) {
       console.error('Error loading location:', error);
       setMapError(true);
-      setLocation(defaultLocation as Location.LocationObject);
+    }
+  };
+
+  // Cache location for faster loading
+  const cacheLocation = async (location: Location.LocationObject) => {
+    try {
+      await AsyncStorage.setItem(locationCacheKey, JSON.stringify({
+        location,
+        timestamp: Date.now()
+      }));
+    } catch (error) {
+      console.error('Error caching location:', error);
+    }
+  };
+
+  // Get cached location if available and not expired
+  const getCachedLocation = async (): Promise<Location.LocationObject | null> => {
+    try {
+      const cachedData = await AsyncStorage.getItem(locationCacheKey);
+      if (cachedData) {
+        const { location, timestamp } = JSON.parse(cachedData);
+        const now = Date.now();
+        
+        // Check if cache is still valid (less than 5 minutes old)
+        if (now - timestamp < locationCacheTimeout) {
+          return location;
+        }
+      }
+      return null;
+    } catch (error) {
+      console.error('Error getting cached location:', error);
+      return null;
     }
   };
 
@@ -803,33 +881,58 @@ const BDMAttendanceScreen = () => {
         return;
       }
 
-      const attendanceRef = collection(db, 'users', userId, 'attendance');
-      const querySnapshot = await getDocs(attendanceRef);
-      
-      const history: AttendanceRecord[] = [];
-      const today = format(new Date(), 'dd');
-      
-      querySnapshot.forEach((doc) => {
-        const data = doc.data();
-        const recordDate = data.timestamp.toDate();
-        
-        // Only include records from selected month
-        if (recordDate.getMonth() === selectedMonth) {
-          history.push({
-            date: data.date,
-            day: data.day,
-            punchIn: data.punchIn,
-            punchOut: data.punchOut,
-            status: data.status,
-            userId: data.userId,
-            timestamp: recordDate,
-            photoUri: data.photoUri,
-            location: data.location
-          });
+      const currentYear = new Date().getFullYear();
+      const monthYearKey = `${currentYear}_${selectedMonth.toString().padStart(2, '0')}`;
 
-          // Update today's punch in/out status
-          if (data.date === today) {
-            setTodayRecord({
+      // First try to get from monthly attendance collection
+      const monthlyAttendanceRef = doc(db, 'bdm_monthly_attendance', `${userId}_${monthYearKey}`);
+      const monthlyDoc = await getDoc(monthlyAttendanceRef);
+
+      if (monthlyDoc.exists()) {
+        const monthlyData = monthlyDoc.data();
+        const records = monthlyData.records || [];
+        
+        const history: AttendanceRecord[] = records.map((record: any) => ({
+          date: record.date,
+          day: record.day,
+          punchIn: record.punchIn,
+          punchOut: record.punchOut,
+          status: record.status,
+          userId,
+          timestamp: new Date(currentYear, selectedMonth, parseInt(record.date)),
+          photoUri: record.photoUri,
+          location: record.location
+        }));
+
+        const sortedHistory = history.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
+        setAttendanceHistory(sortedHistory);
+        calculateStatusCounts(sortedHistory);
+        updateWeekDaysStatus(sortedHistory);
+
+        // Update today's punch in/out status if today's record exists
+        const today = format(new Date(), 'dd');
+        const todayRecord = history.find(record => record.date === today);
+        if (todayRecord) {
+          setTodayRecord(todayRecord);
+          setPunchInTime(todayRecord.punchIn ? format(new Date(`2000-01-01T${todayRecord.punchIn}`), 'hh:mm a') : '');
+          setPunchOutTime(todayRecord.punchOut ? format(new Date(`2000-01-01T${todayRecord.punchOut}`), 'hh:mm a') : '');
+          setIsPunchedIn(!!todayRecord.punchIn && !todayRecord.punchOut);
+        }
+      } else {
+        // Fallback to individual attendance records if monthly data not found
+        const attendanceRef = collection(db, 'users', userId, 'attendance');
+        const querySnapshot = await getDocs(attendanceRef);
+        
+        const history: AttendanceRecord[] = [];
+        const today = format(new Date(), 'dd');
+        
+        querySnapshot.forEach((doc) => {
+          const data = doc.data();
+          const recordDate = data.timestamp.toDate();
+          
+          // Only include records from selected month
+          if (recordDate.getMonth() === selectedMonth && recordDate.getFullYear() === currentYear) {
+            history.push({
               date: data.date,
               day: data.day,
               punchIn: data.punchIn,
@@ -840,20 +943,36 @@ const BDMAttendanceScreen = () => {
               photoUri: data.photoUri,
               location: data.location
             });
-            
-            setPunchInTime(data.punchIn ? format(new Date(`2000-01-01T${data.punchIn}`), 'hh:mm a') : '');
-            setPunchOutTime(data.punchOut ? format(new Date(`2000-01-01T${data.punchOut}`), 'hh:mm a') : '');
-            setIsPunchedIn(!!data.punchIn && !data.punchOut);
-          }
-        }
-      });
 
-      const sortedHistory = history.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
-      setAttendanceHistory(sortedHistory);
-      calculateStatusCounts(sortedHistory);
-      updateWeekDaysStatus(sortedHistory);
+            // Update today's punch in/out status
+            if (data.date === today) {
+              setTodayRecord({
+                date: data.date,
+                day: data.day,
+                punchIn: data.punchIn,
+                punchOut: data.punchOut,
+                status: data.status,
+                userId: data.userId,
+                timestamp: recordDate,
+                photoUri: data.photoUri,
+                location: data.location
+              });
+              
+              setPunchInTime(data.punchIn ? format(new Date(`2000-01-01T${data.punchIn}`), 'hh:mm a') : '');
+              setPunchOutTime(data.punchOut ? format(new Date(`2000-01-01T${data.punchOut}`), 'hh:mm a') : '');
+              setIsPunchedIn(!!data.punchIn && !data.punchOut);
+            }
+          }
+        });
+
+        const sortedHistory = history.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
+        setAttendanceHistory(sortedHistory);
+        calculateStatusCounts(sortedHistory);
+        updateWeekDaysStatus(sortedHistory);
+      }
     } catch (error) {
       console.error('Error fetching attendance history:', error);
+      Alert.alert('Error', 'Failed to fetch attendance history');
     }
   };
 
@@ -970,6 +1089,7 @@ const BDMAttendanceScreen = () => {
     }
   };
 
+  // Update saveAttendance to save by month
   const saveAttendance = async (isPunchIn: boolean, photoUri: string, locationCoords: any) => {
     try {
       const userId = auth.currentUser?.uid;
@@ -982,7 +1102,11 @@ const BDMAttendanceScreen = () => {
       const dateStr = format(currentTime, 'dd');
       const dayStr = format(currentTime, 'EEE').toUpperCase();
       const timeStr = format(currentTime, 'HH:mm');
+      const monthStr = format(currentTime, 'MM');
+      const yearStr = format(currentTime, 'yyyy');
+      const monthYearKey = `${yearStr}_${monthStr}`;
 
+      // Save to user's attendance collection
       const attendanceRef = collection(db, 'users', userId, 'attendance');
       const todayQuery = query(
         attendanceRef,
@@ -1003,7 +1127,8 @@ const BDMAttendanceScreen = () => {
           userId,
           timestamp: Timestamp.fromDate(currentTime),
           photoUri,
-          location: locationCoords
+          location: locationCoords,
+          monthYear: monthYearKey
         });
       } else {
         // Update existing record
@@ -1021,6 +1146,69 @@ const BDMAttendanceScreen = () => {
           status: newStatus,
           photoUri: !isPunchIn ? photoUri : existingData.photoUri,
           location: !isPunchIn ? locationCoords : existingData.location
+        });
+      }
+
+      // Also save to monthly attendance collection for easier reporting
+      const monthlyAttendanceRef = doc(db, 'bdm_monthly_attendance', `${userId}_${monthYearKey}`);
+      const monthlyDoc = await getDoc(monthlyAttendanceRef);
+      
+      if (monthlyDoc.exists()) {
+        // Update existing monthly record
+        const monthlyData = monthlyDoc.data();
+        const records = monthlyData.records || [];
+        
+        // Check if record for this date already exists
+        const existingRecordIndex = records.findIndex((record: any) => record.date === dateStr);
+        
+        if (existingRecordIndex >= 0) {
+          // Update existing record
+          records[existingRecordIndex] = {
+            ...records[existingRecordIndex],
+            punchIn: isPunchIn ? timeStr : records[existingRecordIndex].punchIn,
+            punchOut: !isPunchIn ? timeStr : records[existingRecordIndex].punchOut,
+            status: calculateAttendanceStatus(
+              isPunchIn ? timeStr : records[existingRecordIndex].punchIn,
+              !isPunchIn ? timeStr : records[existingRecordIndex].punchOut
+            ),
+            photoUri: !isPunchIn ? photoUri : records[existingRecordIndex].photoUri,
+            location: !isPunchIn ? locationCoords : records[existingRecordIndex].location
+          };
+        } else {
+          // Add new record
+          records.push({
+            date: dateStr,
+            day: dayStr,
+            punchIn: isPunchIn ? timeStr : '',
+            punchOut: !isPunchIn ? timeStr : '',
+            status: isPunchIn ? 'Half Day' : 'On Leave',
+            photoUri,
+            location: locationCoords
+          });
+        }
+        
+        await updateDoc(monthlyAttendanceRef, {
+          records,
+          lastUpdated: Timestamp.fromDate(currentTime)
+        });
+      } else {
+        // Create new monthly record
+        await setDoc(monthlyAttendanceRef, {
+          userId,
+          monthYear: monthYearKey,
+          year: parseInt(yearStr),
+          month: parseInt(monthStr),
+          records: [{
+            date: dateStr,
+            day: dayStr,
+            punchIn: isPunchIn ? timeStr : '',
+            punchOut: !isPunchIn ? timeStr : '',
+            status: isPunchIn ? 'Half Day' : 'On Leave',
+            photoUri,
+            location: locationCoords
+          }],
+          createdAt: Timestamp.fromDate(currentTime),
+          lastUpdated: Timestamp.fromDate(currentTime)
         });
       }
 
@@ -1234,6 +1422,246 @@ const BDMAttendanceScreen = () => {
     ];
   };
 
+  // Add function to handle long press on month
+  const handleLongPressMonth = async (month: number) => {
+    try {
+      const userId = auth.currentUser?.uid;
+      if (!userId) {
+        Alert.alert('Error', 'User not authenticated');
+        return;
+      }
+
+      const currentYear = new Date().getFullYear();
+      const monthYearKey = `${currentYear}_${month.toString().padStart(2, '0')}`;
+      
+      // Check if report already exists
+      const reportRef = doc(db, 'bdm_attendance_reports', `${userId}_${monthYearKey}`);
+      const reportDoc = await getDoc(reportRef);
+      
+      if (reportDoc.exists()) {
+        // Report exists, show options
+        Alert.alert(
+          'Attendance Report',
+          'What would you like to do?',
+          [
+            {
+              text: 'Download Report',
+              onPress: () => downloadAttendanceReport(month, currentYear)
+            },
+            {
+              text: 'Regenerate Report',
+              onPress: () => generateAttendanceReport(month, currentYear)
+            },
+            {
+              text: 'Cancel',
+              style: 'cancel'
+            }
+          ]
+        );
+      } else {
+        // Report doesn't exist, generate it
+        generateAttendanceReport(month, currentYear);
+      }
+    } catch (error) {
+      console.error('Error handling long press on month:', error);
+      Alert.alert('Error', 'Failed to process request');
+    }
+  };
+
+  // Generate attendance report for a specific month
+  const generateAttendanceReport = async (month: number, year: number) => {
+    try {
+      const userId = auth.currentUser?.uid;
+      if (!userId) {
+        Alert.alert('Error', 'User not authenticated');
+        return;
+      }
+
+      Alert.alert('Processing', 'Generating attendance report...');
+      
+      const monthYearKey = `${year}_${month.toString().padStart(2, '0')}`;
+      const monthName = MONTHS.find(m => m.value === month)?.label || '';
+      
+      // Get monthly attendance data
+      const monthlyAttendanceRef = doc(db, 'bdm_monthly_attendance', `${userId}_${monthYearKey}`);
+      const monthlyDoc = await getDoc(monthlyAttendanceRef);
+      
+      if (!monthlyDoc.exists()) {
+        Alert.alert('Error', 'No attendance data found for this month');
+        return;
+      }
+      
+      const monthlyData = monthlyDoc.data();
+      const records = monthlyData.records || [];
+      
+      // Calculate statistics
+      const totalDays = records.length;
+      const presentDays = records.filter((record: any) => record.status === 'Present').length;
+      const halfDays = records.filter((record: any) => record.status === 'Half Day').length;
+      const absentDays = records.filter((record: any) => record.status === 'On Leave').length;
+      
+      // Create report data
+      const reportData = {
+        userId,
+        monthYear: monthYearKey,
+        year,
+        month,
+        monthName,
+        totalDays,
+        presentDays,
+        halfDays,
+        absentDays,
+        attendancePercentage: totalDays > 0 ? ((presentDays + (halfDays * 0.5)) / totalDays) * 100 : 0,
+        records: records.map((record: any) => ({
+          date: record.date,
+          day: record.day,
+          punchIn: record.punchIn,
+          punchOut: record.punchOut,
+          status: record.status
+        })),
+        createdAt: Timestamp.fromDate(new Date()),
+        lastUpdated: Timestamp.fromDate(new Date())
+      };
+      
+      // Save report to database
+      const reportRef = doc(db, 'bdm_attendance_reports', `${userId}_${monthYearKey}`);
+      await setDoc(reportRef, reportData);
+      
+      Alert.alert('Success', 'Attendance report generated successfully');
+      
+      // Download the report
+      downloadAttendanceReport(month, year);
+    } catch (error) {
+      console.error('Error generating attendance report:', error);
+      Alert.alert('Error', 'Failed to generate attendance report');
+    }
+  };
+
+  // Update downloadAttendanceReport to generate Excel format
+  const downloadAttendanceReport = async (month: number, year: number) => {
+    try {
+      const userId = auth.currentUser?.uid;
+      if (!userId) {
+        Alert.alert('Error', 'User not authenticated');
+        return;
+      }
+
+      const monthYearKey = `${year}_${month.toString().padStart(2, '0')}`;
+      const monthName = MONTHS.find(m => m.value === month)?.label || '';
+      
+      // Get report data
+      const reportRef = doc(db, 'bdm_attendance_reports', `${userId}_${monthYearKey}`);
+      const reportDoc = await getDoc(reportRef);
+      
+      if (!reportDoc.exists()) {
+        Alert.alert('Error', 'Report not found');
+        return;
+      }
+      
+      const reportData = reportDoc.data();
+      
+      // Format report as Excel (CSV format that Excel can open)
+      let excelContent = `Attendance Report - ${monthName} ${year}\n\n`;
+      excelContent += `Employee Name,${auth.currentUser?.displayName || 'Unknown'}\n`;
+      excelContent += `Month,${monthName}\n`;
+      excelContent += `Year,${year}\n\n`;
+      excelContent += `Summary\n`;
+      excelContent += `Total Days,${reportData.totalDays}\n`;
+      excelContent += `Present Days,${reportData.presentDays}\n`;
+      excelContent += `Half Days,${reportData.halfDays}\n`;
+      excelContent += `Absent Days,${reportData.absentDays}\n`;
+      excelContent += `Attendance Percentage,${reportData.attendancePercentage.toFixed(2)}%\n\n`;
+      
+      excelContent += `Detailed Attendance Record\n`;
+      excelContent += `Date,Day,Punch In,Punch Out,Status\n`;
+      
+      reportData.records.forEach((record: any) => {
+        excelContent += `${record.date},${record.day},${record.punchIn || '-'},${record.punchOut || '-'},${record.status}\n`;
+      });
+      
+      // Save to Firebase for admin panel access
+      const adminReportRef = doc(db, 'admin_reports', `attendance_${userId}_${monthYearKey}`);
+      await setDoc(adminReportRef, {
+        userId,
+        userName: auth.currentUser?.displayName || 'Unknown',
+        reportType: 'attendance',
+        month,
+        year,
+        monthName,
+        reportContent: excelContent,
+        createdAt: Timestamp.fromDate(new Date()),
+        lastUpdated: Timestamp.fromDate(new Date())
+      });
+      
+      // Share the report
+      const fileName = `Attendance_Report_${monthName}_${year}.csv`;
+      const filePath = `${FileSystem.documentDirectory}${fileName}`;
+      
+      await FileSystem.writeAsStringAsync(filePath, excelContent, {
+        encoding: FileSystem.EncodingType.UTF8
+      });
+      
+      await Share.share({
+        url: filePath,
+        title: `Attendance Report - ${monthName} ${year}`,
+        message: `Attendance Report for ${monthName} ${year}`
+      });
+    } catch (error) {
+      console.error('Error downloading attendance report:', error);
+      Alert.alert('Error', 'Failed to download attendance report');
+    }
+  };
+
+  // Add map ready handler
+  const onMapReady = () => {
+    setMapReady(true);
+  };
+
+  // Add a function to render map with loading indicator
+  const renderMap = () => {
+    if (mapError) {
+      return renderMapFallback();
+    }
+    
+    if (!location) {
+      return (
+        <View style={styles.mapFallback}>
+          <ActivityIndicator size="large" color="#FF8447" />
+          <Text style={styles.mapFallbackText}>Loading map...</Text>
+        </View>
+      );
+    }
+    
+    return (
+      <MapView
+        ref={mapRef}
+        provider={PROVIDER_GOOGLE}
+        style={styles.map}
+        initialRegion={{
+          latitude: location.coords.latitude,
+          longitude: location.coords.longitude,
+          latitudeDelta: DEFAULT_MAP_DELTA.latitudeDelta,
+          longitudeDelta: DEFAULT_MAP_DELTA.longitudeDelta,
+        }}
+        customMapStyle={GOOGLE_MAPS_STYLE}
+        onMapReady={onMapReady}
+        showsUserLocation
+        showsMyLocationButton={false}
+        loadingEnabled
+        loadingIndicatorColor="#FF8447"
+        loadingBackgroundColor="#FFF8F0"
+      >
+        <Marker
+          coordinate={{
+            latitude: location.coords.latitude,
+            longitude: location.coords.longitude,
+          }}
+          title="Your Location"
+        />
+      </MapView>
+    );
+  };
+
   return (
     <AppGradient>
       <BDMMainLayout 
@@ -1250,46 +1678,7 @@ const BDMAttendanceScreen = () => {
               <View style={styles.punchCard}>
                 {/* Map View */}
                 <View style={styles.mapContainer}>
-                  {mapError ? (
-                    renderMapFallback()
-                  ) : location ? (
-                    <MapView
-                      provider={PROVIDER_GOOGLE}
-                      style={styles.map}
-                      initialRegion={{
-                        latitude: location.coords.latitude,
-                        longitude: location.coords.longitude,
-                        latitudeDelta: DEFAULT_MAP_DELTA.latitudeDelta,
-                        longitudeDelta: DEFAULT_MAP_DELTA.longitudeDelta,
-                      }}
-                      customMapStyle={GOOGLE_MAPS_STYLE}
-                      showsUserLocation={true}
-                      showsMyLocationButton={true}
-                      followsUserLocation={true}
-                      loadingEnabled={true}
-                      loadingIndicatorColor="#FF8447"
-                      loadingBackgroundColor="#FFF8F0"
-                      onMapReady={handleMapReady}
-                    >
-                      {mapReady && (
-                        <Marker
-                          coordinate={{
-                            latitude: location.coords.latitude,
-                            longitude: location.coords.longitude,
-                          }}
-                        >
-                          <View style={styles.markerContainer}>
-                            <MaterialIcons name="location-pin" size={36} color="#E53935" />
-                          </View>
-                        </Marker>
-                      )}
-                    </MapView>
-                  ) : (
-                    <View style={styles.loadingLocation}>
-                      <ActivityIndicator size="large" color="#FF8447" />
-                      <Text style={styles.loadingText}>Getting your location...</Text>
-                    </View>
-                  )}
+                  {renderMap()}
                 </View>
 
                 {/* Punch Info */}
@@ -1353,6 +1742,7 @@ const BDMAttendanceScreen = () => {
               <MonthScroll 
                 selectedMonth={selectedMonth}
                 onSelectMonth={setSelectedMonth}
+                onLongPressMonth={handleLongPressMonth}
               />
 
               {/* Attendance Summary */}

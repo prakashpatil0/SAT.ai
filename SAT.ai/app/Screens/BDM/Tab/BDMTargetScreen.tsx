@@ -1,33 +1,127 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Image, ScrollView, Animated } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Image, ScrollView, Animated, Easing } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import BDMMainLayout from '@/app/components/BDMMainLayout';
 import AppGradient from '@/app/components/AppGradient';
 import { auth, db } from '@/firebaseConfig';
-import { collection, query, where, getDocs, Timestamp } from 'firebase/firestore';
+import { collection, query, where, getDocs, Timestamp, onSnapshot } from 'firebase/firestore';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useSharedValue, withRepeat, withSequence, withTiming, withDelay, useAnimatedStyle } from 'react-native-reanimated';
+import { LinearGradient } from 'react-native-linear-gradient';
+import AnimatedReanimated from 'react-native-reanimated';
 
 interface TargetData {
   projectedMeetings: { achieved: number; target: number };
   attendedMeetings: { achieved: number; target: number };
-  meetingDuration: { achieved: number; target: number };
+  meetingDuration: { achieved: string; target: string };
   closing: { achieved: number; target: number };
 }
+
+const SkeletonLoader = ({ width, height, style }: { width: number | string; height: number; style?: any }) => {
+  const [opacity] = useState(new Animated.Value(0.3));
+
+  useEffect(() => {
+    const animation = Animated.loop(
+      Animated.sequence([
+        Animated.timing(opacity, {
+          toValue: 0.7,
+          duration: 1000,
+          useNativeDriver: true,
+          easing: Easing.inOut(Easing.ease),
+        }),
+        Animated.timing(opacity, {
+          toValue: 0.3,
+          duration: 1000,
+          useNativeDriver: true,
+          easing: Easing.inOut(Easing.ease),
+        }),
+      ])
+    );
+    animation.start();
+    return () => animation.stop();
+  }, []);
+
+  return (
+    <Animated.View
+      style={[
+        {
+          width,
+          height,
+          backgroundColor: '#E5E7EB',
+          borderRadius: 8,
+          opacity,
+        },
+        style,
+      ]}
+    />
+  );
+};
 
 const BDMTargetScreen = () => {
   const navigation = useNavigation();
   const [targetData, setTargetData] = useState<TargetData>({
     projectedMeetings: { achieved: 0, target: 30 },
     attendedMeetings: { achieved: 0, target: 30 },
-    meetingDuration: { achieved: 0, target: 20 },
+    meetingDuration: { achieved: '00:00:00', target: '00:00:00' },
     closing: { achieved: 0, target: 50000 }
   });
   const [progressAnim] = useState(new Animated.Value(0));
   const [overallProgress, setOverallProgress] = useState(0);
   const [lastWeekProgress, setLastWeekProgress] = useState(0);
+  const [isLoading, setIsLoading] = useState(true);
+  const [waveAnimation] = useState(new Animated.Value(0));
 
   useEffect(() => {
     fetchTargetData();
+    
+    // Set up real-time listener for new reports
+    const setupRealtimeListener = async () => {
+      try {
+        const userId = auth.currentUser?.uid;
+        if (!userId) return;
+        
+        const now = new Date();
+        const startOfWeek = new Date(now);
+        startOfWeek.setDate(now.getDate() - now.getDay());
+        startOfWeek.setHours(0, 0, 0, 0);
+        
+        const endOfWeek = new Date(startOfWeek);
+        endOfWeek.setDate(startOfWeek.getDate() + 6);
+        endOfWeek.setHours(23, 59, 59, 999);
+        
+        // Set up listener for current week's reports
+        const reportsRef = collection(db, 'bdm_reports');
+        const q = query(
+          reportsRef,
+          where('userId', '==', userId),
+          where('createdAt', '>=', Timestamp.fromDate(startOfWeek)),
+          where('createdAt', '<=', Timestamp.fromDate(endOfWeek))
+        );
+        
+        return onSnapshot(q, (snapshot) => {
+          // When new reports are added, update the target data
+          fetchTargetData();
+        });
+      } catch (error) {
+        console.error('Error setting up real-time listener:', error);
+      }
+    };
+    
+    let unsubscribe: (() => void) | undefined;
+    
+    // Execute the async function and store the unsubscribe function
+    setupRealtimeListener().then(unsub => {
+      if (unsub) {
+        unsubscribe = unsub;
+      }
+    });
+    
+    return () => {
+      if (unsubscribe) {
+        unsubscribe();
+      }
+    };
   }, []);
 
   useEffect(() => {
@@ -39,8 +133,33 @@ const BDMTargetScreen = () => {
     }).start();
   }, [overallProgress]);
 
+  // Add wave animation effect
+  useEffect(() => {
+    if (isLoading) {
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(waveAnimation, {
+            toValue: 1,
+            duration: 1000,
+            useNativeDriver: true,
+            easing: Easing.inOut(Easing.ease),
+          }),
+          Animated.timing(waveAnimation, {
+            toValue: 0,
+            duration: 1000,
+            useNativeDriver: true,
+            easing: Easing.inOut(Easing.ease),
+          }),
+        ])
+      ).start();
+    } else {
+      waveAnimation.setValue(0);
+    }
+  }, [isLoading]);
+
   const fetchTargetData = async () => {
     try {
+      setIsLoading(true);
       const userId = auth.currentUser?.uid;
       if (!userId) return;
 
@@ -56,26 +175,39 @@ const BDMTargetScreen = () => {
 
       // Get start and end of last week
       const startOfLastWeek = new Date(startOfWeek);
-      startOfLastWeek.setDate(startOfLastWeek.getDate() - 7);
+      startOfLastWeek.setDate(startOfWeek.getDate() - 7);
       const endOfLastWeek = new Date(startOfWeek);
-      endOfLastWeek.setDate(endOfLastWeek.getDate() - 1);
+      endOfLastWeek.setDate(startOfLastWeek.getDate() - 1);
       endOfLastWeek.setHours(23, 59, 59, 999);
 
-      // Fetch reports for current week
+      // Get current month, year, and week number
+      const currentMonth = now.getMonth() + 1;
+      const currentYear = now.getFullYear();
+      const currentWeekNumber = Math.ceil((now.getDate() + new Date(currentYear, now.getMonth(), 1).getDay()) / 7);
+      
+      // Get last week's month, year, and week number
+      const lastWeekDate = new Date(startOfLastWeek);
+      const lastWeekMonth = lastWeekDate.getMonth() + 1;
+      const lastWeekYear = lastWeekDate.getFullYear();
+      const lastWeekNumber = Math.ceil((lastWeekDate.getDate() + new Date(lastWeekYear, lastWeekDate.getMonth(), 1).getDay()) / 7);
+
+      // Fetch reports for current week from Firebase
       const reportsRef = collection(db, 'bdm_reports');
       const currentWeekQuery = query(
         reportsRef,
         where('userId', '==', userId),
-        where('createdAt', '>=', Timestamp.fromDate(startOfWeek)),
-        where('createdAt', '<=', Timestamp.fromDate(endOfWeek))
+        where('year', '==', currentYear),
+        where('month', '==', currentMonth),
+        where('weekNumber', '==', currentWeekNumber)
       );
 
-      // Fetch reports for last week
+      // Fetch reports for last week from Firebase
       const lastWeekQuery = query(
         reportsRef,
         where('userId', '==', userId),
-        where('createdAt', '>=', Timestamp.fromDate(startOfLastWeek)),
-        where('createdAt', '<=', Timestamp.fromDate(endOfLastWeek))
+        where('year', '==', lastWeekYear),
+        where('month', '==', lastWeekMonth),
+        where('weekNumber', '==', lastWeekNumber)
       );
 
       const [currentWeekSnapshot, lastWeekSnapshot] = await Promise.all([
@@ -92,23 +224,57 @@ const BDMTargetScreen = () => {
       currentWeekSnapshot.forEach(doc => {
         const data = doc.data();
         totalMeetings += data.numMeetings || 0;
-        totalAttendedMeetings += data.numMeetings || 0; // All reported meetings are considered attended
+        totalAttendedMeetings += data.positiveLeads || 0;
+        totalClosing += data.totalClosingAmount || 0;
         
         // Parse duration string (e.g., "1 hr 30 mins" -> hours)
         const durationStr = data.meetingDuration || '';
-        const hrMatch = durationStr.match(/(\d+)\s*hr/);
-        const minMatch = durationStr.match(/(\d+)\s*min/);
+        const hrMatch = durationStr.match(/(\d+)\s*hrs?/i);
+        const minMatch = durationStr.match(/(\d+)\s*mins?/i);
         const hours = (hrMatch ? parseInt(hrMatch[1]) : 0) +
                      (minMatch ? parseInt(minMatch[1]) / 60 : 0);
         totalDuration += hours;
-
-        totalClosing += data.totalClosingAmount || 0;
       });
 
+      // Calculate last week's achievements
+      let lastWeekMeetings = 0;
+      let lastWeekAttendedMeetings = 0;
+      let lastWeekDuration = 0;
+      let lastWeekClosing = 0;
+
+      lastWeekSnapshot.forEach(doc => {
+        const data = doc.data();
+        lastWeekMeetings += data.numMeetings || 0;
+        lastWeekAttendedMeetings += data.positiveLeads || 0;
+        lastWeekClosing += data.totalClosingAmount || 0;
+        
+        const durationStr = data.meetingDuration || '';
+        const hrMatch = durationStr.match(/(\d+)\s*hrs?/i);
+        const minMatch = durationStr.match(/(\d+)\s*mins?/i);
+        const hours = (hrMatch ? parseInt(hrMatch[1]) : 0) +
+                     (minMatch ? parseInt(minMatch[1]) / 60 : 0);
+        lastWeekDuration += hours;
+      });
+
+      // Format duration as string (e.g., "5 hrs 30 mins")
+      const formatDuration = (hours: number) => {
+        const wholeHours = Math.floor(hours);
+        const minutes = Math.round((hours - wholeHours) * 60);
+        
+        if (wholeHours === 0) {
+          return `${minutes} min${minutes !== 1 ? 's' : ''}`;
+        } else if (minutes === 0) {
+          return `${wholeHours} hr${wholeHours !== 1 ? 's' : ''}`;
+        } else {
+          return `${wholeHours} hr${wholeHours !== 1 ? 's' : ''} ${minutes} min${minutes !== 1 ? 's' : ''}`;
+        }
+      };
+
+      // Update target data with fetched data
       const newTargetData = {
         projectedMeetings: { achieved: totalMeetings, target: 30 },
         attendedMeetings: { achieved: totalAttendedMeetings, target: 30 },
-        meetingDuration: { achieved: Math.round(totalDuration), target: 20 },
+        meetingDuration: { achieved: formatDuration(totalDuration), target: '20 hrs' },
         closing: { achieved: totalClosing, target: 50000 }
       };
 
@@ -116,10 +282,10 @@ const BDMTargetScreen = () => {
 
       // Calculate current week progress
       const progressPercentages = [
-        (newTargetData.projectedMeetings.achieved / newTargetData.projectedMeetings.target) * 100,
-        (newTargetData.attendedMeetings.achieved / newTargetData.attendedMeetings.target) * 100,
-        (newTargetData.meetingDuration.achieved / newTargetData.meetingDuration.target) * 100,
-        (newTargetData.closing.achieved / newTargetData.closing.target) * 100
+        (totalMeetings / 30) * 100,
+        (totalAttendedMeetings / 30) * 100,
+        (totalDuration / 20) * 100,
+        (totalClosing / 50000) * 100
       ];
 
       const avgProgress = Math.min(
@@ -129,26 +295,6 @@ const BDMTargetScreen = () => {
       setOverallProgress(avgProgress);
 
       // Calculate last week's progress
-      let lastWeekMeetings = 0;
-      let lastWeekAttendedMeetings = 0;
-      let lastWeekDuration = 0;
-      let lastWeekClosing = 0;
-
-      lastWeekSnapshot.forEach(doc => {
-        const data = doc.data();
-        lastWeekMeetings += data.numMeetings || 0;
-        lastWeekAttendedMeetings += data.numMeetings || 0;
-        
-        const durationStr = data.meetingDuration || '';
-        const hrMatch = durationStr.match(/(\d+)\s*hr/);
-        const minMatch = durationStr.match(/(\d+)\s*min/);
-        const hours = (hrMatch ? parseInt(hrMatch[1]) : 0) +
-                     (minMatch ? parseInt(minMatch[1]) / 60 : 0);
-        lastWeekDuration += hours;
-
-        lastWeekClosing += data.totalClosingAmount || 0;
-      });
-
       const lastWeekPercentages = [
         (lastWeekMeetings / 30) * 100,
         (lastWeekAttendedMeetings / 30) * 100,
@@ -161,9 +307,10 @@ const BDMTargetScreen = () => {
         100
       );
       setLastWeekProgress(lastWeekProgress);
-
+      setIsLoading(false);
     } catch (error) {
       console.error('Error fetching target data:', error);
+      setIsLoading(false);
     }
   };
 
@@ -192,78 +339,89 @@ const BDMTargetScreen = () => {
     <AppGradient>
       <BDMMainLayout title="Weekly Target" showBackButton showDrawer={true} showBottomTabs={true}>
         <View style={styles.container}>
-          <ScrollView style={styles.scrollView}>
-            {/* Achievement Card */}
-            <View style={styles.card}>
-              <Text style={styles.achievementText}>
-                Last week you achieved <Text style={styles.achievementHighlight}>{lastWeekProgress}%</Text> of your target!
-              </Text>
-              <TouchableOpacity 
-                style={styles.reportLink}
-                onPress={() => navigation.navigate('BDMViewFullReport' as never)}
-              >
-                <Text style={styles.reportText}>View Full Report</Text>
-                <MaterialIcons name="arrow-forward" size={20} color="#FF8447" />
-              </TouchableOpacity>
+          {isLoading ? (
+            <View style={styles.skeletonContainer}>
+              <SkeletonLoader width="60%" height={24} style={styles.skeletonTitle} />
+              <SkeletonLoader width="100%" height={48} style={styles.skeletonInput} />
+              <SkeletonLoader width="100%" height={48} style={styles.skeletonInput} />
+              <SkeletonLoader width="100%" height={48} style={styles.skeletonInput} />
+              <SkeletonLoader width="100%" height={120} style={styles.skeletonTextArea} />
+              <SkeletonLoader width="100%" height={48} style={styles.skeletonButton} />
             </View>
-
-            {/* This Week Card */}
-            <View style={styles.card}>
-              <View style={styles.weekHeader}>
-                <Text style={styles.weekTitle}>This Week</Text>
-                <Text style={styles.daysLeft}>{getDaysLeft()} days to go!</Text>
+          ) : (
+            <ScrollView style={styles.scrollView}>
+              {/* Achievement Card */}
+              <View style={styles.card}>
+                <Text style={styles.achievementText}>
+                  Last week you achieved <Text style={styles.achievementHighlight}>{lastWeekProgress}%</Text> of your target!
+                </Text>
+                <TouchableOpacity 
+                  style={styles.reportLink}
+                  onPress={() => navigation.navigate('BDMViewFullReport' as never)}
+                >
+                  <Text style={styles.reportText}>View Full Report</Text>
+                  <MaterialIcons name="arrow-forward" size={20} color="#FF8447" />
+                </TouchableOpacity>
               </View>
 
-              {/* Progress Bar */}
-              {renderProgressBar()}
-              <Text style={styles.progressText}>{Math.round(overallProgress)}%</Text>
-
-              {/* Target Details */}
-              <View style={styles.targetDetails}>
-                {/* Column Headers */}
-                <View style={styles.columnHeaders}>
-                  <View style={styles.spacer} />
-                  <View style={styles.valueColumns}>
-                    <Text style={styles.columnLabel}>Achieved</Text>
-                    <Text style={[styles.columnLabel, styles.targetColumn]}>Target</Text>
-                  </View>
+              {/* This Week Card */}
+              <View style={styles.card}>
+                <View style={styles.weekHeader}>
+                  <Text style={styles.weekTitle}>This Week</Text>
+                  <Text style={styles.daysLeft}>{getDaysLeft()} days to go!</Text>
                 </View>
 
-                {/* Rows */}
-                <View style={styles.row}>
-                  <Text style={styles.label}>Number of Meetings</Text>
-                  <View style={styles.valueColumns}>
-                    <Text style={styles.achieved}>{targetData.projectedMeetings.achieved}</Text>
-                    <Text style={styles.target}>{targetData.projectedMeetings.target}</Text>
-                  </View>
-                </View>
+                {/* Progress Bar */}
+                {renderProgressBar()}
+                <Text style={styles.progressText}>{Math.round(overallProgress)}%</Text>
 
-                <View style={styles.row}>
-                  <Text style={styles.label}>Prospective No. of Meetings</Text>
-                  <View style={styles.valueColumns}>
-                    <Text style={styles.achieved}>{targetData.attendedMeetings.achieved}</Text>
-                    <Text style={styles.target}>{targetData.attendedMeetings.target}</Text>
+                {/* Target Details */}
+                <View style={styles.targetDetails}>
+                  {/* Column Headers */}
+                  <View style={styles.columnHeaders}>
+                    <View style={styles.spacer} />
+                    <View style={styles.valueColumns}>
+                      <Text style={styles.columnLabel}>Achieved</Text>
+                      <Text style={[styles.columnLabel, styles.targetColumn]}>Target</Text>
+                    </View>
                   </View>
-                </View>
 
-                <View style={styles.row}>
-                  <Text style={styles.label}>Meeting Duration</Text>
-                  <View style={styles.valueColumns}>
-                    <Text style={styles.achieved}>{targetData.meetingDuration.achieved} hrs</Text>
-                    <Text style={styles.target}>{targetData.meetingDuration.target} hrs</Text>
+                  {/* Rows */}
+                  <View style={styles.row}>
+                    <Text style={styles.label}>Number of Meetings</Text>
+                    <View style={styles.valueColumns}>
+                      <Text style={styles.achieved}>{targetData.projectedMeetings.achieved}</Text>
+                      <Text style={styles.target}>{targetData.projectedMeetings.target}</Text>
+                    </View>
                   </View>
-                </View>
 
-                <View style={styles.row}>
-                  <Text style={styles.label}>Closing Amount</Text>
-                  <View style={styles.valueColumns}>
-                    <Text style={styles.achieved}>₹{targetData.closing.achieved.toLocaleString()}</Text>
-                    <Text style={styles.target}>₹{targetData.closing.target.toLocaleString()}</Text>
+                  <View style={styles.row}>
+                    <Text style={styles.label}>Prospective No. of Meetings</Text>
+                    <View style={styles.valueColumns}>
+                      <Text style={styles.achieved}>{targetData.attendedMeetings.achieved}</Text>
+                      <Text style={styles.target}>{targetData.attendedMeetings.target}</Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.row}>
+                    <Text style={styles.label}>Meeting Duration</Text>
+                    <View style={styles.valueColumns}>
+                      <Text style={styles.achieved}>{targetData.meetingDuration.achieved}</Text>
+                      <Text style={styles.target}>{targetData.meetingDuration.target}</Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.row}>
+                    <Text style={styles.label}>Closing Amount</Text>
+                    <View style={styles.valueColumns}>
+                      <Text style={styles.achieved}>₹{targetData.closing.achieved.toLocaleString()}</Text>
+                      <Text style={styles.target}>₹{targetData.closing.target.toLocaleString()}</Text>
+                    </View>
                   </View>
                 </View>
               </View>
-            </View>
-          </ScrollView>
+            </ScrollView>
+          )}
         </View>
       </BDMMainLayout>
     </AppGradient>
@@ -416,6 +574,25 @@ const styles = StyleSheet.create({
     color: '#FF8447',
     width: 70,
     textAlign: 'center',
+  },
+  // Add skeleton styles
+  skeletonContainer: {
+    padding: 20,
+  },
+  skeletonTitle: {
+    marginBottom: 20,
+    borderRadius: 4,
+  },
+  skeletonInput: {
+    marginBottom: 16,
+    borderRadius: 8,
+  },
+  skeletonTextArea: {
+    marginBottom: 24,
+    borderRadius: 8,
+  },
+  skeletonButton: {
+    borderRadius: 8,
   },
 });
 

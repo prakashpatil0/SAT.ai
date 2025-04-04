@@ -20,11 +20,12 @@ export interface TargetData {
 }
 
 export interface AchievementData {
-  positiveLeads: number;
-  numCalls: number;
-  callDuration: number; // in hours
-  closingAmount: number;
+  totalPositiveLeads: number;
+  totalNumMeetings: number;
+  totalMeetingDuration: number;
+  totalClosingAmount: number;
   percentageAchieved: number;
+  isLoading: boolean;
 }
 
 export interface ReportPeriod {
@@ -66,10 +67,10 @@ export const getCurrentWeekAchievements = async (userId: string): Promise<Achiev
       
       // Parse meeting duration (assuming format like '1 hr 20 mins')
       const durationStr = data.meetingDuration || '';
-      const hourMatch = durationStr.match(/(\d+)\s*hr/);
-      const minMatch = durationStr.match(/(\d+)\s*min/);
+      const hrMatch = durationStr.match(/(\d+)\s*hrs?/i);
+      const minMatch = durationStr.match(/(\d+)\s*mins?/i);
       
-      const hours = hourMatch ? parseInt(hourMatch[1]) : 0;
+      const hours = hrMatch ? parseInt(hrMatch[1]) : 0;
       const mins = minMatch ? parseInt(minMatch[1]) : 0;
       
       totalMeetingDuration += hours + (mins / 60);
@@ -78,37 +79,44 @@ export const getCurrentWeekAchievements = async (userId: string): Promise<Achiev
       totalClosingAmount += data.totalClosingAmount || 0;
     });
     
-    // Calculate percentage achieved
-    const targets = getTargets();
-    const positiveLeadsPercentage = (totalPositiveLeads / targets.positiveLeads) * 100;
-    const numCallsPercentage = (totalNumMeetings / targets.numCalls) * 100;
-    const durationPercentage = (totalMeetingDuration / targets.callDuration) * 100;
-    const closingPercentage = (totalClosingAmount / targets.closingAmount) * 100;
-    
-    // Average percentage (overall achievement)
-    const percentageAchieved = (
-      positiveLeadsPercentage + 
-      numCallsPercentage + 
-      durationPercentage + 
-      closingPercentage
-    ) / 4;
-    
+    // Calculate percentage achieved for each metric
+    const targets = {
+      projectedMeetings: 30,
+      attendedMeetings: 30,
+      meetingDuration: 20, // hours
+      closing: 50000
+    };
+
+    const progressPercentages = [
+      (totalNumMeetings / targets.projectedMeetings) * 100,
+      (totalPositiveLeads / targets.attendedMeetings) * 100,
+      (totalMeetingDuration / targets.meetingDuration) * 100,
+      (totalClosingAmount / targets.closing) * 100
+    ];
+
+    // Calculate average percentage, ensuring it doesn't exceed 100%
+    const averagePercentage = Math.min(
+      Math.round(progressPercentages.reduce((a, b) => a + b, 0) / progressPercentages.length),
+      100
+    );
+
     return {
-      positiveLeads: totalPositiveLeads,
-      numCalls: totalNumMeetings,
-      callDuration: parseFloat(totalMeetingDuration.toFixed(1)),
-      closingAmount: totalClosingAmount,
-      percentageAchieved: parseFloat(percentageAchieved.toFixed(1))
+      totalPositiveLeads,
+      totalNumMeetings,
+      totalMeetingDuration,
+      totalClosingAmount,
+      percentageAchieved: averagePercentage,
+      isLoading: false
     };
   } catch (error) {
-    console.error('Error fetching weekly achievements:', error);
-    // Return default values in case of error
+    console.error('Error getting current week achievements:', error);
     return {
-      positiveLeads: 0,
-      numCalls: 0,
-      callDuration: 0,
-      closingAmount: 0,
-      percentageAchieved: 0
+      totalPositiveLeads: 0,
+      totalNumMeetings: 0,
+      totalMeetingDuration: 0,
+      totalClosingAmount: 0,
+      percentageAchieved: 0,
+      isLoading: false
     };
   }
 };

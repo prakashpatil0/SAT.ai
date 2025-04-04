@@ -45,10 +45,10 @@ const TelecallerBottomTabs = () => {
 
       <TouchableOpacity 
         style={[styles.tabItem, styles.centerTab]} 
-        onPress={() => navigation.navigate('TelecallerIdleTimerScreen' as never)}
+        onPress={() => navigation.navigate('AlertScreen' as never)}
       >
         <View style={styles.centerButton}>
-          <MaterialIcons name="notifications-active" size={28} color="#FFF" />
+          <MaterialIcons name="notifications-active" size={35} color="#FFF" />
         </View>
       </TouchableOpacity>
 
@@ -104,12 +104,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   centerTab: {
-    marginTop: -30,
+    marginTop: -15,
   },
   centerButton: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
+    width: 70,
+    height: 70,
+    borderRadius: 35,
     backgroundColor: '#FF8447',
     justifyContent: 'center',
     alignItems: 'center',

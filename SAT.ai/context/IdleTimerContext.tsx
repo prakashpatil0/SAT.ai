@@ -43,7 +43,7 @@ export const IdleTimerProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       if (timeSinceLastActivity >= IDLE_TIMEOUT && !isTimerActive) {
         setIsTimerActive(true);
         setIsIdle(true);
-        navigation.navigate('TelecallerIdleTimer' as never);
+        navigation.navigate('AlertScreen' as never);
       }
     };
 

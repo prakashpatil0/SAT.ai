@@ -36,7 +36,6 @@ import AddContactModal from "@/app/Screens/Telecaller/TelecallerAddContactModal"
 import CallHistory from "./Screens/Telecaller/TelecallerCallHistory";
 import TelecallerPersonNotes from "@/app/Screens/Telecaller/TelecallerPersonNotes";
 import ContactBook from "@/app/components/ContactBook/ContactBook";
-import TelecallerIdleTimerScreen from "@/app/Screens/Telecaller/Tab/TelecallerIdleTimerScreen";
 
 
 import BDMBottomTabs from "@/app/Screens/BDM/BDMBottomTabs";
@@ -77,7 +76,8 @@ import BDMSettings from "@/app/Screens/BDM/BDMSettings";
 import BDMMeetingReports from "./Screens/BDM/DrawerTab/BDMMeetingReports";
 import { auth } from '@/firebaseConfig';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import TelecallerIdleAlertScreen from "@/app/Screens/Telecaller/TelecallerIdleAlertScreen";
+import AlertScreen from "@/app/Screens/Telecaller/Tab/AlertScreen";
+import TelecallerIdleTimer from "./Screens/Telecaller/Tab/TelecallerIdleTimer";
 
 
 
@@ -308,8 +308,8 @@ const DrawerNavigator = () => {
       <Drawer.Screen name="TelecallerPersonNotes" component={TelecallerPersonNotes} />
       <Drawer.Screen name="ContactBook" component={ContactBook} />
       <Drawer.Screen name="TelecallerCallNoteDetails" component={TelecallerCallNoteDetails} />
-      <Drawer.Screen name="TelecallerIdleTimerScreen" component={TelecallerIdleTimerScreen} />
-      <Drawer.Screen name="TelecallerIdleAlertScreen" component={TelecallerIdleAlertScreen} />
+      <Drawer.Screen name="TelecallerIdleTimer" component={TelecallerIdleTimer} />
+      <Drawer.Screen name="AlertScreen" component={AlertScreen} />
     </Drawer.Navigator>
     </IdleTimerProvider>
   );

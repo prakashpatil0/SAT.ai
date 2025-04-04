@@ -141,6 +141,39 @@ const BDMReportScreen = () => {
   const [showProductDropdown, setShowProductDropdown] = useState<number | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [filteredProducts, setFilteredProducts] = useState<string[]>([]);
+  const [showOtherInput, setShowOtherInput] = useState<number | null>(null);
+  const [otherProductInput, setOtherProductInput] = useState<string>('');
+  
+  // Product list
+  const productList = [
+    "Car Insurance",
+    "Bike Insurance",
+    "Health Insurance",
+    "Term Insurance",
+    "Saving Plan",
+    "Travel Insurance",
+    "Group Mediclaim",
+    "Group Personal Accident",
+    "Group Term Life",
+    "Group Credit Life",
+    "Workmen Compensation",
+    "Group Gratuity",
+    "Fire & Burglary Insurance",
+    "Shop Owner Insurance",
+    "Motor Fleet Insurance",
+    "Marine Single Transit",
+    "Marine Open Policy",
+    "Marine Sales Turnover",
+    "Directors & Officers Insurance",
+    "General Liability Insurance",
+    "Product Liability Insurance",
+    "Professional Indemnity for Doctors",
+    "Professional Indemnity for Companies",
+    "Cyber Insurance",
+    "Office Package Policy",
+    "Crime Insurance",
+    "Other"
+  ];
   
   // Form state
   const [numMeetings, setNumMeetings] = useState<string>("");
@@ -157,6 +190,18 @@ const BDMReportScreen = () => {
   // Add state for today's call data
   const [todayCalls, setTodayCalls] = useState(0);
   const [todayDuration, setTodayDuration] = useState(0);
+
+  // Filter products based on search query
+  useEffect(() => {
+    if (searchQuery.trim() === '') {
+      setFilteredProducts(productList);
+    } else {
+      const filtered = productList.filter(product => 
+        product.toLowerCase().includes(searchQuery.toLowerCase())
+      );
+      setFilteredProducts(filtered);
+    }
+  }, [searchQuery]);
 
   // Add real-time listener for call logs
   useEffect(() => {
@@ -854,6 +899,11 @@ const BDMReportScreen = () => {
 
   // Toggle product selection
   const toggleProductSelection = (index: number, product: string) => {
+    if (product === "Other") {
+      setShowOtherInput(index);
+      return;
+    }
+    
     const currentProducts = selectedProducts[index] || [];
     const newProducts = currentProducts.includes(product)
       ? currentProducts.filter(p => p !== product)
@@ -871,6 +921,31 @@ const BDMReportScreen = () => {
       productType: newProducts
     };
     setClosingDetails(newClosingDetails);
+  };
+
+  // Add custom product
+  const addCustomProduct = (index: number) => {
+    if (!otherProductInput.trim()) return;
+    
+    const currentProducts = selectedProducts[index] || [];
+    const newProducts = [...currentProducts, otherProductInput.trim()];
+    
+    setSelectedProducts({
+      ...selectedProducts,
+      [index]: newProducts
+    });
+
+    // Update closing details with new product selection
+    const newClosingDetails = [...closingDetails];
+    newClosingDetails[index] = {
+      ...newClosingDetails[index],
+      productType: newProducts
+    };
+    setClosingDetails(newClosingDetails);
+    
+    // Reset other input
+    setOtherProductInput('');
+    setShowOtherInput(null);
   };
 
   // Add periodic sync function
@@ -1177,9 +1252,32 @@ const BDMReportScreen = () => {
                                 <Text style={styles.noResultsText}>No products found</Text>
                               }
                             />
+                            
+                            {/* Other Product Input */}
+                            {showOtherInput === index && (
+                              <View style={styles.otherProductContainer}>
+                                <TextInput
+                                  style={styles.otherProductInput}
+                                  placeholder="Enter custom product name"
+                                  value={otherProductInput}
+                                  onChangeText={setOtherProductInput}
+                                />
+                                <TouchableOpacity
+                                  style={styles.addCustomButton}
+                                  onPress={() => addCustomProduct(index)}
+                                >
+                                  <Text style={styles.addCustomButtonText}>Add</Text>
+                                </TouchableOpacity>
+                              </View>
+                            )}
+                            
                             <TouchableOpacity 
                               style={styles.closeDropdownButton}
-                              onPress={() => setShowProductDropdown(null)}
+                              onPress={() => {
+                                setShowProductDropdown(null);
+                                setShowOtherInput(null);
+                                setOtherProductInput('');
+                              }}
                             >
                               <Text style={styles.closeDropdownText}>Done</Text>
                             </TouchableOpacity>
@@ -1682,6 +1780,34 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontFamily: 'LexendDeca_400Regular',
     color: '#666',
+  },
+  otherProductContainer: {
+    flexDirection: 'row',
+    padding: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#EEEEEE',
+    backgroundColor: '#FAFAFA',
+  },
+  otherProductInput: {
+    flex: 1,
+    height: 40,
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    backgroundColor: '#FFFFFF',
+    fontFamily: 'LexendDeca_400Regular',
+  },
+  addCustomButton: {
+    marginLeft: 8,
+    backgroundColor: '#FF8447',
+    borderRadius: 8,
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+  },
+  addCustomButtonText: {
+    color: '#FFFFFF',
+    fontFamily: 'LexendDeca_500Medium',
   },
 });
 

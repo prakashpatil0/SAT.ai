@@ -113,7 +113,7 @@ const BDMProfile = () => {
   });
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [profileImage, setProfileImage] = useState<ProfileImage>({ 
-    default: require("@/assets/images/person.png") 
+    uri: '' 
   });
   const [errors, setErrors] = useState({
     name: '',
@@ -140,6 +140,7 @@ const BDMProfile = () => {
     outputRange: [1, 0.8],
     extrapolate: 'clamp'
   });
+  
 
   // Fetch existing profile data
   useEffect(() => {
@@ -149,6 +150,7 @@ const BDMProfile = () => {
   // Update profile image when context changes
   useEffect(() => {
     if (contextProfileImage) {
+      console.log("Profile image updated from context:", contextProfileImage);
       setProfileImage({ uri: contextProfileImage });
     }
   }, [contextProfileImage]);
@@ -171,8 +173,54 @@ const BDMProfile = () => {
           profileImageUrl: data.profileImageUrl || "",
         });
         if (data.profileImageUrl) {
-          setProfileImage({ uri: data.profileImageUrl });
-          updateProfileImage?.(data.profileImageUrl);
+          console.log("Loading profile image from Firestore:", data.profileImageUrl);
+          try {
+            // Verify the image URL is accessible
+            const response = await fetch(data.profileImageUrl);
+            if (response.ok) {
+              setProfileImage({ uri: data.profileImageUrl });
+              updateProfileImage?.(data.profileImageUrl);
+              console.log("Profile image loaded successfully");
+            } else {
+              console.error("Profile image URL not accessible:", response.status);
+              // Try to load default image from Firebase Storage
+              try {
+                console.log("Attempting to load default profile image from Firebase Storage");
+                const defaultImageRef = ref(storage, 'assets/person.png');
+                const url = await getDownloadURL(defaultImageRef);
+                console.log("Successfully loaded default profile image URL:", url);
+                setProfileImage({ uri: url });
+              } catch (error) {
+                console.error("Error loading default profile image:", error);
+                setProfileImage({ uri: '' });
+              }
+            }
+          } catch (error) {
+            console.error("Error loading profile image:", error);
+            // Try to load default image from Firebase Storage
+            try {
+              console.log("Attempting to load default profile image from Firebase Storage");
+              const defaultImageRef = ref(storage, 'assets/person.png');
+              const url = await getDownloadURL(defaultImageRef);
+              console.log("Successfully loaded default profile image URL:", url);
+              setProfileImage({ uri: url });
+            } catch (error) {
+              console.error("Error loading default profile image:", error);
+              setProfileImage({ uri: '' });
+            }
+          }
+        } else {
+          // No profile image URL in Firestore, try to load default from Firebase Storage
+          try {
+            console.log("Attempting to load default profile image from Firebase Storage");
+            const defaultImageRef = ref(storage, 'assets/person.png');
+            const url = await getDownloadURL(defaultImageRef);
+            console.log("Successfully loaded default profile image URL:", url);
+            setProfileImage({ uri: url });
+          } catch (error) {
+            console.error("Error loading default profile image:", error);
+            setProfileImage({ uri: '' });
+          }
         }
       }
     } catch (error) {
@@ -187,6 +235,7 @@ const BDMProfile = () => {
 
   const uploadImage = async (uri: string): Promise<string> => {
     try {
+      console.log("Starting image upload to Firebase Storage");
       const userId = auth.currentUser?.uid;
       if (!userId) {
         throw new Error("User not authenticated");
@@ -197,13 +246,16 @@ const BDMProfile = () => {
       const blob = await response.blob();
 
       // Create storage reference with user-specific path
-      const storageRef = ref(storage, `users/${userId}/profile_${Date.now()}.jpg`);
+      const storageRef = ref(storage, `profileImages/${userId}/profile_${Date.now()}.jpg`);
 
       // Upload the image
+      console.log("Uploading image to Firebase Storage...");
       const uploadResult = await uploadBytes(storageRef, blob);
 
       // Get the download URL
+      console.log("Getting download URL...");
       const downloadURL = await getDownloadURL(uploadResult.ref);
+      console.log("Image uploaded successfully:", downloadURL);
 
       return downloadURL;
     } catch (error) {
@@ -275,7 +327,9 @@ const BDMProfile = () => {
 
       if ('uri' in profileImage && profileImage.uri && profileImage.uri !== formData.profileImageUrl) {
         try {
+          console.log("Uploading new profile image...");
           profileImageUrl = await uploadImage(profileImage.uri);
+          console.log("New profile image uploaded:", profileImageUrl);
         } catch (uploadError) {
           console.error("Profile image upload failed:", uploadError);
           Alert.alert(
@@ -474,14 +528,16 @@ const BDMProfile = () => {
                   styles.profileImageContainer,
                   { transform: [{ scale: scaleAnim }] }
                 ]}>
-                  <Image
-                    source={
-                      'uri' in profileImage
-                        ? { uri: profileImage.uri }
-                        : profileImage.default
-                    }
-                    style={styles.profileImage}
-                  />
+                  {profileImage.uri ? (
+                    <Image
+                      source={{ uri: profileImage.uri }}
+                      style={styles.profileImage}
+                    />
+                  ) : (
+                    <View style={[styles.profileImage, { backgroundColor: '#f0f0f0', justifyContent: 'center', alignItems: 'center' }]}>
+                      <MaterialIcons name="person" size={40} color="#999" />
+                    </View>
+                  )}
                   {isEditing && (
                     <View style={styles.editIconContainer}>
                       <MaterialIcons name="camera-alt" size={18} color="#FFF" />
@@ -627,7 +683,7 @@ const styles = StyleSheet.create({
     fontFamily: 'LexendDeca_400Regular',
   },
   headerContainer: {
-    height: 100,
+    height: 30,
     width: '100%',
     overflow: 'hidden',
   },

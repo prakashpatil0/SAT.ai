@@ -1,70 +1,83 @@
-import React from "react";
-import { View, Text, Image, StyleSheet } from "react-native";
-import { DrawerContentScrollView, DrawerItemList } from "@react-navigation/drawer";
-import { DrawerContentComponentProps } from "@react-navigation/drawer";
-import { useProfile } from "@/app/context/ProfileContext";
+import React, { useEffect, useState } from 'react';
+import { View, Image, StyleSheet, TouchableOpacity } from 'react-native';
+import { Text } from 'react-native-paper';
+import { MaterialIcons } from '@expo/vector-icons';
+import { useProfile } from '@/app/context/ProfileContext';
+import { storage } from '@/firebaseConfig';
+import { ref, getDownloadURL } from 'firebase/storage';
 
-const CustomDrawerContent = (props: DrawerContentComponentProps) => {
-  const { userProfile } = useProfile();
+const CustomHeader = () => {
+  const { userProfile, profileImage } = useProfile();
+  const [defaultProfileImage, setDefaultProfileImage] = useState<string | null>(null);
+  const [imageLoading, setImageLoading] = useState(true);
 
-  const defaultImage = require("@/assets/images/girl.png");
-  
+  useEffect(() => {
+    loadDefaultProfileImage();
+  }, []);
+
+  const loadDefaultProfileImage = async () => {
+    try {
+      console.log('Loading default profile image from Firebase Storage');
+      const imageRef = ref(storage, 'assets/person.png');
+      const url = await getDownloadURL(imageRef);
+      console.log('Successfully loaded default profile image URL:', url);
+      setDefaultProfileImage(url);
+    } catch (error) {
+      console.error('Error loading default profile image:', error);
+    } finally {
+      setImageLoading(false);
+    }
+  };
+
   return (
-    <View style={{ flex: 1 }}>
-      {/* Profile Section - Transparent Header */}
-      <View style={styles.profileContainer}>
-        <Image
-          source={
-            userProfile?.profileImageUrl 
-              ? { uri: userProfile.profileImageUrl } 
-              : defaultImage
-          }
-          style={styles.profileImage}
-        />
-        <Text style={styles.profileName}>
-          {userProfile?.name || "User Name"}
-        </Text>
-        <Text style={styles.designation}>
-          {userProfile?.designation || "Designation"}
-        </Text>
+    <View style={styles.container}>
+      <View style={styles.profileSection}>
+        {imageLoading ? (
+          <View style={[styles.profileImage, { justifyContent: 'center', alignItems: 'center' }]}>
+            <MaterialIcons name="person" size={24} color="#FFF" />
+          </View>
+        ) : (
+          <Image
+            source={profileImage ? { uri: profileImage } : { uri: defaultProfileImage || '' }}
+            style={styles.profileImage}
+          />
+        )}
+        <View style={styles.textContainer}>
+          <Text style={styles.name}>{userProfile?.name || userProfile?.firstName || 'User'}</Text>
+          <Text style={styles.email}>{userProfile?.email || 'Not available'}</Text>
+        </View>
       </View>
-
-      {/* Drawer Items */}
-      <DrawerContentScrollView {...props} style={{ backgroundColor: "transparent" }}>
-        <DrawerItemList {...props} />
-      </DrawerContentScrollView>
     </View>
   );
 };
 
 const styles = StyleSheet.create({
-  profileContainer: {
-    alignItems: "center",
-    paddingVertical: 20,
-    backgroundColor: "transparent",
-    borderBottomWidth: 1,
-    borderBottomColor: "rgba(244, 197, 122, 0.2)",
-    marginBottom: 10,
+  container: {
+    padding: 16,
+    backgroundColor: '#fff',
+  },
+  profileSection: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   profileImage: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    borderWidth: 2,
-    borderColor: "#F4C57A",
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: '#f0f0f0',
   },
-  profileName: {
-    fontSize: 18,
-    fontFamily: "LexendDeca_600SemiBold",
-    marginTop: 10,
-    color: "#293646",
+  textContainer: {
+    marginLeft: 12,
   },
-  designation: {
+  name: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  email: {
     fontSize: 14,
-    fontFamily: "LexendDeca_400Regular",
-    color: "#666",
-    marginTop: 4,
+    color: '#666',
   },
 });
 
-export default CustomDrawerContent;
+export default CustomHeader;

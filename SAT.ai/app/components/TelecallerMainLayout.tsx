@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, StyleSheet, TouchableOpacity, Image, Text, SafeAreaView } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useNavigation, DrawerActions } from '@react-navigation/native';
@@ -6,7 +6,8 @@ import { useProfile } from '@/app/context/ProfileContext';
 import { LinearGradient } from 'expo-linear-gradient';
 import TelecallerBottomTabs from '@/app/components/TelecallerBottomTabs';
 import AppGradient from './AppGradient';
-import { DEFAULT_PROFILE_IMAGE } from '@/app/utils/profileStorage';
+import { storage } from '@/firebaseConfig';
+import { ref, getDownloadURL } from 'firebase/storage';
 
 type TelecallerMainLayoutProps = {
   children: React.ReactNode;
@@ -27,9 +28,29 @@ const TelecallerMainLayout: React.FC<TelecallerMainLayoutProps> = ({
 }) => {
   const navigation = useNavigation();
   const { userProfile, profilePhotoUri } = useProfile();
+  const [defaultProfileImage, setDefaultProfileImage] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    loadDefaultProfileImage();
+  }, []);
+
+  const loadDefaultProfileImage = async () => {
+    try {
+      console.log('Loading default profile image from Firebase Storage');
+      const imageRef = ref(storage, 'assets/person.png');
+      const url = await getDownloadURL(imageRef);
+      console.log('Successfully loaded default profile image URL:', url);
+      setDefaultProfileImage(url);
+    } catch (error) {
+      console.error('Error loading default profile image:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   // Get the profile image from multiple possible sources
-  const profileImage = userProfile?.profileImageUrl || profilePhotoUri || DEFAULT_PROFILE_IMAGE;
+  const profileImage = userProfile?.profileImageUrl || profilePhotoUri || defaultProfileImage;
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -49,10 +70,16 @@ const TelecallerMainLayout: React.FC<TelecallerMainLayoutProps> = ({
               onPress={() => navigation.navigate('Profile' as never)}
               style={styles.profileButton}
             >
-              <Image 
-                source={typeof profileImage === 'string' ? { uri: profileImage } : require('@/assets/images/girl.png')} 
-                style={styles.profileImage}
-              />
+              {loading ? (
+                <View style={[styles.profileImage, { justifyContent: 'center', alignItems: 'center' }]}>
+                  <MaterialIcons name="person" size={24} color="#999" />
+                </View>
+              ) : (
+                <Image 
+                  source={profileImage ? { uri: profileImage } : { uri: defaultProfileImage || '' }} 
+                  style={styles.profileImage}
+                />
+              )}
             </TouchableOpacity>
           </View>
 

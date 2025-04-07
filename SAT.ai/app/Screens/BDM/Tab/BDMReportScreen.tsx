@@ -787,10 +787,24 @@ const BDMReportScreen = () => {
       // Create month>week>day structure in Firebase
       const { year, month, weekNumber, day } = reportData;
       
+      // Format meeting duration to HH:MM:SS if it's not already in that format
+      let formattedDuration = reportData.meetingDuration;
+      if (formattedDuration && !formattedDuration.includes(':')) {
+        // Parse "X hr Y mins" format
+        const hrMatch = formattedDuration.match(/(\d+)\s*hr/);
+        const minMatch = formattedDuration.match(/(\d+)\s*min/);
+        const hours = (hrMatch ? parseInt(hrMatch[1]) : 0);
+        const minutes = (minMatch ? parseInt(minMatch[1]) : 0);
+        const seconds = 0;
+        
+        formattedDuration = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+      }
+      
       // Add to Firebase with structured path
       const reportsRef = collection(db, 'bdm_reports');
       const docRef = await addDoc(reportsRef, {
         ...reportData,
+        meetingDuration: formattedDuration, // Use formatted duration
         synced: true,
         syncedAt: Timestamp.fromDate(new Date())
       });
@@ -812,12 +826,18 @@ const BDMReportScreen = () => {
         });
       } else {
         // Create new summary
-        // Parse duration string (e.g., "1 hr 30 mins" -> hours)
-        const durationStr = reportData.meetingDuration || '';
-        const hrMatch = durationStr.match(/(\d+)\s*hr/);
-        const minMatch = durationStr.match(/(\d+)\s*min/);
-        const hours = (hrMatch ? parseInt(hrMatch[1]) : 0) +
-                     (minMatch ? parseInt(minMatch[1]) / 60 : 0);
+        // Parse duration string to hours
+        let totalDurationHours = 0;
+        if (formattedDuration.includes(':')) {
+          const [hours, minutes, seconds] = formattedDuration.split(':').map(Number);
+          totalDurationHours = hours + (minutes / 60) + (seconds / 3600);
+        } else {
+          // Parse "X hr Y mins" format
+          const hrMatch = formattedDuration.match(/(\d+)\s*hr/);
+          const minMatch = formattedDuration.match(/(\d+)\s*min/);
+          totalDurationHours = (hrMatch ? parseInt(hrMatch[1]) : 0) +
+                             (minMatch ? parseInt(minMatch[1]) / 60 : 0);
+        }
         
         await setDoc(weeklySummaryRef, {
           userId,
@@ -825,7 +845,7 @@ const BDMReportScreen = () => {
           month,
           weekNumber,
           totalMeetings: reportData.numMeetings,
-          totalDuration: hours,
+          totalDuration: totalDurationHours,
           totalPositiveLeads: reportData.positiveLeads,
           totalClosingAmount: reportData.totalClosingAmount,
           createdAt: Timestamp.fromDate(new Date()),
@@ -985,9 +1005,23 @@ const BDMReportScreen = () => {
         // Sync individual reports
         for (const report of reports) {
           try {
+            // Format meeting duration to HH:MM:SS if it's not already in that format
+            let formattedDuration = report.meetingDuration;
+            if (formattedDuration && !formattedDuration.includes(':')) {
+              // Parse "X hr Y mins" format
+              const hrMatch = formattedDuration.match(/(\d+)\s*hr/);
+              const minMatch = formattedDuration.match(/(\d+)\s*min/);
+              const hours = (hrMatch ? parseInt(hrMatch[1]) : 0);
+              const minutes = (minMatch ? parseInt(minMatch[1]) : 0);
+              const seconds = 0;
+              
+              formattedDuration = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+            }
+            
             // Add to Firebase
             const docRef = await addDoc(collection(db, 'bdm_reports'), {
               ...report,
+              meetingDuration: formattedDuration, // Use formatted duration
               synced: true,
               syncedAt: Timestamp.fromDate(new Date())
             });
@@ -1015,11 +1049,17 @@ const BDMReportScreen = () => {
           
           // Parse duration string
           const durationStr = report.meetingDuration || '';
-          const hrMatch = durationStr.match(/(\d+)\s*hr/);
-          const minMatch = durationStr.match(/(\d+)\s*min/);
-          const hours = (hrMatch ? parseInt(hrMatch[1]) : 0) +
-                       (minMatch ? parseInt(minMatch[1]) / 60 : 0);
-          totalDuration += hours;
+          if (durationStr.includes(':')) {
+            const [hours, minutes, seconds] = durationStr.split(':').map(Number);
+            totalDuration += hours + (minutes / 60) + (seconds / 3600);
+          } else {
+            // Parse "X hr Y mins" format
+            const hrMatch = durationStr.match(/(\d+)\s*hr/);
+            const minMatch = durationStr.match(/(\d+)\s*min/);
+            const hours = (hrMatch ? parseInt(hrMatch[1]) : 0) +
+                         (minMatch ? parseInt(minMatch[1]) / 60 : 0);
+            totalDuration += hours;
+          }
         });
         
         if (weeklySummaryDoc.exists()) {

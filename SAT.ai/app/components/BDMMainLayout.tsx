@@ -1,11 +1,13 @@
-import React from 'react';
-import { View, StyleSheet, TouchableOpacity, Image, Text } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, StyleSheet, TouchableOpacity, Image, Text, ActivityIndicator } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useNavigation, DrawerActions } from '@react-navigation/native';
 import { useProfile } from '@/app/context/ProfileContext';
 import { LinearGradient } from 'expo-linear-gradient';
 import BDMBottomTabs from '@/app/Screens/BDM/BDMBottomTabs';
 import AppGradient from './AppGradient';
+import { storage } from '@/firebaseConfig';
+import { ref, getDownloadURL } from 'firebase/storage';
 
 type BDMMainLayoutProps = {
   children: React.ReactNode;
@@ -26,12 +28,53 @@ const BDMMainLayout: React.FC<BDMMainLayoutProps> = ({
 }) => {
   const navigation = useNavigation();
   const { userProfile, profileImage } = useProfile();
+  const [firebaseProfileImage, setFirebaseProfileImage] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
-  const profileImageSource = profileImage 
-    ? { uri: profileImage } 
-    : userProfile?.profileImageUrl 
-      ? { uri: userProfile.profileImageUrl } 
-      : require('@/assets/images/person.png');
+  useEffect(() => {
+    const loadProfileImage = async () => {
+      try {
+        setIsLoading(true);
+        // First try to use the profileImage from context if available
+        if (profileImage) {
+          console.log('Using profile image from context:', profileImage);
+          setFirebaseProfileImage(profileImage);
+          setIsLoading(false);
+          return;
+        }
+        
+        // If no profileImage in context, try to get from userProfile
+        if (userProfile?.profileImageUrl) {
+          console.log('Using profile image from userProfile:', userProfile.profileImageUrl);
+          setFirebaseProfileImage(userProfile.profileImageUrl);
+          setIsLoading(false);
+          return;
+        }
+        
+        // If no profile image URL in userProfile, try to get default from Firebase Storage
+        try {
+          console.log('Attempting to load default profile image from Firebase Storage');
+          const defaultImageRef = ref(storage, 'assets/person.png')
+          const url = await getDownloadURL(defaultImageRef);
+          console.log('Successfully loaded default profile image URL:', url);
+          setFirebaseProfileImage(url);
+        } catch (error: any) {
+          console.error('Error loading default profile image:', error);
+          console.error('Error code:', error.code);
+          console.error('Error message:', error.message);
+          // If Firebase Storage fails, set to null
+          setFirebaseProfileImage(null);
+        }
+      } catch (error) {
+        console.error('Error in loadProfileImage:', error);
+        setFirebaseProfileImage(null);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadProfileImage();
+  }, [userProfile, profileImage]);
 
   return (
     <View style={styles.container}>
@@ -50,10 +93,18 @@ const BDMMainLayout: React.FC<BDMMainLayoutProps> = ({
             onPress={() => navigation.navigate('BDMProfile' as never)}
             style={styles.profileButton}
           >
-            <Image 
-              source={profileImageSource} 
-              style={styles.profileImage}
-            />
+            {isLoading ? (
+              <ActivityIndicator size="small" color="#FF8447" style={styles.profileImage} />
+            ) : firebaseProfileImage ? (
+              <Image 
+                source={{ uri: firebaseProfileImage }} 
+                style={styles.profileImage}
+              />
+            ) : (
+              <View style={[styles.profileImage, { backgroundColor: '#f0f0f0', justifyContent: 'center', alignItems: 'center' }]}>
+                <MaterialIcons name="person" size={24} color="#999" />
+              </View>
+            )}
           </TouchableOpacity>
         </View>
 

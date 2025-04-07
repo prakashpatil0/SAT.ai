@@ -586,6 +586,7 @@ const styles = StyleSheet.create<Styles>({
     fontSize: 16,
     fontFamily: 'Inter_400Regular',
     color: '#FF8447',
+    textDecorationLine: 'underline',
   },
   roleSelector: {
     marginBottom: 16,

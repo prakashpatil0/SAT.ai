@@ -157,6 +157,11 @@ const BDMTargetScreen = () => {
     }
   }, [isLoading]);
 
+  const calculatePercentage = (achieved: number, target: number): number => {
+    if (target === 0) return 0; // Avoid division by zero
+    return Math.min((achieved / target) * 100, 100); // Cap at 100%
+  };
+
   const fetchTargetData = async () => {
     try {
       setIsLoading(true);
@@ -191,6 +196,9 @@ const BDMTargetScreen = () => {
       const lastWeekYear = lastWeekDate.getFullYear();
       const lastWeekNumber = Math.ceil((lastWeekDate.getDate() + new Date(lastWeekYear, lastWeekDate.getMonth(), 1).getDay()) / 7);
 
+      console.log("Fetching reports for current week:", currentYear, currentMonth, currentWeekNumber);
+      console.log("Fetching reports for last week:", lastWeekYear, lastWeekMonth, lastWeekNumber);
+
       // Fetch reports for current week from Firebase
       const reportsRef = collection(db, 'bdm_reports');
       const currentWeekQuery = query(
@@ -215,6 +223,9 @@ const BDMTargetScreen = () => {
         getDocs(lastWeekQuery)
       ]);
 
+      console.log("Current week reports found:", currentWeekSnapshot.size);
+      console.log("Last week reports found:", lastWeekSnapshot.size);
+
       // Calculate current week achievements
       let totalMeetings = 0;
       let totalAttendedMeetings = 0;
@@ -223,17 +234,27 @@ const BDMTargetScreen = () => {
 
       currentWeekSnapshot.forEach(doc => {
         const data = doc.data();
+        console.log("Processing report:", data.id, data.meetingDuration);
+        
         totalMeetings += data.numMeetings || 0;
         totalAttendedMeetings += data.positiveLeads || 0;
         totalClosing += data.totalClosingAmount || 0;
         
-        // Parse duration string (e.g., "1 hr 30 mins" -> hours)
+        // Parse duration string - handle both formats
         const durationStr = data.meetingDuration || '';
-        const hrMatch = durationStr.match(/(\d+)\s*hrs?/i);
-        const minMatch = durationStr.match(/(\d+)\s*mins?/i);
-        const hours = (hrMatch ? parseInt(hrMatch[1]) : 0) +
-                     (minMatch ? parseInt(minMatch[1]) / 60 : 0);
-        totalDuration += hours;
+        
+        // Check if it's in HH:MM:SS format
+        if (durationStr.includes(':')) {
+          const [hours, minutes, seconds] = durationStr.split(':').map(Number);
+          totalDuration += (hours * 3600) + (minutes * 60) + seconds;
+        } else {
+          // Handle "X hr Y mins" format
+          const hrMatch = durationStr.match(/(\d+)\s*hr/);
+          const minMatch = durationStr.match(/(\d+)\s*min/);
+          const hours = (hrMatch ? parseInt(hrMatch[1]) : 0) +
+                       (minMatch ? parseInt(minMatch[1]) / 60 : 0);
+          totalDuration += hours * 3600; // Convert to seconds
+        }
       });
 
       // Calculate last week's achievements
@@ -248,68 +269,78 @@ const BDMTargetScreen = () => {
         lastWeekAttendedMeetings += data.positiveLeads || 0;
         lastWeekClosing += data.totalClosingAmount || 0;
         
+        // Parse duration string - handle both formats
         const durationStr = data.meetingDuration || '';
-        const hrMatch = durationStr.match(/(\d+)\s*hrs?/i);
-        const minMatch = durationStr.match(/(\d+)\s*mins?/i);
-        const hours = (hrMatch ? parseInt(hrMatch[1]) : 0) +
-                     (minMatch ? parseInt(minMatch[1]) / 60 : 0);
-        lastWeekDuration += hours;
+        
+        // Check if it's in HH:MM:SS format
+        if (durationStr.includes(':')) {
+          const [hours, minutes, seconds] = durationStr.split(':').map(Number);
+          lastWeekDuration += (hours * 3600) + (minutes * 60) + seconds;
+        } else {
+          // Handle "X hr Y mins" format
+          const hrMatch = durationStr.match(/(\d+)\s*hr/);
+          const minMatch = durationStr.match(/(\d+)\s*min/);
+          const hours = (hrMatch ? parseInt(hrMatch[1]) : 0) +
+                       (minMatch ? parseInt(minMatch[1]) / 60 : 0);
+          lastWeekDuration += hours * 3600; // Convert to seconds
+        }
       });
 
-      // Format duration as string (e.g., "5 hrs 30 mins")
-      const formatDuration = (hours: number) => {
-        const wholeHours = Math.floor(hours);
-        const minutes = Math.round((hours - wholeHours) * 60);
-        
-        if (wholeHours === 0) {
-          return `${minutes} min${minutes !== 1 ? 's' : ''}`;
-        } else if (minutes === 0) {
-          return `${wholeHours} hr${wholeHours !== 1 ? 's' : ''}`;
-        } else {
-          return `${wholeHours} hr${wholeHours !== 1 ? 's' : ''} ${minutes} min${minutes !== 1 ? 's' : ''}`;
-        }
+      // Format total duration to HH:MM:SS
+      const formatDuration = (totalSeconds: number) => {
+        const hours = Math.floor(totalSeconds / 3600);
+        const minutes = Math.floor((totalSeconds % 3600) / 60);
+        const seconds = totalSeconds % 60;
+        return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
       };
+
+      console.log("Current week totals:", {
+        meetings: totalMeetings,
+        attended: totalAttendedMeetings,
+        duration: formatDuration(totalDuration),
+        closing: totalClosing
+      });
 
       // Update target data with fetched data
       const newTargetData = {
         projectedMeetings: { achieved: totalMeetings, target: 30 },
         attendedMeetings: { achieved: totalAttendedMeetings, target: 30 },
-        meetingDuration: { achieved: formatDuration(totalDuration), target: '20 hrs' },
+        meetingDuration: { achieved: formatDuration(totalDuration), target: '20:00:00' },
         closing: { achieved: totalClosing, target: 50000 }
       };
 
       setTargetData(newTargetData);
 
-      // Calculate current week progress
-      const progressPercentages = [
-        (totalMeetings / 30) * 100,
-        (totalAttendedMeetings / 30) * 100,
-        (totalDuration / 20) * 100,
-        (totalClosing / 50000) * 100
-      ];
+      // Calculate individual percentages using the same logic as Telecaller Target Screen
+      const meetingsPercentage = (totalMeetings / 30) * 100;
+      const attendedPercentage = (totalAttendedMeetings / 30) * 100;
+      const durationPercentage = (totalDuration / (20 * 3600)) * 100; // 20 hours in seconds
+      const closingPercentage = (totalClosing / 50000) * 100;
 
-      const avgProgress = Math.min(
-        Math.round(progressPercentages.reduce((a, b) => a + b, 0) / progressPercentages.length),
+      // Calculate overall progress as average of all percentages
+      const overallProgress = Math.min(
+        (meetingsPercentage + attendedPercentage + durationPercentage + closingPercentage) / 4,
         100
       );
-      setOverallProgress(avgProgress);
 
-      // Calculate last week's progress
-      const lastWeekPercentages = [
-        (lastWeekMeetings / 30) * 100,
-        (lastWeekAttendedMeetings / 30) * 100,
-        (lastWeekDuration / 20) * 100,
-        (lastWeekClosing / 50000) * 100
-      ];
+      setOverallProgress(Math.min(overallProgress, 100)); // Cap at 100%
+
+      // Calculate last week's progress using the same logic
+      const lastWeekMeetingsPercentage = (lastWeekMeetings / 30) * 100;
+      const lastWeekAttendedPercentage = (lastWeekAttendedMeetings / 30) * 100;
+      const lastWeekDurationPercentage = (lastWeekDuration / (20 * 3600)) * 100;
+      const lastWeekClosingPercentage = (lastWeekClosing / 50000) * 100;
 
       const lastWeekProgress = Math.min(
-        Math.round(lastWeekPercentages.reduce((a, b) => a + b, 0) / lastWeekPercentages.length),
+        (lastWeekMeetingsPercentage + lastWeekAttendedPercentage + 
+         lastWeekDurationPercentage + lastWeekClosingPercentage) / 4,
         100
       );
+      
       setLastWeekProgress(lastWeekProgress);
       setIsLoading(false);
     } catch (error) {
-      console.error('Error fetching target data:', error);
+      console.error("Error fetching target data:", error);
       setIsLoading(false);
     }
   };

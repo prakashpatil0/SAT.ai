@@ -43,12 +43,32 @@ const SharedProfile: React.FC<SharedProfileProps> = ({ role, MainLayout }) => {
     profileImageUrl: "",
   });
   const [showDatePicker, setShowDatePicker] = useState(false);
-  const [profileImage, setProfileImage] = useState<ProfileImage>({ 
-    default: require("@/assets/images/girl.png") 
-  });
+  const [profileImage, setProfileImage] = useState<ProfileImage>({ uri: "" });
+  const [defaultProfileImage, setDefaultProfileImage] = useState<string | null>(null);
+  const [imageLoading, setImageLoading] = useState(true);
 
   // Animation for profile image
   const scaleAnim = new Animated.Value(1);
+
+  // Load default profile image from Firebase Storage
+  useEffect(() => {
+    loadDefaultProfileImage();
+  }, []);
+
+  const loadDefaultProfileImage = async () => {
+    try {
+      console.log('Loading default profile image from Firebase Storage');
+      const imageRef = ref(storage, 'assets/person.png');
+      const url = await getDownloadURL(imageRef);
+      console.log('Successfully loaded default profile image URL:', url);
+      setDefaultProfileImage(url);
+      setProfileImage({ uri: url });
+    } catch (error) {
+      console.error('Error loading default profile image:', error);
+    } finally {
+      setImageLoading(false);
+    }
+  };
 
   // Fetch existing profile data
   useEffect(() => {
@@ -71,7 +91,26 @@ const SharedProfile: React.FC<SharedProfileProps> = ({ role, MainLayout }) => {
           profileImageUrl: data.profileImageUrl || "",
         });
         if (data.profileImageUrl) {
-          setProfileImage({ uri: data.profileImageUrl });
+          try {
+            // Verify the image URL is accessible
+            const response = await fetch(data.profileImageUrl);
+            if (response.ok) {
+              setProfileImage({ uri: data.profileImageUrl });
+              console.log("Profile image loaded successfully");
+            } else {
+              console.error("Profile image URL not accessible:", response.status);
+              // Use default profile image from Firebase Storage
+              if (defaultProfileImage) {
+                setProfileImage({ uri: defaultProfileImage });
+              }
+            }
+          } catch (error) {
+            console.error("Error loading profile image:", error);
+            // Use default profile image from Firebase Storage
+            if (defaultProfileImage) {
+              setProfileImage({ uri: defaultProfileImage });
+            }
+          }
         }
       }
     } catch (error) {
@@ -186,10 +225,22 @@ const SharedProfile: React.FC<SharedProfileProps> = ({ role, MainLayout }) => {
                 onPressOut={handlePressOut} 
                 onPress={openImagePicker}
               >
-                <Image 
-                  source={'uri' in profileImage ? { uri: profileImage.uri } : profileImage.default} 
-                  style={styles.profileImage} 
-                />
+                {imageLoading ? (
+                  <View style={[styles.profileImage, { justifyContent: 'center', alignItems: 'center' }]}>
+                    <ActivityIndicator size="large" color="#F36F3C" />
+                  </View>
+                ) : (
+                  <Image 
+                    source={
+                      'uri' in profileImage && profileImage.uri
+                        ? { uri: profileImage.uri }
+                        : defaultProfileImage
+                          ? { uri: defaultProfileImage }
+                          : undefined
+                    }
+                    style={styles.profileImage} 
+                  />
+                )}
               </TouchableOpacity>
             </Animated.View>
 

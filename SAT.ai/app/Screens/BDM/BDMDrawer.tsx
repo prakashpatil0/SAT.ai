@@ -9,6 +9,8 @@ import { getAuth, signOut } from "firebase/auth";
 import { BDMStackParamList } from '@/app/index';
 import { useProfile } from '@/app/context/ProfileContext';
 import { LinearGradient } from 'expo-linear-gradient';
+import { storage } from '@/firebaseConfig';
+import { ref, getDownloadURL } from 'firebase/storage';
 
 const BDMDrawer = (props: DrawerContentComponentProps) => {
   const navigation = useNavigation();
@@ -16,6 +18,8 @@ const BDMDrawer = (props: DrawerContentComponentProps) => {
   const { userProfile, profileImage } = useProfile();
   const [loading, setLoading] = useState(false);
   const [recentScreens, setRecentScreens] = useState<string[]>([]);
+  const [firebaseProfileImage, setFirebaseProfileImage] = useState<string | null>(null);
+  const [isImageLoading, setIsImageLoading] = useState(true);
 
   // Load recent screens from history
   useEffect(() => {
@@ -23,6 +27,52 @@ const BDMDrawer = (props: DrawerContentComponentProps) => {
     // For now using static recent screens
     setRecentScreens(['BDMHomeScreen', 'BDMTarget', 'BDMMyNotesScreen']);
   }, []);
+
+  // Load profile image from Firebase Storage
+  useEffect(() => {
+    const loadProfileImage = async () => {
+      try {
+        setIsImageLoading(true);
+        // First try to use the profileImage from context if available
+        if (profileImage) {
+          console.log('Using profile image from context:', profileImage);
+          setFirebaseProfileImage(profileImage);
+          setIsImageLoading(false);
+          return;
+        }
+        
+        // If no profileImage in context, try to get from userProfile
+        if (userProfile?.profileImageUrl) {
+          console.log('Using profile image from userProfile:', userProfile.profileImageUrl);
+          setFirebaseProfileImage(userProfile.profileImageUrl);
+          setIsImageLoading(false);
+          return;
+        }
+        
+        // If no profile image URL in userProfile, try to get default from Firebase Storage
+        try {
+          console.log('Attempting to load default profile image from Firebase Storage');
+          const defaultImageRef = ref(storage, 'assets/person.png');
+          const url = await getDownloadURL(defaultImageRef);
+          console.log('Successfully loaded default profile image URL:', url);
+          setFirebaseProfileImage(url);
+        } catch (error: any) {
+          console.error('Error loading default profile image:', error);
+          console.error('Error code:', error.code);
+          console.error('Error message:', error.message);
+          // If Firebase Storage fails, set to null
+          setFirebaseProfileImage(null);
+        }
+      } catch (error) {
+        console.error('Error in loadProfileImage:', error);
+        setFirebaseProfileImage(null);
+      } finally {
+        setIsImageLoading(false);
+      }
+    };
+
+    loadProfileImage();
+  }, [userProfile, profileImage]);
 
   const handleLogout = () => {
     Alert.alert(
@@ -79,10 +129,18 @@ const BDMDrawer = (props: DrawerContentComponentProps) => {
           style={styles.profileContainer}
           onPress={() => handleNavigate('BDMProfile')}
         >
-          <Image 
-            source={profileImage ? { uri: profileImage } : require("@/assets/images/person.png")} 
-            style={styles.profileImage} 
-          />
+          {isImageLoading ? (
+            <ActivityIndicator size="small" color="#FFF" style={styles.profileImage} />
+          ) : firebaseProfileImage ? (
+            <Image 
+              source={{ uri: firebaseProfileImage }} 
+              style={styles.profileImage} 
+            />
+          ) : (
+            <View style={[styles.profileImage, { backgroundColor: '#f0f0f0', justifyContent: 'center', alignItems: 'center' }]}>
+              <MaterialIcons name="person" size={24} color="#999" />
+            </View>
+          )}
           <View style={styles.profileTextContainer}>
             <Text style={styles.profileName}>{userProfile?.name || userProfile?.firstName || auth.currentUser?.displayName || 'User'}</Text>
             <Text style={styles.profileEmail}>{userProfile?.email || auth.currentUser?.email || 'Not available'}</Text>

@@ -4,6 +4,8 @@ import { useNavigation } from '@react-navigation/native';
 import Swiper from 'react-native-swiper';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialIcons } from '@expo/vector-icons';
+import { storage } from '@/firebaseConfig';
+import { ref, getDownloadURL } from 'firebase/storage';
 
 const { width, height } = Dimensions.get('window');
 
@@ -12,42 +14,68 @@ const slides = [
     id: 1,
     title: "Welcome To SAT.ai",
     description: "SAT.ai is designed to streamline sales tracking, improve productivity, and provide real-time insights for telecallers and BDMs.",
-    image: require('../../assets/images/Slide1.png'),
+    imageUrl: "assets/Slide1.png",
   },
   {
     id: 2,
     title: "Set & Track Targets",
     description: "Ensure your team stays on track with clear weekly targets and real-time performance monitoring. Keep motivation high and goals within reach.",
-    image: require('../../assets/images/Slide2.png'),
+    imageUrl: "assets/Slide2.png",
   },
   {
     id: 3,
     title: "Easy Call Logging",
     description: "For telecallers - Log calls effortlessly, track duration, categorize leads (Prospect, Suspect, Closing), and schedule follow-ups to maximize conversions.",
-    image: require('../../assets/images/Slide3.png'),
+    imageUrl: "assets/Slide3.png",
   },
   {
     id: 4,
     title: "Smart Meeting Logs",
     description: "For BDMs - Add meeting details, track deal closures, and provide managers with visibility into field activities and sales performance.",
-    image: require('../../assets/images/Screen4.png'),
+    imageUrl: "assets/Screen4.png",
   },
   {
     id: 5,
     title: "Get Started",
     description: "Boost productivity and drive results with SAT.ai, start tracking and achieving your sales goals now!",
-    image: require('../../assets/images/Screen5.png'),
+    imageUrl: "assets/Screen5.png",
   }
 ];
 
 const OnboardingScreen = () => {
   const navigation = useNavigation();
   const [currentIndex, setCurrentIndex] = useState(0);
+  const [slideImages, setSlideImages] = useState<{ [key: number]: string }>({});
   const swiperRef = useRef<Swiper | null>(null);
   const fadeAnim = useRef(new Animated.Value(1)).current;
   const slideAnim = useRef(new Animated.Value(0)).current;
   const scaleAnim = useRef(new Animated.Value(1)).current;
   const rotateAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const loadImages = async () => {
+      const imageUrls: { [key: number]: string } = {};
+      for (const slide of slides) {
+        try {
+          console.log(`Attempting to load image for slide ${slide.id} from path: ${slide.imageUrl}`);
+          const imageRef = ref(storage, slide.imageUrl);
+          console.log('Created storage reference:', imageRef);
+          const url = await getDownloadURL(imageRef);
+          console.log(`Successfully loaded image URL for slide ${slide.id}:`, url);
+          imageUrls[slide.id] = url;
+        } catch (error: any) {
+          console.error(`Error loading image for slide ${slide.id}:`, error);
+          console.error('Error code:', error.code);
+          console.error('Error message:', error.message);
+          // Set a fallback image or handle the error appropriately
+          imageUrls[slide.id] = ''; // or set a default image URL
+        }
+      }
+      setSlideImages(imageUrls);
+    };
+
+    loadImages();
+  }, []);
 
   const animateContent = (index: number) => {
     // Reset animations
@@ -154,7 +182,15 @@ const OnboardingScreen = () => {
                   }
                 ]}
               >
-                <Image source={slide.image} style={styles.image} resizeMode="contain" />
+                {slideImages[slide.id] ? (
+                  <Image 
+                    source={{ uri: slideImages[slide.id] }} 
+                    style={styles.image} 
+                    resizeMode="contain" 
+                  />
+                ) : (
+                  <View style={[styles.image, { backgroundColor: '#f0f0f0' }]} />
+                )}
               </Animated.View>
 
               {/* Text Content with Enhanced Animation */}

@@ -248,9 +248,9 @@ const BDMViewFullReport = () => {
             width={screenWidth}
             height={300}
             chartConfig={{
-              backgroundColor: '#ffffff',
-              backgroundGradientFrom: '#ffffff',
-              backgroundGradientTo: '#ffffff',
+              backgroundColor: 'white',
+              backgroundGradientFrom: 'white',
+              backgroundGradientTo: 'white',
               decimalPlaces: 0,
               color: (opacity = 1) => `rgba(255, 132, 71, ${opacity})`,
               labelColor: (opacity = 1) => `rgba(128, 128, 128, ${opacity})`,
@@ -361,14 +361,10 @@ const styles = StyleSheet.create({
     color: 'white',
   },
   graphCard: {
-    backgroundColor: 'white',
+    backgroundColor: 'transparent',
     borderRadius: 16,
     padding: 16,
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
+    alignItems: 'center',
   },
   graph: {
     marginVertical: 8,

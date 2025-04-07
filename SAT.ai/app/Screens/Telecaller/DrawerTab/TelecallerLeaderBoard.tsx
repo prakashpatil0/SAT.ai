@@ -6,8 +6,8 @@ import TelecallerMainLayout from "@/app/components/TelecallerMainLayout";
 import AppGradient from "@/app/components/AppGradient";
 import { FontAwesome5 } from "@expo/vector-icons";
 import { getLeaderboardData } from "@/app/services/targetService";
-import { auth } from '@/firebaseConfig';
-import { DEFAULT_PROFILE_IMAGE } from '@/app/utils/profileStorage';
+import { auth, storage } from '@/firebaseConfig';
+import { ref, getDownloadURL } from 'firebase/storage';
 import { useProfile } from '@/app/context/ProfileContext';
 import { db } from '@/firebaseConfig';
 import { collection, query, where, getDocs, orderBy, getDoc, doc } from 'firebase/firestore';
@@ -22,14 +22,6 @@ type LeaderboardUser = {
   isPlaceholder?: boolean;
   isNotRanked?: boolean;
 };
-
-// Default images for when user has no profile image
-const defaultProfileImages = [
-  require("@/assets/images/girl.png"),
-  require("@/assets/images/girl.png"),
-  require("@/assets/images/girl.png"),
-  require("@/assets/images/girl.png"),
-];
 
 // Placeholder data to maintain leaderboard structure when no real data is available
 const placeholderData: LeaderboardUser[] = Array(10).fill(null).map((_, index) => ({
@@ -46,6 +38,8 @@ const LeaderBoard = () => {
   const [refreshing, setRefreshing] = useState(false);
   const [leaderboardData, setLeaderboardData] = useState<LeaderboardUser[]>([]);
   const [userNameMap, setUserNameMap] = useState<Record<string, string>>({});
+  const [defaultProfileImage, setDefaultProfileImage] = useState<string | null>(null);
+  const [imageLoading, setImageLoading] = useState(true);
   
   // Animation values
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -57,6 +51,7 @@ const LeaderBoard = () => {
 
   useEffect(() => {
     refreshProfile(); // Ensure we have the latest profile data
+    loadDefaultProfileImage();
     fetchLeaderboardData();
     fetchAllUserNames();
   }, []);
@@ -78,6 +73,20 @@ const LeaderBoard = () => {
       ]).start();
     }
   }, [loading]);
+
+  const loadDefaultProfileImage = async () => {
+    try {
+      console.log('Loading default profile image from Firebase Storage');
+      const imageRef = ref(storage, 'assets/person.png');
+      const url = await getDownloadURL(imageRef);
+      console.log('Successfully loaded default profile image URL:', url);
+      setDefaultProfileImage(url);
+    } catch (error) {
+      console.error('Error loading default profile image:', error);
+    } finally {
+      setImageLoading(false);
+    }
+  };
 
   // Fetch all user names from Firebase to have a complete mapping
   const fetchAllUserNames = async () => {
@@ -185,7 +194,7 @@ const LeaderBoard = () => {
             return {
               userId: user.userId,
               name: userName,
-              profileImage: profileImage || defaultProfileImages[3], // Use default girl image
+              profileImage: profileImage || defaultProfileImage,
               percentageAchieved: user.percentageAchieved,
               rank: sortedUsers.indexOf(user) + 1
             };
@@ -194,7 +203,7 @@ const LeaderBoard = () => {
             return {
               userId: user.userId,
               name: "Unknown User",
-              profileImage: defaultProfileImages[3], // Use default girl image
+              profileImage: defaultProfileImage,
               percentageAchieved: user.percentageAchieved,
               rank: sortedUsers.indexOf(user) + 1
             };
@@ -221,9 +230,9 @@ const LeaderBoard = () => {
 
   // Helper function to get a profile image (either from user data or fallback)
   const getProfileImage = (user: LeaderboardUser | { profileImage: string | null, rank: number, isPlaceholder?: boolean }) => {
-    // For placeholder entries, use a consistent default image
+    // For placeholder entries, use the default profile image
     if (user.isPlaceholder) {
-      return defaultProfileImages[3];
+      return defaultProfileImage ? { uri: defaultProfileImage } : undefined;
     }
     
     // If this is the current user, try to get image from userProfile
@@ -236,13 +245,14 @@ const LeaderBoard = () => {
       return { uri: String(user.profileImage) };
     }
     
-    // Use predetermined images for top 3, then default for others
-    if (user.rank <= 3) {
-      return defaultProfileImages[user.rank - 1];
-    }
-    
-    // Default fallback image (girl image)
-    return defaultProfileImages[3];
+    // Default fallback image from Firebase Storage
+    return defaultProfileImage ? { uri: defaultProfileImage } : undefined;
+  };
+  
+  // Helper function specifically for Avatar.Image component
+  const getAvatarImageSource = (user: LeaderboardUser | { profileImage: string | null, rank: number, isPlaceholder?: boolean }) => {
+    const imageSource = getProfileImage(user);
+    return imageSource || { uri: 'https://via.placeholder.com/40' }; // Fallback to a placeholder image
   };
   
   // Check if this entry is the current user
@@ -334,14 +344,20 @@ const remainingUsers = leaderboardData.slice(3, 10);
               {/* Second Place */}
               <View style={styles.secondPlaceWrapper}>
                 <View style={styles.imageContainer}>
-                  <Image 
-                    source={getProfileImage(topThree[1] || { profileImage: null, rank: 2, isPlaceholder: true })} 
-                    style={[
-                      styles.topThreeImage, 
-                      topThree[1]?.isPlaceholder && styles.placeholderImage,
-                      isCurrentUser(topThree[1]?.userId) && styles.currentUserImage
-                    ]} 
-                  />
+                  {imageLoading ? (
+                    <View style={[styles.topThreeImage, { justifyContent: 'center', alignItems: 'center' }]}>
+                      <MaterialIcons name="person" size={24} color="#999" />
+                    </View>
+                  ) : (
+                    <Image 
+                      source={getAvatarImageSource(topThree[1] || { profileImage: null, rank: 2, isPlaceholder: true })} 
+                      style={[
+                        styles.topThreeImage, 
+                        topThree[1]?.isPlaceholder && styles.placeholderImage,
+                        isCurrentUser(topThree[1]?.userId) && styles.currentUserImage
+                      ]} 
+                    />
+                  )}
                   {isCurrentUser(topThree[1]?.userId) && (
                     <View style={styles.youBadge}>
                       <Text style={styles.youBadgeText}>YOU</Text>
@@ -371,15 +387,21 @@ const remainingUsers = leaderboardData.slice(3, 10);
               <View style={styles.firstPlaceWrapper}>
                 <FontAwesome5 name="crown" size={40} color="#FFD700" style={styles.crown} />
                 <View style={styles.imageContainer}>
-                  <Image 
-                    source={getProfileImage(topThree[0] || { profileImage: null, rank: 1, isPlaceholder: true })} 
-                    style={[
-                      styles.topThreeImage, 
-                      styles.firstImage, 
-                      topThree[0]?.isPlaceholder && styles.placeholderImage,
-                      isCurrentUser(topThree[0]?.userId) && styles.currentUserImage
-                    ]} 
-                  />
+                  {imageLoading ? (
+                    <View style={[styles.topThreeImage, styles.firstImage, { justifyContent: 'center', alignItems: 'center' }]}>
+                      <MaterialIcons name="person" size={24} color="#999" />
+                    </View>
+                  ) : (
+                    <Image 
+                      source={getAvatarImageSource(topThree[0] || { profileImage: null, rank: 1, isPlaceholder: true })} 
+                      style={[
+                        styles.topThreeImage, 
+                        styles.firstImage, 
+                        topThree[0]?.isPlaceholder && styles.placeholderImage,
+                        isCurrentUser(topThree[0]?.userId) && styles.currentUserImage
+                      ]} 
+                    />
+                  )}
                   {isCurrentUser(topThree[0]?.userId) && (
                     <View style={styles.youBadge}>
                       <Text style={styles.youBadgeText}>YOU</Text>
@@ -410,14 +432,20 @@ const remainingUsers = leaderboardData.slice(3, 10);
               {/* Third Place */}
               <View style={styles.thirdPlaceWrapper}>
                 <View style={styles.imageContainer}>
-                  <Image 
-                    source={getProfileImage(topThree[2] || { profileImage: null, rank: 3, isPlaceholder: true })} 
-                    style={[
-                      styles.topThreeImage, 
-                      topThree[2]?.isPlaceholder && styles.placeholderImage,
-                      isCurrentUser(topThree[2]?.userId) && styles.currentUserImage
-                    ]} 
-                  />
+                  {imageLoading ? (
+                    <View style={[styles.topThreeImage, { justifyContent: 'center', alignItems: 'center' }]}>
+                      <MaterialIcons name="person" size={24} color="#999" />
+                    </View>
+                  ) : (
+                    <Image 
+                      source={getAvatarImageSource(topThree[2] || { profileImage: null, rank: 3, isPlaceholder: true })} 
+                      style={[
+                        styles.topThreeImage, 
+                        topThree[2]?.isPlaceholder && styles.placeholderImage,
+                        isCurrentUser(topThree[2]?.userId) && styles.currentUserImage
+                      ]} 
+                    />
+                  )}
                   {isCurrentUser(topThree[2]?.userId) && (
                     <View style={styles.youBadge}>
                       <Text style={styles.youBadgeText}>YOU</Text>
@@ -456,15 +484,21 @@ const remainingUsers = leaderboardData.slice(3, 10);
                     isCurrentUser(user.userId) && styles.currentUserText
                   ]}>{user.rank}</Text>
                   <View style={styles.avatarContainer}>
-                    <Avatar.Image
-                      size={40}
-                      source={getProfileImage(user)}
-                      style={[
-                        styles.listAvatar, 
-                        user.isPlaceholder && styles.placeholderAvatar,
-                        isCurrentUser(user.userId) && styles.currentUserAvatar
-                      ]}
-                    />
+                    {imageLoading ? (
+                      <View style={[styles.listAvatar, { justifyContent: 'center', alignItems: 'center' }]}>
+                        <MaterialIcons name="person" size={20} color="#999" />
+                      </View>
+                    ) : (
+                      <Avatar.Image
+                        size={40}
+                        source={getAvatarImageSource(user)}
+                        style={[
+                          styles.listAvatar, 
+                          user.isPlaceholder && styles.placeholderAvatar,
+                          isCurrentUser(user.userId) && styles.currentUserAvatar
+                        ]}
+                      />
+                    )}
                     {isCurrentUser(user.userId) && (
                       <View style={styles.miniYouBadge}>
                         <Text style={styles.miniYouBadgeText}>YOU</Text>
@@ -661,6 +695,9 @@ const styles = StyleSheet.create({
   },
   listAvatar: {
     backgroundColor: "#F5F5F5",
+    width: 40,
+    height: 40,
+    borderRadius: 20,
   },
   placeholderAvatar: {
     opacity: 0.5,

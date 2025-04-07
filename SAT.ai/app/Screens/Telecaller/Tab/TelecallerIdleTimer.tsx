@@ -7,6 +7,9 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Notifications from 'expo-notifications';
 import { useNavigation, useRoute, RouteProp } from "@react-navigation/native";
 import { RootStackParamList } from "@/app/types/navigation"; // Adjust the path if needed
+import { storage } from '@/firebaseConfig';
+import { ref, getDownloadURL } from 'firebase/storage';
+import { Audio } from 'expo-av';
 
 const { width } = Dimensions.get('window');
 
@@ -21,7 +24,7 @@ Notifications.setNotificationHandler({
 
 type TelecallerIdleTimerRouteProp = RouteProp<RootStackParamList, 'TelecallerIdleTimer'>;
 
-const IDLE_TIMEOUT = 5 * 60 * 1000; // 5 minutes
+const IDLE_TIMEOUT = 1 * 60 * 1000; // 5 minutes
 const FINAL_TIMEOUT = 10 * 60 * 1000; // 10 minutes
 const WARNING_INTERVALS = [5, 3, 1]; // Minutes before final timeout
 
@@ -33,6 +36,10 @@ const TelecallerIdleTimer = () => {
   const [warningCount, setWarningCount] = useState(0);
   const [isActive, setIsActive] = useState(false);
   const [idleCount, setIdleCount] = useState(0);
+  const [sirenGifUrl, setSirenGifUrl] = useState<string | null>(null);
+  const [alarmSoundUrl, setAlarmSoundUrl] = useState<string | null>(null);
+  const [sound, setSound] = useState<Audio.Sound | null>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (route.params?.activateImmediately) {
@@ -42,7 +49,42 @@ const TelecallerIdleTimer = () => {
 
   useEffect(() => {
     loadIdleCount();
+    loadFirebaseAssets();
+    return () => {
+      // Clean up sound when component unmounts
+      if (sound) {
+        sound.unloadAsync();
+      }
+    };
   }, []);
+
+  const loadFirebaseAssets = async () => {
+    try {
+      setLoading(true);
+      // Load siren GIF from Firebase Storage
+      const sirenRef = ref(storage, 'assets/siren.gif');
+      const sirenUrl = await getDownloadURL(sirenRef);
+      setSirenGifUrl(sirenUrl);
+      
+      // Load alarm sound from Firebase Storage
+      const alarmRef = ref(storage, 'assets/alarmsound.mp3');
+      const alarmUrl = await getDownloadURL(alarmRef);
+      setAlarmSoundUrl(alarmUrl);
+      
+      // Load the sound file
+      const { sound: newSound } = await Audio.Sound.createAsync(
+        { uri: alarmUrl },
+        { shouldPlay: false }
+      );
+      setSound(newSound);
+      
+      console.log('Firebase assets loaded successfully');
+    } catch (error) {
+      console.error('Error loading Firebase assets:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const loadIdleCount = async () => {
     try {
@@ -102,8 +144,20 @@ const TelecallerIdleTimer = () => {
         const remainingTime = (FINAL_TIMEOUT - timeDiff) / (60 * 1000);
         if (WARNING_INTERVALS.includes(Math.floor(remainingTime)) && warningCount < WARNING_INTERVALS.length) {
           showWarningNotification(Math.floor(remainingTime));
+          playAlarmSound();
           setWarningCount(prev => prev + 1);
         }
+      }
+    };
+
+    const playAlarmSound = async () => {
+      try {
+        if (sound) {
+          await sound.setPositionAsync(0);
+          await sound.playAsync();
+        }
+      } catch (error) {
+        console.error('Error playing alarm sound:', error);
       }
     };
 
@@ -149,7 +203,7 @@ const TelecallerIdleTimer = () => {
       clearInterval(timer);
       appStateSubscription.remove();
     };
-  }, [navigation, isActive, warningCount, idleCount]);
+  }, [navigation, isActive, warningCount, idleCount, sound]);
 
   const getOrdinalSuffix = (n: number) => {
     const j = n % 10;
@@ -171,19 +225,25 @@ const TelecallerIdleTimer = () => {
       <AppGradient>
         <TelecallerMainLayout showDrawer showBackButton={true} title="Idle Timer Warning">
           <View style={styles.container}>
-            <Animatable.View
-              animation="pulse"
-              easing="ease-out"
-              iterationCount="infinite"
-              duration={2000}
-              style={styles.imageContainer}
-            >
-              <Image
-                source={require('@/assets/images/siren.gif')}
-                style={styles.alertImage}
-                resizeMode="contain"
-              />
-            </Animatable.View>
+            {loading ? (
+              <View style={[styles.imageContainer, { justifyContent: 'center', alignItems: 'center' }]}>
+                <Text style={styles.loadingText}>Loading assets...</Text>
+              </View>
+            ) : (
+              <Animatable.View
+                animation="pulse"
+                easing="ease-out"
+                iterationCount="infinite"
+                duration={2000}
+                style={styles.imageContainer}
+              >
+                <Image
+                  source={sirenGifUrl ? { uri: sirenGifUrl } : undefined}
+                  style={styles.alertImage}
+                  resizeMode="contain"
+                />
+              </Animatable.View>
+            )}
   
             <Animatable.Text
               animation="flash"
@@ -221,7 +281,7 @@ const TelecallerIdleTimer = () => {
     );
   }
 
-
+  return null;
 };
 
 const styles = StyleSheet.create({
@@ -289,6 +349,11 @@ const styles = StyleSheet.create({
     color: "#293646",
     lineHeight: 20,
   },
+  loadingText: {
+    fontSize: 16,
+    color: '#666',
+    fontFamily: "LexendDeca_500Medium",
+  }
 });
 
 export default TelecallerIdleTimer;

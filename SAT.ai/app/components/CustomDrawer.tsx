@@ -9,6 +9,8 @@ import { getAuth, signOut } from "firebase/auth";
 import { useProfile } from '@/app/context/ProfileContext';
 import { LinearGradient } from 'expo-linear-gradient';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { storage } from '@/firebaseConfig';
+import { ref, getDownloadURL } from 'firebase/storage';
 
 const CustomDrawer = (props: DrawerContentComponentProps) => {
   const navigation = useNavigation();
@@ -16,13 +18,30 @@ const CustomDrawer = (props: DrawerContentComponentProps) => {
   const { userProfile, profileImage } = useProfile();
   const [loading, setLoading] = useState(false);
   const [recentScreens, setRecentScreens] = useState<string[]>([]);
+  const [defaultProfileImage, setDefaultProfileImage] = useState<string | null>(null);
+  const [imageLoading, setImageLoading] = useState(true);
 
   // Load recent screens from history
   useEffect(() => {
     // This would normally load from AsyncStorage
     // For now using static recent screens
     setRecentScreens(['HomeScreen', 'Target', 'ContactBook']);
+    loadDefaultProfileImage();
   }, []);
+
+  const loadDefaultProfileImage = async () => {
+    try {
+      console.log('Loading default profile image from Firebase Storage');
+      const imageRef = ref(storage, 'assets/person.png');
+      const url = await getDownloadURL(imageRef);
+      console.log('Successfully loaded default profile image URL:', url);
+      setDefaultProfileImage(url);
+    } catch (error) {
+      console.error('Error loading default profile image:', error);
+    } finally {
+      setImageLoading(false);
+    }
+  };
 
   const handleLogout = () => {
     Alert.alert(
@@ -81,10 +100,16 @@ const CustomDrawer = (props: DrawerContentComponentProps) => {
           style={styles.profileContainer}
           onPress={() => handleNavigate('Profile')}
         >
-          <Image 
-            source={profileImage ? { uri: profileImage } : require("../../assets/images/girl.png")} 
-            style={styles.profileImage} 
-          />
+          {imageLoading ? (
+            <View style={[styles.profileImage, { justifyContent: 'center', alignItems: 'center' }]}>
+              <MaterialIcons name="person" size={24} color="#FFF" />
+            </View>
+          ) : (
+            <Image 
+              source={profileImage ? { uri: profileImage } : { uri: defaultProfileImage || '' }} 
+              style={styles.profileImage} 
+            />
+          )}
           <View style={styles.profileTextContainer}>
             <Text style={styles.profileName}>{userProfile?.name || userProfile?.firstName || auth.currentUser?.displayName || 'User'}</Text>
             <Text style={styles.profileEmail}>{userProfile?.email || auth.currentUser?.email || 'Not available'}</Text>

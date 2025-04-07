@@ -21,7 +21,7 @@ type NavigationProp = StackNavigationProp<RootStackParamList>;
 const AlertScreen = () => {
   const navigation = useNavigation<NavigationProp>();
   const { resetIdleTimer, isTimerActive } = useIdleTimer();
-  const initialTime = 15 * 60; // 15 minutes in seconds
+  const initialTime = 1 * 60; // 15 minutes in seconds
   const [secondsRemaining, setSecondsRemaining] = useState(initialTime);
   const [isRinging, setIsRinging] = useState(false);
   const [sound, setSound] = useState<Audio.Sound | null>(null);

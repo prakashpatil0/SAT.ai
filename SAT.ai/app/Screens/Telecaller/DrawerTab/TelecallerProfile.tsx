@@ -73,9 +73,9 @@ const ProfileScreen = () => {
   });
   const [birthDate, setBirthDate] = useState("");
   const [dateError, setDateError] = useState("");
-  const [profileImage, setProfileImage] = useState<ProfileImage>({ 
-    default: require("@/assets/images/girl.png") 
-  });
+  const [profileImage, setProfileImage] = useState<ProfileImage>({ uri: "" });
+  const [defaultProfileImage, setDefaultProfileImage] = useState<string | null>(null);
+  const [imageLoading, setImageLoading] = useState(true);
   const [errors, setErrors] = useState({
     name: '',
     phoneNumber: ''
@@ -104,6 +104,26 @@ const ProfileScreen = () => {
     extrapolate: 'clamp'
   });
 
+  // Load default profile image from Firebase Storage
+  useEffect(() => {
+    loadDefaultProfileImage();
+  }, []);
+
+  const loadDefaultProfileImage = async () => {
+    try {
+      console.log('Loading default profile image from Firebase Storage');
+      const imageRef = ref(storage, 'assets/person.png');
+      const url = await getDownloadURL(imageRef);
+      console.log('Successfully loaded default profile image URL:', url);
+      setDefaultProfileImage(url);
+      setProfileImage({ uri: url });
+    } catch (error) {
+      console.error('Error loading default profile image:', error);
+    } finally {
+      setImageLoading(false);
+    }
+  };
+
   // Fetch existing profile data
   useEffect(() => {
     fetchUserProfile();
@@ -112,6 +132,7 @@ const ProfileScreen = () => {
   // Update profile image when context changes
   useEffect(() => {
     if (contextProfileImage) {
+      console.log("Profile image updated from context:", contextProfileImage);
       setProfileImage({ uri: contextProfileImage });
     }
   }, [contextProfileImage]);
@@ -153,8 +174,28 @@ const ProfileScreen = () => {
           profileImageUrl: data.profileImageUrl || "",
         });
         if (data.profileImageUrl) {
-          setProfileImage({ uri: data.profileImageUrl });
-          updateProfileImage?.(data.profileImageUrl);
+          console.log("Loading profile image from Firestore:", data.profileImageUrl);
+          try {
+            // Verify the image URL is accessible
+            const response = await fetch(data.profileImageUrl);
+            if (response.ok) {
+              setProfileImage({ uri: data.profileImageUrl });
+              updateProfileImage?.(data.profileImageUrl);
+              console.log("Profile image loaded successfully");
+            } else {
+              console.error("Profile image URL not accessible:", response.status);
+              // Use default profile image from Firebase Storage
+              if (defaultProfileImage) {
+                setProfileImage({ uri: defaultProfileImage });
+              }
+            }
+          } catch (error) {
+            console.error("Error loading profile image:", error);
+            // Use default profile image from Firebase Storage
+            if (defaultProfileImage) {
+              setProfileImage({ uri: defaultProfileImage });
+            }
+          }
         }
       }
     } catch (error) {
@@ -167,6 +208,7 @@ const ProfileScreen = () => {
 
   const uploadImage = async (uri: string): Promise<string> => {
     try {
+      console.log("Starting image upload to Firebase Storage");
       const userId = auth.currentUser?.uid;
       if (!userId) {
         throw new Error("User not authenticated");
@@ -177,13 +219,16 @@ const ProfileScreen = () => {
       const blob = await response.blob();
 
       // Create storage reference with user-specific path
-      const storageRef = ref(storage, `users/${userId}/profile_${Date.now()}.jpg`);
+      const storageRef = ref(storage, `profileImages/${userId}/profile_${Date.now()}.jpg`);
 
       // Upload the image
+      console.log("Uploading image to Firebase Storage...");
       const uploadResult = await uploadBytes(storageRef, blob);
 
       // Get the download URL
+      console.log("Getting download URL...");
       const downloadURL = await getDownloadURL(uploadResult.ref);
+      console.log("Image uploaded successfully:", downloadURL);
 
       return downloadURL;
     } catch (error) {
@@ -267,7 +312,9 @@ const ProfileScreen = () => {
       // Only attempt upload if there's a new image
       if ('uri' in profileImage && profileImage.uri && profileImage.uri !== formData.profileImageUrl) {
         try {
+          console.log("Uploading new profile image...");
           profileImageUrl = await uploadImage(profileImage.uri);
+          console.log("New profile image uploaded:", profileImageUrl);
         } catch (uploadError) {
           console.error("Profile image upload failed:", uploadError);
           Alert.alert(
@@ -521,14 +568,22 @@ const ProfileScreen = () => {
                 styles.profileImageContainer,
                 { transform: [{ scale: scaleAnim }] }
               ]}>
-                <Image
-                  source={
-                    'uri' in profileImage
-                      ? { uri: profileImage.uri }
-                      : profileImage.default
-                  }
-                  style={styles.profileImage}
-                />
+                {imageLoading ? (
+                  <View style={[styles.profileImage, { justifyContent: 'center', alignItems: 'center' }]}>
+                    <ActivityIndicator size="large" color="#FFFFFF" />
+                  </View>
+                ) : (
+                  <Image
+                    source={
+                      'uri' in profileImage && profileImage.uri
+                        ? { uri: profileImage.uri }
+                        : defaultProfileImage
+                          ? { uri: defaultProfileImage }
+                          : undefined
+                    }
+                    style={styles.profileImage}
+                  />
+                )}
                 {isEditing && (
                   <View style={styles.editIconContainer}>
                     <MaterialIcons name="camera-alt" size={18} color="#FFF" />

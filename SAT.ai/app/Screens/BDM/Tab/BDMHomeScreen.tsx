@@ -422,23 +422,15 @@ const BDMHomeScreen = () => {
         const logs = await processCallLogs(snapshot);
         updateCallLogsState(logs, 'current');
         
-        // Fetch device call logs immediately when logs update
-        if (Platform.OS === 'android') {
-          await fetchDeviceCallLogs();
-        }
+        // Calculate total duration for today
+        const totalDuration = logs.reduce((acc, log) => acc + (log.duration || 0), 0);
+        console.log(`Total Duration for Today: ${formatDuration(totalDuration)}`); // Debugging line
       });
 
       return unsubscribe;
     } catch (err: unknown) {
       const error = err as Error;
       console.error('Error fetching call logs:', error);
-      if (error.message?.includes('requires an index')) {
-        Alert.alert(
-          'Index Required',
-          'Please wait a few minutes while we set up the required database index. The call logs will appear automatically once it\'s ready.',
-          [{ text: 'OK' }]
-        );
-      }
     }
   };
 
@@ -601,47 +593,31 @@ const BDMHomeScreen = () => {
   };
 
   const fetchFreshLogs = async () => {
-    try {
-      const permission = await PermissionsAndroid.request(
-        PermissionsAndroid.PERMISSIONS.READ_CALL_LOG,
-        {
-          title: 'Call Log Permission',
-          message: 'This app needs access to your call log to track your calls.',
-          buttonNeutral: 'Ask Me Later',
-          buttonNegative: 'Cancel',
-          buttonPositive: 'OK',
-        }
-      );
-
-      if (permission === PermissionsAndroid.RESULTS.GRANTED) {
-        const now = Date.now();
-        const thirtyDaysAgo = new Date(now - THIRTY_DAYS_MS);
-        
+    if (Platform.OS === 'android') {
+      const hasPermission = await requestCallLogPermission();
+      
+      if (hasPermission) {
         const logs = await CallLog.loadAll();
-        const recentLogs = logs.filter((log: CallLogEntry) => {
-          // Ensure timestamp is a valid number
-          const timestamp = parseInt(log.timestamp);
-          return !isNaN(timestamp) && timestamp >= thirtyDaysAgo.getTime();
+        console.log('Device call logs:', logs);
+
+        const thirtyDaysAgo = new Date();
+        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+        
+        // Filter logs from last 30 days
+        const recentLogs = logs.filter((log: any) => {
+          const logTimestamp = parseInt(log.timestamp);
+          return logTimestamp >= thirtyDaysAgo.getTime();
         });
 
-        const formattedLogs = recentLogs.map((log: CallLogEntry) => {
-          // Ensure timestamp is a valid number
-          const timestamp = parseInt(log.timestamp);
-          if (isNaN(timestamp)) {
-            console.warn('Invalid timestamp found:', log.timestamp);
-            return null;
-          }
-
-          return {
-            id: log.timestamp.toString(),
-            phoneNumber: log.phoneNumber || '',
-            contactName: log.name && log.name !== "Unknown" ? log.name : (log.phoneNumber || ''),
-            timestamp: new Date(timestamp),
-            duration: parseInt(log.duration) || 0,
-            type: (log.type || 'OUTGOING').toLowerCase() as 'incoming' | 'outgoing' | 'missed',
-            status: (log.type === 'MISSED' ? 'missed' : 'completed') as 'missed' | 'completed' | 'in-progress'
-          };
-        }).filter((log): log is NonNullable<typeof log> => log !== null);
+        const formattedLogs = recentLogs.map((log: any) => ({
+          id: String(log.timestamp),
+          phoneNumber: log.phoneNumber,
+          contactName: log.name && log.name !== "Unknown" ? log.name : log.phoneNumber,
+          timestamp: new Date(parseInt(log.timestamp)),
+          duration: parseInt(log.duration) || 0,
+          type: (log.type || 'OUTGOING').toLowerCase() as 'incoming' | 'outgoing' | 'missed',
+          status: (log.type === 'MISSED' ? 'missed' : 'completed') as 'missed' | 'completed' | 'in-progress'
+        }));
 
         // Store logs in AsyncStorage
         await AsyncStorage.setItem(CALL_LOGS_STORAGE_KEY, JSON.stringify(formattedLogs));
@@ -650,11 +626,6 @@ const BDMHomeScreen = () => {
         // Update logs in state
         updateCallLogsState(formattedLogs, 'all');
       }
-    } catch (error) {
-      console.error('Error fetching fresh logs:', error);
-      Alert.alert('Error', 'Failed to fetch call logs');
-    } finally {
-      setIsLoadingSimLogs(false);
     }
   };
 
@@ -726,13 +697,16 @@ const BDMHomeScreen = () => {
     // Calculate total duration for the day
     let totalSeconds = 0;
     
-    // First try to get duration from monthlyHistory
+    // Create a map to track unique calls by phone number and timestamp
+    const uniqueCalls = new Map();
+    
     dayLogs.forEach(log => {
-      const dateKey = new Date(log.timestamp).toISOString().split('T')[0];
-      if (log.monthlyHistory?.dailyCalls?.[dateKey]?.duration) {
-        totalSeconds += log.monthlyHistory.dailyCalls[dateKey].duration;
-      } else {
-        // Fallback to individual call duration
+      // Create a unique key for each call based on phone number and timestamp
+      const key = `${log.phoneNumber}-${new Date(log.timestamp).getTime()}`;
+      
+      // Only add the call if we haven't seen it before
+      if (!uniqueCalls.has(key)) {
+        uniqueCalls.set(key, log);
         totalSeconds += log.duration || 0;
       }
     });
@@ -1302,8 +1276,8 @@ const styles = StyleSheet.create({
   },
   viewTargetButton: {
     flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: 'flex-start',
+    justifyContent: 'flex-start',
     paddingVertical: 12,
   },
   viewTargetText: {

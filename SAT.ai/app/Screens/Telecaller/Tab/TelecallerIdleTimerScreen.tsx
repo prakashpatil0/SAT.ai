@@ -14,7 +14,7 @@ import TelecallerMainLayout from '@/app/components/TelecallerMainLayout';
 import AppGradient from '@/app/components/AppGradient';
 
 const TOTAL_DOTS = 40;
-const TIMER_DURATION = 15 * 60; // 15 minutes in seconds
+const TIMER_DURATION = 1 * 60; // 15 minutes in seconds
 const RING_TOTAL = 3;
 
 const TelecallerIdleTimerScreen = () => {

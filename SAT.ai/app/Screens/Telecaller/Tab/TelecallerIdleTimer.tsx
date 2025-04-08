@@ -24,7 +24,7 @@ Notifications.setNotificationHandler({
 
 type TelecallerIdleTimerRouteProp = RouteProp<RootStackParamList, 'TelecallerIdleTimer'>;
 
-const IDLE_TIMEOUT = 1 * 60 * 1000; // 5 minutes
+const IDLE_TIMEOUT = 5 * 60 * 1000; // 5 minutes
 const FINAL_TIMEOUT = 10 * 60 * 1000; // 10 minutes
 const WARNING_INTERVALS = [5, 3, 1]; // Minutes before final timeout
 
@@ -154,7 +154,20 @@ const TelecallerIdleTimer = () => {
       try {
         if (sound) {
           await sound.setPositionAsync(0);
-          await sound.playAsync();
+          try {
+            await sound.playAsync();
+          } catch (playError: any) {
+            // Handle specific audio focus error
+            if (playError.message && playError.message.includes("audio focus could not be acquired")) {
+              console.warn("Audio focus could not be acquired, retrying with lower volume...");
+              
+              // Retry with lower volume
+              await sound.setVolumeAsync(0.5);
+              await sound.playAsync();
+            } else {
+              throw playError; // Re-throw if it's a different error
+            }
+          }
         }
       } catch (error) {
         console.error('Error playing alarm sound:', error);

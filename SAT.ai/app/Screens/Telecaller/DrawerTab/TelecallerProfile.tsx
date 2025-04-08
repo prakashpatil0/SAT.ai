@@ -218,8 +218,10 @@ const ProfileScreen = () => {
       const response = await fetch(uri);
       const blob = await response.blob();
 
-      // Create storage reference with user-specific path
-      const storageRef = ref(storage, `profileImages/${userId}/profile_${Date.now()}.jpg`);
+      // Create storage reference with path that matches Firebase Storage rules
+      // Using the exact path structure from the rules: /profileImages/{userId}/{fileName}
+      const timestamp = Date.now();
+      const storageRef = ref(storage, `profileImages/${userId}/profile_${timestamp}.jpg`);
 
       // Upload the image
       console.log("Uploading image to Firebase Storage...");
@@ -307,35 +309,51 @@ const ProfileScreen = () => {
         return;
       }
 
-      let profileImageUrl = formData.profileImageUrl;
-
-      // Only attempt upload if there's a new image
-      if ('uri' in profileImage && profileImage.uri && profileImage.uri !== formData.profileImageUrl) {
-        try {
-          console.log("Uploading new profile image...");
-          profileImageUrl = await uploadImage(profileImage.uri);
-          console.log("New profile image uploaded:", profileImageUrl);
-        } catch (uploadError) {
-          console.error("Profile image upload failed:", uploadError);
-          Alert.alert(
-            "Upload Error",
-            "Failed to upload profile image. Please try again later."
-          );
-          return;
-        }
-      }
-
-      // Update Firestore document
+      // First, update the UI immediately for better user experience
       const userRef = doc(db, "users", userId);
-      const updateData = {
+      
+      // Prepare the update data
+      const updateData: {
+        name: string;
+        designation: string;
+        phoneNumber: string;
+        dateOfBirth: Date;
+        updatedAt: any;
+        profileImageUrl?: string;
+      } = {
         name: formData.name,
         designation: formData.designation,
         phoneNumber: formData.phoneNumber,
         dateOfBirth: formData.dateOfBirth,
         updatedAt: serverTimestamp(),
-        profileImageUrl: profileImageUrl || formData.profileImageUrl
       };
 
+      // Handle profile image separately to avoid Firebase Storage errors
+      let profileImageUrl = formData.profileImageUrl;
+      
+      // Only attempt upload if there's a new image and it's not the default image
+      if ('uri' in profileImage && profileImage.uri && 
+          profileImage.uri !== formData.profileImageUrl && 
+          profileImage.uri !== defaultProfileImage) {
+        try {
+          console.log("Uploading new profile image...");
+          profileImageUrl = await uploadImage(profileImage.uri);
+          console.log("New profile image uploaded:", profileImageUrl);
+          
+          // Add the profile image URL to the update data
+          updateData.profileImageUrl = profileImageUrl;
+        } catch (uploadError) {
+          console.error("Profile image upload failed:", uploadError);
+          // Continue with the update even if image upload fails
+          // We'll keep the existing profile image URL
+        }
+      } else if ('default' in profileImage && profileImage.default === 1) {
+        // If user selected to remove photo, use the default profile image
+        profileImageUrl = defaultProfileImage || "";
+        updateData.profileImageUrl = profileImageUrl;
+      }
+
+      // Update Firestore document
       await setDoc(userRef, updateData, { merge: true });
       
       // Update context and local state
@@ -419,11 +437,17 @@ const ProfileScreen = () => {
   };
 
   const openImagePicker = () => {
-    Alert.alert("Upload Profile Picture", "Choose an option", [
-      { text: "Take Photo", onPress: handleOpenCamera },
-      { text: "Choose from Gallery", onPress: handleImagePicker },
-      { text: "Cancel", style: "cancel" },
-    ]);
+    Alert.alert(
+      "Upload Profile Picture", 
+      "Choose an option", 
+      [
+        { text: "Take Photo", onPress: handleOpenCamera },
+        { text: "Choose from Gallery", onPress: handleImagePicker },
+        { text: "Remove Photo", onPress: handleRemovePhoto },
+        { text: "Cancel", style: "cancel", onPress: () => console.log("Cancel pressed") },
+      ],
+      { cancelable: true }
+    );
   };
   
   const handleImagePicker = async () => {
@@ -467,8 +491,53 @@ const ProfileScreen = () => {
       return;
     }
     
-    // Navigate to camera screen
-    navigation.navigate('CameraScreen' as never);
+    // Use Image Picker camera instead of navigating to camera screen
+    let result = await ImagePicker.launchCameraAsync({
+      allowsEditing: true,
+      aspect: [4, 4],
+      quality: 1,
+    });
+
+    if (!result.canceled && result.assets.length > 0) {
+      setProfileImage({ uri: result.assets[0].uri });
+      
+      // Animate the profile image
+      Animated.sequence([
+        Animated.timing(scaleAnim, {
+          toValue: 1.1,
+          duration: 200,
+          useNativeDriver: true,
+        }),
+        Animated.timing(scaleAnim, {
+          toValue: 1,
+          duration: 200,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    }
+  };
+
+  const handleRemovePhoto = () => {
+    // Set profile image to default
+    if (defaultProfileImage) {
+      setProfileImage({ uri: defaultProfileImage });
+    } else {
+      setProfileImage({ default: 1 });
+    }
+    
+    // Animate the profile image
+    Animated.sequence([
+      Animated.timing(scaleAnim, {
+        toValue: 1.1,
+        duration: 200,
+        useNativeDriver: true,
+      }),
+      Animated.timing(scaleAnim, {
+        toValue: 1,
+        duration: 200,
+        useNativeDriver: true,
+      }),
+    ]).start();
   };
 
   const formatDate = (date: Date) => {
@@ -538,8 +607,10 @@ const ProfileScreen = () => {
   }
 
   return (
+    
     <AppGradient>
     <TelecallerMainLayout title="Profile" showBackButton>
+    <ScrollView>
       <Animated.ScrollView
         contentContainerStyle={styles.scrollContainer}
         showsVerticalScrollIndicator={false}
@@ -743,8 +814,10 @@ const ProfileScreen = () => {
           <View style={styles.spacer} />
         </View>
       </Animated.ScrollView>
+      </ScrollView>
     </TelecallerMainLayout>
     </AppGradient>
+    
   );
 };
 

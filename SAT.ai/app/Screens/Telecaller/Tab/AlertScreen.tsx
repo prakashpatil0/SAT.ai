@@ -21,7 +21,7 @@ type NavigationProp = StackNavigationProp<RootStackParamList>;
 const AlertScreen = () => {
   const navigation = useNavigation<NavigationProp>();
   const { resetIdleTimer, isTimerActive } = useIdleTimer();
-  const initialTime = 1 * 60; // 15 minutes in seconds
+  const initialTime = 15 * 60; // 15 minutes in seconds
   const [secondsRemaining, setSecondsRemaining] = useState(initialTime);
   const [isRinging, setIsRinging] = useState(false);
   const [sound, setSound] = useState<Audio.Sound | null>(null);
@@ -138,6 +138,17 @@ const AlertScreen = () => {
         await sound.unloadAsync();
       }
 
+      // Configure audio mode before creating the sound
+      await Audio.setAudioModeAsync({
+        playsInSilentModeIOS: true,
+        staysActiveInBackground: true,
+        shouldDuckAndroid: true,
+        playThroughEarpieceAndroid: false,
+        allowsRecordingIOS: false,
+        interruptionModeIOS: 1, // DoNotMix
+        interruptionModeAndroid: 1, // DoNotMix
+      });
+
       // Create and load the sound
       const { sound: newSound } = await Audio.Sound.createAsync(
         require("@/assets/sound/alarmsound.mp3"),
@@ -155,7 +166,21 @@ const AlertScreen = () => {
 
       // Set the sound and play it
       setSound(newSound);
-      await newSound.playAsync();
+      
+      try {
+        await newSound.playAsync();
+      } catch (playError: any) {
+        // Handle specific audio focus error
+        if (playError.message && playError.message.includes("audio focus could not be acquired")) {
+          console.warn("Audio focus could not be acquired, retrying with lower volume...");
+          
+          // Retry with lower volume
+          await newSound.setVolumeAsync(0.5);
+          await newSound.playAsync();
+        } else {
+          throw playError; // Re-throw if it's a different error
+        }
+      }
       
       // Navigate to TelecallerIdleTimer screen
       navigation.navigate('TelecallerIdleTimer', { activateImmediately: true });
@@ -183,6 +208,9 @@ const AlertScreen = () => {
         }
       }
       setIsRinging(false);
+      
+      // Even if sound fails, still navigate to the idle timer screen
+      navigation.navigate('TelecallerIdleTimer', { activateImmediately: true });
     }
   };
 

@@ -38,6 +38,17 @@ const TelecallerIdleTimerScreen = () => {
 
   const loadSound = async () => {
     try {
+      // Configure audio mode before creating the sound
+      await Audio.setAudioModeAsync({
+        playsInSilentModeIOS: true,
+        staysActiveInBackground: true,
+        shouldDuckAndroid: true,
+        playThroughEarpieceAndroid: false,
+        allowsRecordingIOS: false,
+        interruptionModeIOS: 1, // DoNotMix
+        interruptionModeAndroid: 1, // DoNotMix
+      });
+      
       const { sound } = await Audio.Sound.createAsync(
         require('@/app/assets/sound/alarmsound.mp3')
       );
@@ -57,7 +68,20 @@ const TelecallerIdleTimerScreen = () => {
     try {
       if (soundRef.current) {
         await soundRef.current.setPositionAsync(0);
-        await soundRef.current.playAsync();
+        try {
+          await soundRef.current.playAsync();
+        } catch (playError: any) {
+          // Handle specific audio focus error
+          if (playError.message && playError.message.includes("audio focus could not be acquired")) {
+            console.warn("Audio focus could not be acquired, retrying with lower volume...");
+            
+            // Retry with lower volume
+            await soundRef.current.setVolumeAsync(0.5);
+            await soundRef.current.playAsync();
+          } else {
+            throw playError; // Re-throw if it's a different error
+          }
+        }
       }
     } catch (error) {
       console.error('Error playing sound:', error);

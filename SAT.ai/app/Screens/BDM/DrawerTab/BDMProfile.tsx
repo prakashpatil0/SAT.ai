@@ -564,75 +564,118 @@ const BDMProfile = () => {
               </View>
 
               <View style={styles.formContainer}>
-                <FormInput
-                  label="Full Name"
-                  value={formData.name}
-                  onChangeText={validateName}
-                  onBlur={() => handleBlur('name')}
-                  error={touched.name ? errors.name : undefined}
-                  leftIcon="account"
-                  disabled={!isEditing}
-                />
-                
-                <FormInput
-                  label="Designation"
-                  value="BDM"
-                  onChangeText={() => {}}
-                  leftIcon="briefcase"
-                  disabled={true}
-                />
-                
-                <FormInput
-                  label="Email"
-                  value={formData.email}
-                  onChangeText={() => {}}
-                  keyboardType="email-address"
-                  autoCapitalize="none"
-                  leftIcon="email"
-                  autoComplete="email"
-                  disabled={true}
-                />
-                
-                <FormInput
-                  label="Phone Number"
-                  value={formData.phoneNumber}
-                  onChangeText={validateMobileNumber}
-                  onBlur={() => handleBlur('mobileNumber')}
-                  error={touched.mobileNumber ? errors.mobileNumber : undefined}
-                  keyboardType="phone-pad"
-                  leftIcon="phone"
-                  autoComplete="tel"
-                  disabled={!isEditing}
-                />
-                
-                <TouchableOpacity 
-                  style={[
-                    styles.datePickerButton,
-                    !isEditing && styles.datePickerDisabled
-                  ]}
-                  onPress={isEditing ? handleShowDatePicker : undefined}
-                >
-                  <View style={styles.datePickerContent}>
-                    <MaterialIcons name="calendar-today" size={24} color="#777" style={styles.dateIcon} />
-                    <View>
-                      <Text style={styles.datePickerLabel}>Date of Birth</Text>
-                      <Text style={styles.datePickerValue}>
-                        {formatDate(formData.dateOfBirth)}
-                      </Text>
-                    </View>
-                    {isEditing && <MaterialIcons name="arrow-drop-down" size={24} color="#FF8447" />}
-                  </View>
-                </TouchableOpacity>
+                {isEditing ? (
+                  <>
+                    <FormInput
+                      label="Full Name"
+                      value={formData.name}
+                      onChangeText={validateName}
+                      onBlur={() => handleBlur('name')}
+                      error={touched.name ? errors.name : undefined}
+                      leftIcon="account"
+                    />
+                    
+                    <FormInput
+                      label="Designation"
+                      value="BDM"
+                      onChangeText={() => {}}
+                      leftIcon="briefcase"
+                      disabled={true}
+                    />
+                    
+                    <FormInput
+                      label="Email"
+                      value={formData.email}
+                      onChangeText={() => {}}
+                      keyboardType="email-address"
+                      autoCapitalize="none"
+                      leftIcon="email"
+                      autoComplete="email"
+                      disabled={true}
+                    />
+                    
+                    <FormInput
+                      label="Phone Number"
+                      value={formData.phoneNumber}
+                      onChangeText={validateMobileNumber}
+                      onBlur={() => handleBlur('mobileNumber')}
+                      error={touched.mobileNumber ? errors.mobileNumber : undefined}
+                      keyboardType="phone-pad"
+                      leftIcon="phone"
+                      autoComplete="tel"
+                    />
+                    
+                    <TouchableOpacity 
+                      style={styles.datePickerButton}
+                      onPress={handleShowDatePicker}
+                    >
+                      <View style={styles.datePickerContent}>
+                        <MaterialIcons name="calendar-today" size={24} color="#777" style={styles.dateIcon} />
+                        <View>
+                          <Text style={styles.datePickerLabel}>Date of Birth</Text>
+                          <Text style={styles.datePickerValue}>
+                            {formatDate(formData.dateOfBirth)}
+                          </Text>
+                        </View>
+                        <MaterialIcons name="arrow-drop-down" size={24} color="#FF8447" />
+                      </View>
+                    </TouchableOpacity>
 
-                {showDatePicker && (
-                  <DateTimePicker
-                    value={formData.dateOfBirth}
-                    mode="date"
-                    display={Platform.OS === "ios" ? "spinner" : "default"}
-                    onChange={handleDateChange}
-                    maximumDate={new Date()}
-                    minimumDate={new Date(1950, 0, 1)}
-                  />
+                    {showDatePicker && (
+                      <DateTimePicker
+                        value={formData.dateOfBirth}
+                        mode="date"
+                        display={Platform.OS === "ios" ? "spinner" : "default"}
+                        onChange={handleDateChange}
+                        maximumDate={new Date()}
+                        minimumDate={new Date(1950, 0, 1)}
+                      />
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <View style={styles.infoRow}>
+                      <MaterialIcons name="person" size={24} color="#FF8447" />
+                      <View style={styles.infoContent}>
+                        <Text style={styles.infoLabel}>Full Name</Text>
+                        <Text style={styles.infoValue}>{formData.name || 'Not provided'}</Text>
+                      </View>
+                    </View>
+                    
+                    <View style={styles.infoRow}>
+                      <MaterialIcons name="work" size={24} color="#FF8447" />
+                      <View style={styles.infoContent}>
+                        <Text style={styles.infoLabel}>Designation</Text>
+                        <Text style={styles.infoValue}>Business Development Manager</Text>
+                      </View>
+                    </View>
+                    
+                    <View style={styles.infoRow}>
+                      <MaterialIcons name="email" size={24} color="#FF8447" />
+                      <View style={styles.infoContent}>
+                        <Text style={styles.infoLabel}>Email</Text>
+                        <Text style={styles.infoValue}>{formData.email || 'Not provided'}</Text>
+                      </View>
+                    </View>
+                    
+                    <View style={styles.infoRow}>
+                      <MaterialIcons name="phone" size={24} color="#FF8447" />
+                      <View style={styles.infoContent}>
+                        <Text style={styles.infoLabel}>Phone Number</Text>
+                        <Text style={styles.infoValue}>{formData.phoneNumber || 'Not provided'}</Text>
+                      </View>
+                    </View>
+                    
+                    <View style={styles.infoRow}>
+                      <MaterialIcons name="calendar-today" size={24} color="#FF8447" />
+                      <View style={styles.infoContent}>
+                        <Text style={styles.infoLabel}>Date of Birth</Text>
+                        <Text style={styles.infoValue}>
+                          {formData.dateOfBirth ? formatDate(formData.dateOfBirth) : 'Not provided'}
+                        </Text>
+                      </View>
+                    </View>
+                  </>
                 )}
               </View>
             </View>
@@ -848,6 +891,28 @@ const styles = StyleSheet.create({
   inputSkeleton: {
     borderRadius: 8,
     marginVertical: 8,
+  },
+  infoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  infoContent: {
+    marginLeft: 12,
+    flex: 1,
+  },
+  infoLabel: {
+    fontSize: 12,
+    fontFamily: 'LexendDeca_400Regular',
+    color: '#666',
+    marginBottom: 4,
+  },
+  infoValue: {
+    fontSize: 16,
+    fontFamily: 'LexendDeca_500Medium',
+    color: '#333',
   },
 });
 

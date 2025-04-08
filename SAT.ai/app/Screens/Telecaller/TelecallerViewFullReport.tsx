@@ -229,6 +229,7 @@ const ViewFullReport = () => {
     if (!userId) return { labels: [], datasets: [{ data: [] }] };
 
     const monthlySummaryRef = collection(db, 'telecaller_monthly_summaries');
+    const achievementsRef = collection(db, 'telecaller_achievements');
     const currentYear = currentMonth.getFullYear();
     const currentQuarter = Math.floor(currentMonth.getMonth() / 3) + 1;
     const quarterStartMonth = (currentQuarter - 1) * 3;
@@ -245,37 +246,119 @@ const ViewFullReport = () => {
       // Create detailed label with month and year
       labels.push(format(monthStart, 'MMM yyyy'));
       
-      const monthQuery = query(
-        monthlySummaryRef,
-        where('userId', '==', userId),
-        where('monthStart', '==', Timestamp.fromDate(monthStart)),
-        where('monthEnd', '==', Timestamp.fromDate(monthEnd))
-      );
-
-      const monthSnapshot = await getDocs(monthQuery);
+      // Check if this is the current month
+      const now = new Date();
+      const isCurrentMonth = monthStart.getMonth() === now.getMonth() && 
+                            monthStart.getFullYear() === now.getFullYear();
       
-      if (!monthSnapshot.empty) {
-        const monthData = monthSnapshot.docs[0].data();
-        const weeklyAchievements = monthData.weeklyAchievements || [];
+      if (isCurrentMonth) {
+        // For current month, calculate real-time data from weekly achievements
+        const weeks = eachWeekOfInterval(
+          { start: monthStart, end: monthEnd },
+          { weekStartsOn: 1 } // Start weeks on Monday
+        );
         
-        // Calculate average achievement considering all weeks
-        const totalAchievement = weeklyAchievements.reduce((sum: number, week: any) => sum + week.achievement, 0);
-        const averageAchievement = totalAchievement / weeklyAchievements.length;
+        let totalAchievement = 0;
+        let weekCount = 0;
         
+        // Process each week in the current month
+        for (const weekStart of weeks) {
+          const weekEnd = endOfWeek(weekStart, { weekStartsOn: 1 });
+          
+          // Query achievements for this week
+          const weekQuery = query(
+            achievementsRef,
+            where('userId', '==', userId),
+            where('weekStart', '>=', Timestamp.fromDate(weekStart)),
+            where('weekEnd', '<=', Timestamp.fromDate(weekEnd)),
+            orderBy('weekStart', 'asc')
+          );
+          
+          const weekSnapshot = await getDocs(weekQuery);
+          
+          if (!weekSnapshot.empty) {
+            // Get the highest achievement for this week
+            const weekAchievements = weekSnapshot.docs.map(doc => doc.data().percentageAchieved);
+            const highestAchievement = Math.max(...weekAchievements);
+            totalAchievement += highestAchievement;
+            weekCount++;
+          }
+        }
+        
+        // Calculate average achievement for the current month
+        const averageAchievement = weekCount > 0 ? totalAchievement / weekCount : 0;
         monthlyData.push(Math.min(Math.max(Math.round(averageAchievement * 10) / 10, 0), 100));
         
         monthlyAchievements.push({
           month: format(monthStart, 'MMMM yyyy'),
           highestAchievement: averageAchievement,
-          weekCount: weeklyAchievements.length
+          weekCount: weekCount
         });
+        
+        // Save the calculated data to monthly summary for consistency
+        const monthlyQuery = query(
+          monthlySummaryRef,
+          where('userId', '==', userId),
+          where('monthStart', '==', Timestamp.fromDate(monthStart)),
+          where('monthEnd', '==', Timestamp.fromDate(monthEnd))
+        );
+        
+        const monthlySnapshot = await getDocs(monthlyQuery);
+        
+        if (!monthlySnapshot.empty) {
+          // Update existing monthly summary
+          const existingMonthly = monthlySnapshot.docs[0];
+          await updateDoc(existingMonthly.ref, {
+            totalAchievement: averageAchievement,
+            weekCount: weekCount,
+            updatedAt: Timestamp.fromDate(new Date())
+          });
+        } else {
+          // Create new monthly summary
+          const monthlyData = {
+            userId,
+            monthStart: Timestamp.fromDate(monthStart),
+            monthEnd: Timestamp.fromDate(monthEnd),
+            totalAchievement: averageAchievement,
+            weekCount: weekCount,
+            month: monthStart.getMonth() + 1,
+            year: monthStart.getFullYear(),
+            createdAt: Timestamp.fromDate(new Date()),
+            updatedAt: Timestamp.fromDate(new Date())
+          };
+          
+          await addDoc(monthlySummaryRef, monthlyData);
+        }
       } else {
-        monthlyData.push(0);
-        monthlyAchievements.push({
-          month: format(monthStart, 'MMMM yyyy'),
-          highestAchievement: 0,
-          weekCount: 0
-        });
+        // For past months, use the stored monthly summary
+        const monthQuery = query(
+          monthlySummaryRef,
+          where('userId', '==', userId),
+          where('monthStart', '==', Timestamp.fromDate(monthStart)),
+          where('monthEnd', '==', Timestamp.fromDate(monthEnd))
+        );
+
+        const monthSnapshot = await getDocs(monthQuery);
+        
+        if (!monthSnapshot.empty) {
+          const monthData = monthSnapshot.docs[0].data();
+          const totalAchievement = monthData.totalAchievement || 0;
+          
+          monthlyData.push(Math.min(Math.max(Math.round(totalAchievement * 10) / 10, 0), 100));
+          
+          monthlyAchievements.push({
+            month: format(monthStart, 'MMMM yyyy'),
+            highestAchievement: totalAchievement,
+            weekCount: monthData.weekCount || 0
+          });
+        } else {
+          monthlyData.push(0);
+          monthlyAchievements.push({
+            month: format(monthStart, 'MMMM yyyy'),
+            highestAchievement: 0,
+            weekCount: 0
+          });
+        }
       }
     }
 
@@ -338,6 +421,78 @@ const ViewFullReport = () => {
       }
     }
 
+    // Calculate and save monthly total for real-time updates
+    const now = new Date();
+    const isCurrentMonth = month.getMonth() === now.getMonth() && 
+                          month.getFullYear() === now.getFullYear();
+    
+    if (isCurrentMonth) {
+      // Calculate total achievement for the current month
+      const totalAchievement = data.reduce((sum, achievement) => sum + achievement, 0);
+      const averageAchievement = data.length > 0 ? totalAchievement / data.length : 0;
+      
+      // Save to monthly summary for real-time updates
+      const monthlySummaryRef = collection(db, 'telecaller_monthly_summaries');
+      const monthlyQuery = query(
+        monthlySummaryRef,
+        where('userId', '==', userId),
+        where('monthStart', '==', Timestamp.fromDate(monthStart)),
+        where('monthEnd', '==', Timestamp.fromDate(monthEnd))
+      );
+      
+      const monthlySnapshot = await getDocs(monthlyQuery);
+      
+      if (!monthlySnapshot.empty) {
+        // Update existing monthly summary
+        const existingMonthly = monthlySnapshot.docs[0];
+        const currentData = existingMonthly.data();
+        
+        // Create weekly achievements array for the current month
+        const weeklyAchievements = weeks.map((weekStart, index) => {
+          const weekEnd = endOfWeek(weekStart, { weekStartsOn: 1 });
+          return {
+            weekNumber: index + 1,
+            achievement: data[index],
+            weekStart: Timestamp.fromDate(weekStart),
+            weekEnd: Timestamp.fromDate(weekEnd)
+          };
+        });
+        
+        await updateDoc(existingMonthly.ref, {
+          totalAchievement: averageAchievement,
+          weekCount: data.length,
+          weeklyAchievements: weeklyAchievements,
+          updatedAt: Timestamp.fromDate(new Date())
+        });
+      } else {
+        // Create new monthly summary
+        const weeklyAchievements = weeks.map((weekStart, index) => {
+          const weekEnd = endOfWeek(weekStart, { weekStartsOn: 1 });
+          return {
+            weekNumber: index + 1,
+            achievement: data[index],
+            weekStart: Timestamp.fromDate(weekStart),
+            weekEnd: Timestamp.fromDate(weekEnd)
+          };
+        });
+        
+        const monthlyData = {
+          userId,
+          monthStart: Timestamp.fromDate(monthStart),
+          monthEnd: Timestamp.fromDate(monthEnd),
+          totalAchievement: averageAchievement,
+          weekCount: data.length,
+          month: monthStart.getMonth() + 1,
+          year: monthStart.getFullYear(),
+          weeklyAchievements: weeklyAchievements,
+          createdAt: Timestamp.fromDate(new Date()),
+          updatedAt: Timestamp.fromDate(new Date())
+        };
+        
+        await addDoc(monthlySummaryRef, monthlyData);
+      }
+    }
+
     return {
       labels,
       datasets: [{ data }]
@@ -349,6 +504,7 @@ const ViewFullReport = () => {
     if (!userId) return { labels: [], datasets: [{ data: [] }] };
 
     const monthlySummaryRef = collection(db, 'telecaller_monthly_summaries');
+    const achievementsRef = collection(db, 'telecaller_achievements');
     const currentYear = currentMonth.getFullYear();
     const currentMonthIndex = currentMonth.getMonth();
     
@@ -388,14 +544,91 @@ const ViewFullReport = () => {
       const monthKey = format(achievementDate, 'MMM');
       
       if (monthlyData[monthKey] !== undefined) {
-        // Calculate average achievement from weekly achievements
-        const weeklyAchievements = monthData.weeklyAchievements || [];
-        if (weeklyAchievements.length > 0) {
-          const totalAchievement = weeklyAchievements.reduce((sum: number, week: any) => sum + week.achievement, 0);
-          monthlyData[monthKey] = Math.min(Math.max(Math.round((totalAchievement / weeklyAchievements.length) * 10) / 10, 0), 100);
-        }
+        // Use the totalAchievement directly
+        monthlyData[monthKey] = Math.min(Math.max(Math.round((monthData.totalAchievement || 0) * 10) / 10, 0), 100);
       }
     });
+
+    // For the current month, calculate real-time data if not already in the snapshot
+    const now = new Date();
+    const currentMonthKey = format(now, 'MMM');
+    
+    if (monthlyData[currentMonthKey] === 0) {
+      // Calculate current month data from weekly achievements
+      const monthStart = startOfMonth(now);
+      const monthEnd = endOfMonth(now);
+      
+      const weeks = eachWeekOfInterval(
+        { start: monthStart, end: monthEnd },
+        { weekStartsOn: 1 } // Start weeks on Monday
+      );
+      
+      let totalAchievement = 0;
+      let weekCount = 0;
+      
+      // Process each week in the current month
+      for (const weekStart of weeks) {
+        const weekEnd = endOfWeek(weekStart, { weekStartsOn: 1 });
+        
+        // Query achievements for this week
+        const weekQuery = query(
+          achievementsRef,
+          where('userId', '==', userId),
+          where('weekStart', '>=', Timestamp.fromDate(weekStart)),
+          where('weekEnd', '<=', Timestamp.fromDate(weekEnd)),
+          orderBy('weekStart', 'asc')
+        );
+        
+        const weekSnapshot = await getDocs(weekQuery);
+        
+        if (!weekSnapshot.empty) {
+          // Get the highest achievement for this week
+          const weekAchievements = weekSnapshot.docs.map(doc => doc.data().percentageAchieved);
+          const highestAchievement = Math.max(...weekAchievements);
+          totalAchievement += highestAchievement;
+          weekCount++;
+        }
+      }
+      
+      // Calculate average achievement for the current month
+      const averageAchievement = weekCount > 0 ? totalAchievement / weekCount : 0;
+      monthlyData[currentMonthKey] = Math.min(Math.max(Math.round(averageAchievement * 10) / 10, 0), 100);
+      
+      // Save the calculated data to monthly summary for consistency
+      const monthlyQuery = query(
+        monthlySummaryRef,
+        where('userId', '==', userId),
+        where('monthStart', '==', Timestamp.fromDate(monthStart)),
+        where('monthEnd', '==', Timestamp.fromDate(monthEnd))
+      );
+      
+      const monthlySnapshot = await getDocs(monthlyQuery);
+      
+      if (!monthlySnapshot.empty) {
+        // Update existing monthly summary
+        const existingMonthly = monthlySnapshot.docs[0];
+        await updateDoc(existingMonthly.ref, {
+          totalAchievement: averageAchievement,
+          weekCount: weekCount,
+          updatedAt: Timestamp.fromDate(new Date())
+        });
+      } else {
+        // Create new monthly summary
+        const monthlyData = {
+          userId,
+          monthStart: Timestamp.fromDate(monthStart),
+          monthEnd: Timestamp.fromDate(monthEnd),
+          totalAchievement: averageAchievement,
+          weekCount: weekCount,
+          month: monthStart.getMonth() + 1,
+          year: monthStart.getFullYear(),
+          createdAt: Timestamp.fromDate(new Date()),
+          updatedAt: Timestamp.fromDate(new Date())
+        };
+        
+        await addDoc(monthlySummaryRef, monthlyData);
+      }
+    }
 
     // Convert to array in correct order
     const data = labels.map(monthKey => monthlyData[monthKey]);
@@ -483,6 +716,17 @@ const ViewFullReport = () => {
     fetchPeriodData(selectedPeriod, timeOffset);
   }, [selectedPeriod]);
 
+  // Add refresh mechanism for real-time updates
+  useEffect(() => {
+    // Set up interval to refresh data every 5 minutes
+    const refreshInterval = setInterval(() => {
+      fetchPeriodData(selectedPeriod, timeOffset);
+    }, 5 * 60 * 1000); // 5 minutes
+
+    // Clean up interval on unmount
+    return () => clearInterval(refreshInterval);
+  }, [selectedPeriod, timeOffset]);
+
   const getActiveData = () => {
     switch (selectedPeriod) {
       case 'Quarterly':
@@ -517,6 +761,11 @@ const ViewFullReport = () => {
       </View>
     </View>
   );
+
+  const handleRefresh = () => {
+    setIsLoading(true);
+    fetchPeriodData(selectedPeriod, timeOffset);
+  };
 
   const saveEndOfWeekData = async (weekStart: Date, weekEnd: Date) => {
     const userId = auth.currentUser?.uid;
@@ -721,6 +970,20 @@ const ViewFullReport = () => {
             <View style={styles.headerSection}>
               <Text style={styles.headerTitle}>Performance Analytics</Text>
               <Text style={styles.headerSubtitle}>Track your achievements and progress</Text>
+              <TouchableOpacity 
+                style={styles.refreshButton}
+                onPress={handleRefresh}
+                disabled={isLoading}
+              >
+                {isLoading ? (
+                  <ActivityIndicator size="small" color="#FF8447" />
+                ) : (
+                  <MaterialIcons name="refresh" size={24} color="#FF8447" />
+                )}
+                <Text style={styles.refreshText}>
+                  {isLoading ? 'Refreshing...' : 'Refresh Data'}
+                </Text>
+              </TouchableOpacity>
             </View>
 
             {/* Period Selection */}
@@ -1212,6 +1475,21 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontFamily: 'LexendDeca_400Regular',
     color: '#666',
+  },
+  refreshButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    borderRadius: 20,
+    backgroundColor: '#F3F4F6',
+    marginTop: 16,
+    alignSelf: 'center',
+  },
+  refreshText: {
+    fontSize: 14,
+    fontFamily: 'LexendDeca_500Medium',
+    color: '#666',
+    marginLeft: 8,
   },
 });
 

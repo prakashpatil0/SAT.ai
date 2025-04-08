@@ -2,9 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Dimensions, ScrollView, ActivityIndicator } from 'react-native';
 import { LineChart } from 'react-native-chart-kit';
 import { auth, db } from '@/firebaseConfig';
-import { collection, query, where, getDocs, Timestamp } from 'firebase/firestore';
+import { collection, query, where, getDocs, Timestamp, addDoc, updateDoc, orderBy } from 'firebase/firestore';
 import BDMMainLayout from '@/app/components/BDMMainLayout';
 import AppGradient from '@/app/components/AppGradient';
+import { format, startOfMonth, endOfMonth, eachWeekOfInterval, endOfWeek, subMonths, startOfWeek, endOfDay } from 'date-fns';
 
 const screenWidth = Dimensions.get('window').width - 40;
 
@@ -13,6 +14,13 @@ interface ChartData {
   datasets: {
     data: number[];
   }[];
+  monthInfo?: { [key: string]: { year: number, month: string } };
+}
+
+interface MonthlyAchievement {
+  month: string;
+  highestAchievement: number;
+  weekCount: number;
 }
 
 const BDMViewFullReport = () => {
@@ -32,6 +40,7 @@ const BDMViewFullReport = () => {
   });
   const [highestAchievement, setHighestAchievement] = useState(0);
   const [averageAchievement, setAverageAchievement] = useState(0);
+  const [monthlyAchievements, setMonthlyAchievements] = useState<MonthlyAchievement[]>([]);
 
   const periods = ['Weekly', 'Quarterly', 'Half Yearly'];
 
@@ -46,15 +55,15 @@ const BDMViewFullReport = () => {
       if (!userId) return;
 
       // Fetch weekly data
-      const weeklyData = await fetchPeriodData('Weekly');
+      const weeklyData = await getWeeklyData(new Date());
       setWeeklyChartData(weeklyData);
 
       // Fetch quarterly data
-      const quarterlyData = await fetchPeriodData('Quarterly');
+      const quarterlyData = await getQuarterData(new Date());
       setQuarterlyChartData(quarterlyData);
 
       // Fetch half yearly data
-      const halfYearlyData = await fetchPeriodData('Half Yearly');
+      const halfYearlyData = await getHalfYearData(new Date());
       setHalfYearlyChartData(halfYearlyData);
 
       // Calculate highest and average achievements
@@ -62,10 +71,12 @@ const BDMViewFullReport = () => {
         ...weeklyData.datasets[0].data,
         ...quarterlyData.datasets[0].data,
         ...halfYearlyData.datasets[0].data
-      ];
+      ].filter(value => value > 0); // Filter out zero values
 
-      const highest = Math.max(...allAchievements);
-      const average = Math.round(allAchievements.reduce((a, b) => a + b, 0) / allAchievements.length);
+      const highest = allAchievements.length > 0 ? Math.max(...allAchievements) : 0;
+      const average = allAchievements.length > 0 
+        ? Math.round(allAchievements.reduce((a, b) => a + b, 0) / allAchievements.length) 
+        : 0;
 
       setHighestAchievement(highest);
       setAverageAchievement(average);
@@ -77,122 +88,784 @@ const BDMViewFullReport = () => {
     }
   };
 
-  const fetchPeriodData = async (period: string) => {
+  const getWeeklyData = async (currentMonth: Date): Promise<ChartData> => {
     const userId = auth.currentUser?.uid;
-    const now = new Date();
-    let startDate = new Date();
-    let labels: string[] = [];
-    let lastDayOfMonth: Date;
+    if (!userId) return { labels: [], datasets: [{ data: [] }] };
 
-    // Set date range based on period
-    switch (period) {
-      case 'Weekly':
-        // Get the first day of the current month
-        const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-        // Get the last day of the current month
-        lastDayOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-        
-        // Calculate number of weeks in the current month
-        const totalDays = lastDayOfMonth.getDate();
-        const totalWeeks = Math.ceil(totalDays / 7);
-        
-        // Generate week labels
-        labels = Array.from({ length: totalWeeks }, (_, i) => `Week ${i + 1}`);
-        
-        // Set start date to first day of current month
-        startDate = firstDayOfMonth;
-        break;
-      case 'Quarterly':
-        startDate.setMonth(now.getMonth() - 3);
-        labels = Array.from({ length: 3 }, (_, i) => {
-          const date = new Date(now);
-          date.setMonth(now.getMonth() - (2 - i));
-          return date.toLocaleString('default', { month: 'short' });
-        });
-        break;
-      case 'Half Yearly':
-        startDate.setMonth(now.getMonth() - 6);
-        labels = Array.from({ length: 6 }, (_, i) => {
-          const date = new Date(now);
-          date.setMonth(now.getMonth() - (5 - i));
-          return date.toLocaleString('default', { month: 'short' });
-        });
-        break;
-    }
-
-    const meetingsRef = collection(db, 'meetings');
-    const q = query(
-      meetingsRef,
-      where('userId', '==', userId),
-      where('meetingDateTime', '>=', Timestamp.fromDate(startDate))
+    const reportsRef = collection(db, 'bdm_reports');
+    const monthStart = startOfMonth(currentMonth);
+    const monthEnd = endOfMonth(currentMonth);
+    
+    // Get all weeks in the month
+    const weeks = eachWeekOfInterval(
+      { start: monthStart, end: monthEnd },
+      { weekStartsOn: 1 } // Start weeks on Monday
     );
 
-    const querySnapshot = await getDocs(q);
-    const meetings = querySnapshot.docs.map(doc => doc.data());
+    const data: number[] = [];
+    const labels: string[] = [];
+    
+    // Process each week
+    for (let i = 0; i < weeks.length; i++) {
+      const weekStart = weeks[i];
+      const weekEnd = endOfWeek(weekStart, { weekStartsOn: 1 });
+      
+      // Create label for this week
+      const weekNumber = i + 1;
+      labels.push(`Week ${weekNumber}`);
+      
+      // Get current year, month, and week number
+      const currentYear = weekStart.getFullYear();
+      const currentMonth = weekStart.getMonth() + 1;
+      const currentWeekNumber = Math.ceil((weekStart.getDate() + new Date(currentYear, weekStart.getMonth(), 1).getDay()) / 7);
+      
+      // Query reports for this week
+      const weekQuery = query(
+        reportsRef,
+        where('userId', '==', userId),
+        where('year', '==', currentYear),
+        where('month', '==', currentMonth),
+        where('weekNumber', '==', currentWeekNumber)
+      );
 
-    const progressData = labels.map((_, index) => {
-      const intervalStart = new Date(startDate);
-      const intervalEnd = new Date(startDate);
-
-      if (period === 'Weekly') {
-        // Calculate start and end dates for each week
-        intervalStart.setDate(startDate.getDate() + (index * 7));
-        intervalEnd.setDate(intervalStart.getDate() + 6);
-        // Ensure we don't go beyond the last day of the month
-        if (intervalEnd > lastDayOfMonth) {
-          intervalEnd.setDate(lastDayOfMonth.getDate());
+      const weekSnapshot = await getDocs(weekQuery);
+      
+      if (!weekSnapshot.empty) {
+        // Calculate achievement percentage for this week
+        let totalMeetings = 0;
+        let totalAttendedMeetings = 0;
+        let totalDuration = 0;
+        let totalClosing = 0;
+        
+        weekSnapshot.forEach(doc => {
+          const reportData = doc.data();
+          
+          totalMeetings += reportData.numMeetings || 0;
+          totalAttendedMeetings += reportData.positiveLeads || 0;
+          totalClosing += reportData.totalClosingAmount || 0;
+          
+          // Parse duration string - handle both formats
+          const durationStr = reportData.meetingDuration || '';
+          
+          // Check if it's in HH:MM:SS format
+          if (durationStr.includes(':')) {
+            const [hours, minutes, seconds] = durationStr.split(':').map(Number);
+            totalDuration += (hours * 3600) + (minutes * 60) + seconds;
+          } else {
+            // Handle "X hr Y mins" format
+            const hrMatch = durationStr.match(/(\d+)\s*hr/);
+            const minMatch = durationStr.match(/(\d+)\s*min/);
+            const hours = (hrMatch ? parseInt(hrMatch[1]) : 0) +
+                         (minMatch ? parseInt(minMatch[1]) / 60 : 0);
+            totalDuration += hours * 3600; // Convert to seconds
+          }
+        });
+        
+        // Calculate progress percentages
+        const meetingsPercentage = (totalMeetings / 30) * 100;
+        const attendedPercentage = (totalAttendedMeetings / 30) * 100;
+        const durationPercentage = (totalDuration / (20 * 3600)) * 100; // 20 hours in seconds
+        const closingPercentage = (totalClosing / 50000) * 100;
+        
+        // Calculate overall progress as average of all percentages
+        const overallProgress = Math.min(
+          (meetingsPercentage + attendedPercentage + durationPercentage + closingPercentage) / 4,
+          100
+        );
+        
+        data.push(Math.min(Math.max(Math.round(overallProgress * 10) / 10, 0), 100));
+        
+        // Save to achievements collection for consistency
+        const achievementsRef = collection(db, 'bdm_achievements');
+        const achievementQuery = query(
+          achievementsRef,
+          where('userId', '==', userId),
+          where('weekStart', '==', Timestamp.fromDate(weekStart)),
+          where('weekEnd', '==', Timestamp.fromDate(weekEnd))
+        );
+        
+        const achievementSnapshot = await getDocs(achievementQuery);
+        
+        if (!achievementSnapshot.empty) {
+          // Update existing achievement
+          const existingAchievement = achievementSnapshot.docs[0];
+          await updateDoc(existingAchievement.ref, {
+            percentageAchieved: overallProgress,
+            updatedAt: Timestamp.fromDate(new Date())
+          });
+        } else {
+          // Create new achievement
+          const achievementData = {
+            userId,
+            weekStart: Timestamp.fromDate(weekStart),
+            weekEnd: Timestamp.fromDate(weekEnd),
+            percentageAchieved: overallProgress,
+            year: currentYear,
+            month: currentMonth,
+            weekNumber: currentWeekNumber,
+            createdAt: Timestamp.fromDate(new Date()),
+            updatedAt: Timestamp.fromDate(new Date())
+          };
+          
+          await addDoc(achievementsRef, achievementData);
         }
-      } else if (period === 'Quarterly') {
-        intervalStart.setMonth(startDate.getMonth() + index);
-        intervalEnd.setMonth(intervalStart.getMonth() + 1);
       } else {
-        intervalStart.setMonth(startDate.getMonth() + index);
-        intervalEnd.setMonth(intervalStart.getMonth() + 1);
+        data.push(0);
       }
+    }
 
-      const intervalMeetings = meetings.filter(meeting => {
-        const meetingDate = meeting.meetingDateTime.toDate();
-        return meetingDate >= intervalStart && meetingDate <= intervalEnd;
-      });
-
-      return calculateProgress(intervalMeetings);
-    });
+    // Calculate and save monthly total for real-time updates
+    const now = new Date();
+    const isCurrentMonth = currentMonth.getMonth() === now.getMonth() && 
+                          currentMonth.getFullYear() === now.getFullYear();
+    
+    if (isCurrentMonth) {
+      // Calculate total achievement for the current month
+      const totalAchievement = data.reduce((sum, achievement) => sum + achievement, 0);
+      const averageAchievement = data.length > 0 ? totalAchievement / data.length : 0;
+      
+      // Save to monthly summary for real-time updates
+      const monthlySummaryRef = collection(db, 'bdm_monthly_summaries');
+      const monthlyQuery = query(
+        monthlySummaryRef,
+        where('userId', '==', userId),
+        where('monthStart', '==', Timestamp.fromDate(monthStart)),
+        where('monthEnd', '==', Timestamp.fromDate(monthEnd))
+      );
+      
+      const monthlySnapshot = await getDocs(monthlyQuery);
+      
+      if (!monthlySnapshot.empty) {
+        // Update existing monthly summary
+        const existingMonthly = monthlySnapshot.docs[0];
+        
+        // Create weekly achievements array for the current month
+        const weeklyAchievements = weeks.map((weekStart, index) => {
+          const weekEnd = endOfWeek(weekStart, { weekStartsOn: 1 });
+          return {
+            weekNumber: index + 1,
+            achievement: data[index],
+            weekStart: Timestamp.fromDate(weekStart),
+            weekEnd: Timestamp.fromDate(weekEnd)
+          };
+        });
+        
+        await updateDoc(existingMonthly.ref, {
+          totalAchievement: averageAchievement,
+          weekCount: data.length,
+          weeklyAchievements: weeklyAchievements,
+          updatedAt: Timestamp.fromDate(new Date())
+        });
+      } else {
+        // Create new monthly summary
+        const weeklyAchievements = weeks.map((weekStart, index) => {
+          const weekEnd = endOfWeek(weekStart, { weekStartsOn: 1 });
+          return {
+            weekNumber: index + 1,
+            achievement: data[index],
+            weekStart: Timestamp.fromDate(weekStart),
+            weekEnd: Timestamp.fromDate(weekEnd)
+          };
+        });
+        
+        const monthlyData = {
+          userId,
+          monthStart: Timestamp.fromDate(monthStart),
+          monthEnd: Timestamp.fromDate(monthEnd),
+          totalAchievement: averageAchievement,
+          weekCount: data.length,
+          month: monthStart.getMonth() + 1,
+          year: monthStart.getFullYear(),
+          weeklyAchievements: weeklyAchievements,
+          createdAt: Timestamp.fromDate(new Date()),
+          updatedAt: Timestamp.fromDate(new Date())
+        };
+        
+        await addDoc(monthlySummaryRef, monthlyData);
+      }
+    }
 
     return {
       labels,
-      datasets: [{ data: progressData }]
+      datasets: [{ data }]
     };
   };
 
-  const calculateProgress = (meetings: any[]) => {
-    const targets = {
-      projectedMeetings: 30,
-      attendedMeetings: 30,
-      meetingDuration: 20,
-      closing: 50000
-    };
+  const getQuarterData = async (currentMonth: Date): Promise<ChartData> => {
+    const userId = auth.currentUser?.uid;
+    if (!userId) return { labels: [], datasets: [{ data: [] }] };
 
-    let totalDuration = 0;
-    let totalClosing = 0;
-    meetings.forEach(meeting => {
-      if (meeting.meetingEndDateTime && meeting.meetingDateTime) {
-        const duration = meeting.meetingEndDateTime.toDate().getTime() - meeting.meetingDateTime.toDate().getTime();
-        totalDuration += duration / (1000 * 60 * 60);
+    const monthlySummaryRef = collection(db, 'bdm_monthly_summaries');
+    const reportsRef = collection(db, 'bdm_reports');
+    const currentYear = currentMonth.getFullYear();
+    const currentQuarter = Math.floor(currentMonth.getMonth() / 3) + 1;
+    const quarterStartMonth = (currentQuarter - 1) * 3;
+    
+    const monthlyDataArray: number[] = [];
+    const labels: string[] = [];
+    const monthlyAchievements: MonthlyAchievement[] = [];
+    
+    // Get data for each month of the current quarter
+    for (let i = 0; i < 3; i++) {
+      const monthStart = new Date(currentYear, quarterStartMonth + i, 1);
+      const monthEnd = new Date(currentYear, quarterStartMonth + i + 1, 0);
+      
+      // Create detailed label with month and year
+      labels.push(format(monthStart, 'MMM yyyy'));
+      
+      // Check if this is the current month
+      const now = new Date();
+      const isCurrentMonth = monthStart.getMonth() === now.getMonth() && 
+                            monthStart.getFullYear() === now.getFullYear();
+      
+      if (isCurrentMonth) {
+        // For current month, calculate real-time data from weekly achievements
+        const weeks = eachWeekOfInterval(
+          { start: monthStart, end: monthEnd },
+          { weekStartsOn: 1 } // Start weeks on Monday
+        );
+        
+        let totalAchievement = 0;
+        let weekCount = 0;
+        
+        // Process each week in the current month
+        for (const weekStart of weeks) {
+          const weekEnd = endOfWeek(weekStart, { weekStartsOn: 1 });
+          
+          // Get current year, month, and week number
+          const weekYear = weekStart.getFullYear();
+          const weekMonth = weekStart.getMonth() + 1;
+          const weekNumber = Math.ceil((weekStart.getDate() + new Date(weekYear, weekStart.getMonth(), 1).getDay()) / 7);
+          
+          // Query reports for this week
+          const weekQuery = query(
+            reportsRef,
+            where('userId', '==', userId),
+            where('year', '==', weekYear),
+            where('month', '==', weekMonth),
+            where('weekNumber', '==', weekNumber)
+          );
+          
+          const weekSnapshot = await getDocs(weekQuery);
+          
+          if (!weekSnapshot.empty) {
+            // Calculate achievement percentage for this week
+            let totalMeetings = 0;
+            let totalAttendedMeetings = 0;
+            let totalDuration = 0;
+            let totalClosing = 0;
+            
+            weekSnapshot.forEach(doc => {
+              const reportData = doc.data();
+              
+              totalMeetings += reportData.numMeetings || 0;
+              totalAttendedMeetings += reportData.positiveLeads || 0;
+              totalClosing += reportData.totalClosingAmount || 0;
+              
+              // Parse duration string - handle both formats
+              const durationStr = reportData.meetingDuration || '';
+              
+              // Check if it's in HH:MM:SS format
+              if (durationStr.includes(':')) {
+                const [hours, minutes, seconds] = durationStr.split(':').map(Number);
+                totalDuration += (hours * 3600) + (minutes * 60) + seconds;
+              } else {
+                // Handle "X hr Y mins" format
+                const hrMatch = durationStr.match(/(\d+)\s*hr/);
+                const minMatch = durationStr.match(/(\d+)\s*min/);
+                const hours = (hrMatch ? parseInt(hrMatch[1]) : 0) +
+                             (minMatch ? parseInt(minMatch[1]) / 60 : 0);
+                totalDuration += hours * 3600; // Convert to seconds
+              }
+            });
+            
+            // Calculate progress percentages
+            const meetingsPercentage = (totalMeetings / 30) * 100;
+            const attendedPercentage = (totalAttendedMeetings / 30) * 100;
+            const durationPercentage = (totalDuration / (20 * 3600)) * 100; // 20 hours in seconds
+            const closingPercentage = (totalClosing / 50000) * 100;
+            
+            // Calculate overall progress as average of all percentages
+            const overallProgress = Math.min(
+              (meetingsPercentage + attendedPercentage + durationPercentage + closingPercentage) / 4,
+              100
+            );
+            
+            totalAchievement += overallProgress;
+            weekCount++;
+          }
+        }
+        
+        // Calculate average achievement for the current month
+        const averageAchievement = weekCount > 0 ? totalAchievement / weekCount : 0;
+        monthlyDataArray.push(Math.min(Math.max(Math.round(averageAchievement * 10) / 10, 0), 100));
+        
+        monthlyAchievements.push({
+          month: format(monthStart, 'MMMM yyyy'),
+          highestAchievement: averageAchievement,
+          weekCount: weekCount
+        });
+        
+        // Save the calculated data to monthly summary for consistency
+        const monthlyQuery = query(
+          monthlySummaryRef,
+      where('userId', '==', userId),
+          where('monthStart', '==', Timestamp.fromDate(monthStart)),
+          where('monthEnd', '==', Timestamp.fromDate(monthEnd))
+        );
+        
+        const monthlySnapshot = await getDocs(monthlyQuery);
+        
+        if (!monthlySnapshot.empty) {
+          // Update existing monthly summary
+          const existingMonthly = monthlySnapshot.docs[0];
+          await updateDoc(existingMonthly.ref, {
+            totalAchievement: averageAchievement,
+            weekCount: weekCount,
+            updatedAt: Timestamp.fromDate(new Date())
+          });
+        } else {
+          // Create new monthly summary
+          const monthlyData = {
+            userId,
+            monthStart: Timestamp.fromDate(monthStart),
+            monthEnd: Timestamp.fromDate(monthEnd),
+            totalAchievement: averageAchievement,
+            weekCount: weekCount,
+            month: monthStart.getMonth() + 1,
+            year: monthStart.getFullYear(),
+            createdAt: Timestamp.fromDate(new Date()),
+            updatedAt: Timestamp.fromDate(new Date())
+          };
+          
+          await addDoc(monthlySummaryRef, monthlyData);
+        }
+      } else {
+        // For past months, use the stored monthly summary
+        const monthQuery = query(
+          monthlySummaryRef,
+          where('userId', '==', userId),
+          where('monthStart', '==', Timestamp.fromDate(monthStart)),
+          where('monthEnd', '==', Timestamp.fromDate(monthEnd))
+        );
+
+        const monthSnapshot = await getDocs(monthQuery);
+        
+        if (!monthSnapshot.empty) {
+          const monthData = monthSnapshot.docs[0].data();
+          const totalAchievement = monthData.totalAchievement || 0;
+          
+          monthlyDataArray.push(Math.min(Math.max(Math.round(totalAchievement * 10) / 10, 0), 100));
+          
+          monthlyAchievements.push({
+            month: format(monthStart, 'MMMM yyyy'),
+            highestAchievement: totalAchievement,
+            weekCount: monthData.weekCount || 0
+          });
+        } else {
+          // If no monthly summary exists, calculate from reports
+          const monthYear = monthStart.getFullYear();
+          const monthNumber = monthStart.getMonth() + 1;
+          
+          // Get all weeks in the month
+          const weeks = eachWeekOfInterval(
+            { start: monthStart, end: monthEnd },
+            { weekStartsOn: 1 } // Start weeks on Monday
+          );
+          
+          let totalAchievement = 0;
+          let weekCount = 0;
+          
+          // Process each week in the month
+          for (const weekStart of weeks) {
+            const weekEnd = endOfWeek(weekStart, { weekStartsOn: 1 });
+            
+            // Get week number
+            const weekNumber = Math.ceil((weekStart.getDate() + new Date(monthYear, monthStart.getMonth(), 1).getDay()) / 7);
+            
+            // Query reports for this week
+            const weekQuery = query(
+              reportsRef,
+              where('userId', '==', userId),
+              where('year', '==', monthYear),
+              where('month', '==', monthNumber),
+              where('weekNumber', '==', weekNumber)
+            );
+            
+            const weekSnapshot = await getDocs(weekQuery);
+            
+            if (!weekSnapshot.empty) {
+              // Calculate achievement percentage for this week
+              let totalMeetings = 0;
+              let totalAttendedMeetings = 0;
+              let totalDuration = 0;
+              let totalClosing = 0;
+              
+              weekSnapshot.forEach(doc => {
+                const reportData = doc.data();
+                
+                totalMeetings += reportData.numMeetings || 0;
+                totalAttendedMeetings += reportData.positiveLeads || 0;
+                totalClosing += reportData.totalClosingAmount || 0;
+                
+                // Parse duration string - handle both formats
+                const durationStr = reportData.meetingDuration || '';
+                
+                // Check if it's in HH:MM:SS format
+                if (durationStr.includes(':')) {
+                  const [hours, minutes, seconds] = durationStr.split(':').map(Number);
+                  totalDuration += (hours * 3600) + (minutes * 60) + seconds;
+                } else {
+                  // Handle "X hr Y mins" format
+                  const hrMatch = durationStr.match(/(\d+)\s*hr/);
+                  const minMatch = durationStr.match(/(\d+)\s*min/);
+                  const hours = (hrMatch ? parseInt(hrMatch[1]) : 0) +
+                               (minMatch ? parseInt(minMatch[1]) / 60 : 0);
+                  totalDuration += hours * 3600; // Convert to seconds
+                }
+              });
+              
+              // Calculate progress percentages
+              const meetingsPercentage = (totalMeetings / 30) * 100;
+              const attendedPercentage = (totalAttendedMeetings / 30) * 100;
+              const durationPercentage = (totalDuration / (20 * 3600)) * 100; // 20 hours in seconds
+              const closingPercentage = (totalClosing / 50000) * 100;
+              
+              // Calculate overall progress as average of all percentages
+              const overallProgress = Math.min(
+                (meetingsPercentage + attendedPercentage + durationPercentage + closingPercentage) / 4,
+                100
+              );
+              
+              totalAchievement += overallProgress;
+              weekCount++;
+            }
+          }
+          
+          // Calculate average achievement for the month
+          const averageAchievement = weekCount > 0 ? totalAchievement / weekCount : 0;
+          monthlyDataArray.push(Math.min(Math.max(Math.round(averageAchievement * 10) / 10, 0), 100));
+          
+          monthlyAchievements.push({
+            month: format(monthStart, 'MMMM yyyy'),
+            highestAchievement: averageAchievement,
+            weekCount: weekCount
+          });
+          
+          // Save the calculated data to monthly summary for future use
+          const monthlyData = {
+            userId,
+            monthStart: Timestamp.fromDate(monthStart),
+            monthEnd: Timestamp.fromDate(monthEnd),
+            totalAchievement: averageAchievement,
+            weekCount: weekCount,
+            month: monthStart.getMonth() + 1,
+            year: monthStart.getFullYear(),
+            createdAt: Timestamp.fromDate(new Date()),
+            updatedAt: Timestamp.fromDate(new Date())
+          };
+          
+          await addDoc(monthlySummaryRef, monthlyData);
+        }
       }
-      totalClosing += meeting.closing || 0;
+    }
+
+    setMonthlyAchievements(monthlyAchievements);
+    return {
+      labels,
+      datasets: [{ data: monthlyDataArray }]
+    };
+  };
+
+  const getHalfYearData = async (currentMonth: Date): Promise<ChartData> => {
+    const userId = auth.currentUser?.uid;
+    if (!userId) return { labels: [], datasets: [{ data: [] }] };
+
+    const monthlySummaryRef = collection(db, 'bdm_monthly_summaries');
+    const reportsRef = collection(db, 'bdm_reports');
+    const currentYear = currentMonth.getFullYear();
+    const currentMonthIndex = currentMonth.getMonth();
+    
+    // Calculate start and end dates for the 6-month period
+    const startDate = new Date(currentYear, currentMonthIndex - 5, 1); // 5 months ago
+    const endDate = new Date(currentYear, currentMonthIndex + 1, 0); // Current month end
+    
+    const halfYearQuery = query(
+      monthlySummaryRef,
+      where('userId', '==', userId),
+      where('monthStart', '>=', Timestamp.fromDate(startDate)),
+      where('monthEnd', '<=', Timestamp.fromDate(endDate)),
+      orderBy('monthStart', 'asc')
+    );
+
+    const halfYearSnapshot = await getDocs(halfYearQuery);
+    const monthlyDataMap: { [key: string]: number } = {};
+    const labels: string[] = [];
+    const monthInfo: { [key: string]: { year: number, month: string } } = {};
+
+    // Generate labels for the last 6 months (current month and previous 5)
+    for (let i = 5; i >= 0; i--) {
+      const monthDate = new Date(currentYear, currentMonthIndex - i, 1);
+      const monthKey = format(monthDate, 'MMM');
+      labels.push(monthKey);
+      monthlyDataMap[monthKey] = 0; // Initialize with 0
+      monthInfo[monthKey] = {
+        year: monthDate.getFullYear(),
+        month: format(monthDate, 'MMMM')
+      };
+    }
+
+    // Process monthly achievements
+    halfYearSnapshot.docs.forEach(doc => {
+      const monthData = doc.data();
+      const achievementDate = monthData.monthStart.toDate();
+      const monthKey = format(achievementDate, 'MMM');
+      
+      if (monthlyDataMap[monthKey] !== undefined) {
+        // Use the totalAchievement directly
+        monthlyDataMap[monthKey] = Math.min(Math.max(Math.round((monthData.totalAchievement || 0) * 10) / 10, 0), 100);
+      }
     });
 
-    const progressPercentages = [
-      (meetings.length / targets.projectedMeetings) * 100,
-      (meetings.filter(m => m.status === 'completed').length / targets.attendedMeetings) * 100,
-      (totalDuration / targets.meetingDuration) * 100,
-      (totalClosing / targets.closing) * 100
-    ];
+    // For the current month, calculate real-time data if not already in the snapshot
+    const now = new Date();
+    const currentMonthKey = format(now, 'MMM');
+    
+    if (monthlyDataMap[currentMonthKey] === 0) {
+      // Calculate current month data from weekly achievements
+      const monthStart = startOfMonth(now);
+      const monthEnd = endOfMonth(now);
+      
+      const weeks = eachWeekOfInterval(
+        { start: monthStart, end: monthEnd },
+        { weekStartsOn: 1 } // Start weeks on Monday
+      );
+      
+      let totalAchievement = 0;
+      let weekCount = 0;
+      
+      // Process each week in the current month
+      for (const weekStart of weeks) {
+        const weekEnd = endOfWeek(weekStart, { weekStartsOn: 1 });
+        
+        // Get current year, month, and week number
+        const weekYear = weekStart.getFullYear();
+        const weekMonth = weekStart.getMonth() + 1;
+        const weekNumber = Math.ceil((weekStart.getDate() + new Date(weekYear, weekStart.getMonth(), 1).getDay()) / 7);
+        
+        // Query reports for this week
+        const weekQuery = query(
+          reportsRef,
+          where('userId', '==', userId),
+          where('year', '==', weekYear),
+          where('month', '==', weekMonth),
+          where('weekNumber', '==', weekNumber)
+        );
+        
+        const weekSnapshot = await getDocs(weekQuery);
+        
+        if (!weekSnapshot.empty) {
+          // Calculate achievement percentage for this week
+          let totalMeetings = 0;
+          let totalAttendedMeetings = 0;
+          let totalDuration = 0;
+          let totalClosing = 0;
+          
+          weekSnapshot.forEach(doc => {
+            const reportData = doc.data();
+            
+            totalMeetings += reportData.numMeetings || 0;
+            totalAttendedMeetings += reportData.positiveLeads || 0;
+            totalClosing += reportData.totalClosingAmount || 0;
+            
+            // Parse duration string - handle both formats
+            const durationStr = reportData.meetingDuration || '';
+            
+            // Check if it's in HH:MM:SS format
+            if (durationStr.includes(':')) {
+              const [hours, minutes, seconds] = durationStr.split(':').map(Number);
+              totalDuration += (hours * 3600) + (minutes * 60) + seconds;
+            } else {
+              // Handle "X hr Y mins" format
+              const hrMatch = durationStr.match(/(\d+)\s*hr/);
+              const minMatch = durationStr.match(/(\d+)\s*min/);
+              const hours = (hrMatch ? parseInt(hrMatch[1]) : 0) +
+                           (minMatch ? parseInt(minMatch[1]) / 60 : 0);
+              totalDuration += hours * 3600; // Convert to seconds
+            }
+          });
+          
+          // Calculate progress percentages
+          const meetingsPercentage = (totalMeetings / 30) * 100;
+          const attendedPercentage = (totalAttendedMeetings / 30) * 100;
+          const durationPercentage = (totalDuration / (20 * 3600)) * 100; // 20 hours in seconds
+          const closingPercentage = (totalClosing / 50000) * 100;
+          
+          // Calculate overall progress as average of all percentages
+          const overallProgress = Math.min(
+            (meetingsPercentage + attendedPercentage + durationPercentage + closingPercentage) / 4,
+            100
+          );
+          
+          totalAchievement += overallProgress;
+          weekCount++;
+        }
+      }
+      
+      // Calculate average achievement for the current month
+      const averageAchievement = weekCount > 0 ? totalAchievement / weekCount : 0;
+      monthlyDataMap[currentMonthKey] = Math.min(Math.max(Math.round(averageAchievement * 10) / 10, 0), 100);
+      
+      // Save the calculated data to monthly summary for consistency
+      const monthlyQuery = query(
+        monthlySummaryRef,
+        where('userId', '==', userId),
+        where('monthStart', '==', Timestamp.fromDate(monthStart)),
+        where('monthEnd', '==', Timestamp.fromDate(monthEnd))
+      );
+      
+      const monthlySnapshot = await getDocs(monthlyQuery);
+      
+      if (!monthlySnapshot.empty) {
+        // Update existing monthly summary
+        const existingMonthly = monthlySnapshot.docs[0];
+        await updateDoc(existingMonthly.ref, {
+          totalAchievement: averageAchievement,
+          weekCount: weekCount,
+          updatedAt: Timestamp.fromDate(new Date())
+        });
+      } else {
+        // Create new monthly summary
+        const monthlyData = {
+          userId,
+          monthStart: Timestamp.fromDate(monthStart),
+          monthEnd: Timestamp.fromDate(monthEnd),
+          totalAchievement: averageAchievement,
+          weekCount: weekCount,
+          month: monthStart.getMonth() + 1,
+          year: monthStart.getFullYear(),
+          createdAt: Timestamp.fromDate(new Date()),
+          updatedAt: Timestamp.fromDate(new Date())
+        };
+        
+        await addDoc(monthlySummaryRef, monthlyData);
+      }
+    }
 
-    return Math.min(
-      Math.round(progressPercentages.reduce((a, b) => a + b, 0) / progressPercentages.length),
-      100
-    );
+    // For any missing months, try to calculate from reports
+    for (const monthKey in monthlyDataMap) {
+      if (monthlyDataMap[monthKey] === 0) {
+        const monthInfoData = monthInfo[monthKey];
+        const monthDate = new Date(monthInfoData.year, new Date(monthInfoData.month + ' 1, 2000').getMonth(), 1);
+        const monthStartDate = startOfMonth(monthDate);
+        const monthEndDate = endOfMonth(monthDate);
+        
+        // Get all weeks in the month
+        const weeks = eachWeekOfInterval(
+          { start: monthStartDate, end: monthEndDate },
+          { weekStartsOn: 1 } // Start weeks on Monday
+        );
+        
+        let totalAchievement = 0;
+        let weekCount = 0;
+        
+        // Process each week in the month
+        for (const weekStart of weeks) {
+          const weekEnd = endOfWeek(weekStart, { weekStartsOn: 1 });
+          
+          // Get week number
+          const weekYear = weekStart.getFullYear();
+          const weekMonth = weekStart.getMonth() + 1;
+          const weekNumber = Math.ceil((weekStart.getDate() + new Date(weekYear, weekStart.getMonth(), 1).getDay()) / 7);
+          
+          // Query reports for this week
+          const weekQuery = query(
+            reportsRef,
+            where('userId', '==', userId),
+            where('year', '==', weekYear),
+            where('month', '==', weekMonth),
+            where('weekNumber', '==', weekNumber)
+          );
+          
+          const weekSnapshot = await getDocs(weekQuery);
+          
+          if (!weekSnapshot.empty) {
+            // Calculate achievement percentage for this week
+            let totalMeetings = 0;
+            let totalAttendedMeetings = 0;
+            let totalDuration = 0;
+            let totalClosing = 0;
+            
+            weekSnapshot.forEach(doc => {
+              const reportData = doc.data();
+              
+              totalMeetings += reportData.numMeetings || 0;
+              totalAttendedMeetings += reportData.positiveLeads || 0;
+              totalClosing += reportData.totalClosingAmount || 0;
+              
+              // Parse duration string - handle both formats
+              const durationStr = reportData.meetingDuration || '';
+              
+              // Check if it's in HH:MM:SS format
+              if (durationStr.includes(':')) {
+                const [hours, minutes, seconds] = durationStr.split(':').map(Number);
+                totalDuration += (hours * 3600) + (minutes * 60) + seconds;
+              } else {
+                // Handle "X hr Y mins" format
+                const hrMatch = durationStr.match(/(\d+)\s*hr/);
+                const minMatch = durationStr.match(/(\d+)\s*min/);
+                const hours = (hrMatch ? parseInt(hrMatch[1]) : 0) +
+                             (minMatch ? parseInt(minMatch[1]) / 60 : 0);
+                totalDuration += hours * 3600; // Convert to seconds
+              }
+            });
+            
+            // Calculate progress percentages
+            const meetingsPercentage = (totalMeetings / 30) * 100;
+            const attendedPercentage = (totalAttendedMeetings / 30) * 100;
+            const durationPercentage = (totalDuration / (20 * 3600)) * 100; // 20 hours in seconds
+            const closingPercentage = (totalClosing / 50000) * 100;
+            
+            // Calculate overall progress as average of all percentages
+            const overallProgress = Math.min(
+              (meetingsPercentage + attendedPercentage + durationPercentage + closingPercentage) / 4,
+            100
+        );
+            
+            totalAchievement += overallProgress;
+            weekCount++;
+          }
+        }
+        
+        // Calculate average achievement for the month
+        const averageAchievement = weekCount > 0 ? totalAchievement / weekCount : 0;
+        monthlyDataMap[monthKey] = Math.min(Math.max(Math.round(averageAchievement * 10) / 10, 0), 100);
+        
+        // Save the calculated data to monthly summary for future use
+        const monthlyData = {
+          userId,
+          monthStart: Timestamp.fromDate(monthStartDate),
+          monthEnd: Timestamp.fromDate(monthEndDate),
+          totalAchievement: averageAchievement,
+          weekCount: weekCount,
+          month: monthStartDate.getMonth() + 1,
+          year: monthStartDate.getFullYear(),
+          createdAt: Timestamp.fromDate(new Date()),
+          updatedAt: Timestamp.fromDate(new Date())
+        };
+        
+        await addDoc(monthlySummaryRef, monthlyData);
+      }
+    }
+
+    // Convert to array in correct order
+    const data = labels.map(monthKey => monthlyDataMap[monthKey]);
+
+    return {
+      labels,
+      datasets: [{ data }],
+      monthInfo
+    };
   };
 
   const getActiveData = () => {
@@ -266,6 +939,11 @@ const BDMViewFullReport = () => {
                 stroke: '#E5E7EB',
                 strokeWidth: 1,
               },
+              
+              formatYLabel: (value) => {
+                const numValue = parseFloat(value);
+                return Math.min(Math.max(Math.round(numValue), 0), 100).toString();
+              },
               useShadowColorFromDataset: false,
             }}
             bezier
@@ -277,7 +955,8 @@ const BDMViewFullReport = () => {
             fromZero={true}
             yAxisLabel=""
             yAxisSuffix="%"
-            formatYLabel={(value) => `${Math.round(Number(value))}`}
+            yAxisInterval={25}
+            segments={4}
             formatXLabel={(value) => value}
           />
         </View>

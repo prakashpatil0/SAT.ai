@@ -36,7 +36,6 @@ import api from '@/app/services/api';
 import { getCurrentWeekAchievements } from "@/app/services/targetService";
 import TelecallerAddContactModal from '@/app/Screens/Telecaller/TelecallerAddContactModal';
 import { useSharedValue, withRepeat, withSequence, withTiming, withDelay, useAnimatedStyle } from 'react-native-reanimated';
-import { LinearGradient } from 'react-native-linear-gradient';
 import AnimatedReanimated from 'react-native-reanimated';
 
 interface CallLogEntry {

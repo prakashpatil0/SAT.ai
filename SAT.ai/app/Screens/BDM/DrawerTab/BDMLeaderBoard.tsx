@@ -717,7 +717,7 @@ const styles = StyleSheet.create({
     borderWidth: 3,
   },
   placeholderImage: {
-    opacity: 0.5,
+    opacity: 1.5,
   },
   currentUserImage: {
     borderColor: "#FF8447",
@@ -735,24 +735,18 @@ const styles = StyleSheet.create({
     height: 160,
     zIndex: 1,
     elevation: 4,
-    borderWidth: 1,
-    borderColor: "#CF8A00",
   },
   secondPodium: {
     backgroundColor: "#E6E6FA",
     width: 110,
     height: 130,
     elevation: 3,
-    borderWidth: 1,
-    borderColor: "#A58BFF",
   },
   thirdPodium: {
     backgroundColor: "#FFE4E1",
     width: 110,
     height: 130,
     elevation: 3,
-    borderWidth: 1,
-    borderColor: "#A58BFF",
   },
   crown: {
     position: "absolute",

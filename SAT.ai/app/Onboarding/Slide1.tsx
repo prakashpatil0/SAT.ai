@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, Image, TouchableOpacity, Dimensions, Animated, Platform } from 'react-native';
+import { View, Text, StyleSheet, Image, TouchableOpacity, Dimensions, Animated, Platform, Linking } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import Swiper from 'react-native-swiper';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -57,18 +57,12 @@ const OnboardingScreen = () => {
       const imageUrls: { [key: number]: string } = {};
       for (const slide of slides) {
         try {
-          console.log(`Attempting to load image for slide ${slide.id} from path: ${slide.imageUrl}`);
           const imageRef = ref(storage, slide.imageUrl);
-          console.log('Created storage reference:', imageRef);
           const url = await getDownloadURL(imageRef);
-          console.log(`Successfully loaded image URL for slide ${slide.id}:`, url);
           imageUrls[slide.id] = url;
         } catch (error: any) {
           console.error(`Error loading image for slide ${slide.id}:`, error);
-          console.error('Error code:', error.code);
-          console.error('Error message:', error.message);
-          // Set a fallback image or handle the error appropriately
-          imageUrls[slide.id] = ''; // or set a default image URL
+          imageUrls[slide.id] = '';
         }
       }
       setSlideImages(imageUrls);
@@ -78,15 +72,12 @@ const OnboardingScreen = () => {
   }, []);
 
   const animateContent = (index: number) => {
-    // Reset animations
     slideAnim.setValue(50);
     scaleAnim.setValue(0.8);
     rotateAnim.setValue(0);
     fadeAnim.setValue(0);
 
-    // Complex animation sequence
     Animated.parallel([
-      // Fade and slide animation
       Animated.sequence([
         Animated.timing(fadeAnim, {
           toValue: 1,
@@ -100,14 +91,12 @@ const OnboardingScreen = () => {
           useNativeDriver: true,
         }),
       ]),
-      // Scale animation with bounce
       Animated.spring(scaleAnim, {
         toValue: 1,
         tension: 50,
         friction: 5,
         useNativeDriver: true,
       }),
-      // Subtle rotation
       Animated.sequence([
         Animated.timing(rotateAnim, {
           toValue: 1,
@@ -125,11 +114,10 @@ const OnboardingScreen = () => {
   };
 
   useEffect(() => {
-    slideAnim.setValue(50); // Reset slide position
+    slideAnim.setValue(50);
     animateContent(currentIndex);
   }, [currentIndex]);
 
-  // Auto-slide every 30 seconds
   useEffect(() => {
     const autoSlide = setInterval(() => {
       if (currentIndex < slides.length - 1) {
@@ -168,7 +156,6 @@ const OnboardingScreen = () => {
             end={{ x: 0.5, y: 1 }}
           >
             <View style={styles.contentContainer}>
-              {/* Image Container with Enhanced Animation */}
               <Animated.View 
                 style={[
                   styles.imageContainer,
@@ -193,7 +180,6 @@ const OnboardingScreen = () => {
                 )}
               </Animated.View>
 
-              {/* Text Content with Enhanced Animation */}
               <Animated.View 
                 style={[
                   styles.textContainer,
@@ -210,7 +196,6 @@ const OnboardingScreen = () => {
                 <Text style={styles.description}>{slide.description}</Text>
               </Animated.View>
 
-              {/* Navigation Buttons */}
               <View style={styles.navigationContainer}>
                 {index < slides.length - 1 ? (
                   <View style={styles.bottomNavigation}>
@@ -220,25 +205,18 @@ const OnboardingScreen = () => {
                           key={dotIndex} 
                           style={[
                             styles.dot,
-                            index === dotIndex && styles.activeDot,
-                            {
-                              transform: [{
-                                scale: index === dotIndex ? 1 : 1
-                              }]
-                            }
+                            index === dotIndex && styles.activeDot
                           ]} 
                         />
                       ))}
                     </View>
 
-                   
-                      <TouchableOpacity 
-                        style={styles.skipButton} 
-                        onPress={() => navigation.navigate('SignUpScreen' as never)}
-                      >
-                        <Text style={styles.skipText}>Skip</Text>
-                      </TouchableOpacity>
-                    {/* )} */}
+                    <TouchableOpacity 
+                      style={styles.skipButton} 
+                      onPress={() => navigation.navigate('SignUpScreen' as never)}
+                    >
+                      <Text style={styles.skipText}>Skip</Text>
+                    </TouchableOpacity>
 
                     <View style={styles.navigationButtons}>
                       <TouchableOpacity 
@@ -256,7 +234,7 @@ const OnboardingScreen = () => {
                       <TouchableOpacity 
                         style={styles.navButton}
                         onPress={() => {
-                          setCurrentIndex(index );
+                          setCurrentIndex(index);
                           swiperRef.current?.scrollBy(1);
                         }}
                       >
@@ -265,12 +243,34 @@ const OnboardingScreen = () => {
                     </View>
                   </View>
                 ) : (
-                  <TouchableOpacity 
-                    style={[styles.getStartedButton, styles.buttonShadow]} 
-                    onPress={() => navigation.navigate('Login' as never)}
-                  >
-                    <Text style={styles.getStartedText}>Get Started</Text>
-                  </TouchableOpacity>
+                  <>
+                    <TouchableOpacity 
+                      style={[styles.getStartedButton, styles.buttonShadow]} 
+                      onPress={() => navigation.navigate('Login' as never)}
+                    >
+                      <Text style={styles.getStartedText}>Get Started</Text>
+                    </TouchableOpacity>
+
+                    {/* Terms & Privacy Text */}
+                    <View style={styles.termsContainer}>
+                      <Text style={styles.termsText}>
+                        By continuing you accept to our{' '}
+                        <Text 
+                          style={styles.linkText} 
+                          onPress={() => Linking.openURL('https://yourdomain.com/terms')}
+                        >
+                          Terms & Conditions
+                        </Text>{' '}
+                        and{' '}
+                        <Text 
+                          style={styles.linkText} 
+                          onPress={() => Linking.openURL('https://yourdomain.com/privacy')}
+                        >
+                          Privacy Policy
+                        </Text>.
+                      </Text>
+                    </View>
+                  </>
                 )}
               </View>
             </View>
@@ -416,6 +416,22 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 4.65,
     elevation: 8,
+  },
+  termsContainer: {
+    marginTop: 12,
+    paddingHorizontal: 24,
+    alignItems: 'center',
+  },
+  termsText: {
+    fontSize: 13,
+    color: '#333',
+    textAlign: 'center',
+    fontFamily: 'Inter_400Regular',
+  },
+  linkText: {
+    color: '#F55100',
+    textDecorationLine: 'underline',
+    fontFamily: 'Inter_500Medium',
   },
 });
 

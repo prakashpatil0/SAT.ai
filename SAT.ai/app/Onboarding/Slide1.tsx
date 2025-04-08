@@ -257,14 +257,14 @@ const OnboardingScreen = () => {
                         By continuing you accept to our{' '}
                         <Text 
                           style={styles.linkText} 
-                          onPress={() => Linking.openURL('https://yourdomain.com/terms')}
+                          // onPress={() => Linking.openURL('')}
                         >
                           Terms & Conditions
                         </Text>{' '}
                         and{' '}
                         <Text 
                           style={styles.linkText} 
-                          onPress={() => Linking.openURL('https://yourdomain.com/privacy')}
+                          // onPress={() => Linking.openURL('')}
                         >
                           Privacy Policy
                         </Text>.
@@ -423,15 +423,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   termsText: {
-    fontSize: 13,
-    color: '#333',
+    fontSize: 14,
+    color: '#595550',
     textAlign: 'center',
-    fontFamily: 'Inter_400Regular',
+    fontFamily: 'LexendDeca_400Regular',
   },
   linkText: {
-    color: '#F55100',
+    fontSize: 14,
+    color: '#FF8447',
     textDecorationLine: 'underline',
-    fontFamily: 'Inter_500Medium',
+    fontFamily: 'LexendDeca_400Regular',
   },
 });
 

@@ -606,7 +606,7 @@ const BDMViewFullReport = () => {
     // Generate labels for the last 6 months (current month and previous 5)
     for (let i = 5; i >= 0; i--) {
       const monthDate = new Date(currentYear, currentMonthIndex - i, 1);
-      const monthKey = format(monthDate, 'MMM');
+      const monthKey = format(monthDate, 'MMM yyyy');
       labels.push(monthKey);
       monthlyDataMap[monthKey] = 0; // Initialize with 0
       monthInfo[monthKey] = {
@@ -619,17 +619,18 @@ const BDMViewFullReport = () => {
     halfYearSnapshot.docs.forEach(doc => {
       const monthData = doc.data();
       const achievementDate = monthData.monthStart.toDate();
-      const monthKey = format(achievementDate, 'MMM');
+      const monthKey = format(achievementDate, 'MMM yyyy');
       
       if (monthlyDataMap[monthKey] !== undefined) {
-        // Use the totalAchievement directly
-        monthlyDataMap[monthKey] = Math.min(Math.max(Math.round((monthData.totalAchievement || 0) * 10) / 10, 0), 100);
+        // Use the totalAchievement directly and ensure it's properly formatted
+        const achievement = monthData.totalAchievement || 0;
+        monthlyDataMap[monthKey] = Math.min(Math.max(Math.round(achievement * 10) / 10, 0), 100);
       }
     });
 
     // For the current month, calculate real-time data if not already in the snapshot
     const now = new Date();
-    const currentMonthKey = format(now, 'MMM');
+    const currentMonthKey = format(now, 'MMM yyyy');
     
     if (monthlyDataMap[currentMonthKey] === 0) {
       // Calculate current month data from weekly achievements
@@ -752,114 +753,8 @@ const BDMViewFullReport = () => {
       }
     }
 
-    // For any missing months, try to calculate from reports
-    for (const monthKey in monthlyDataMap) {
-      if (monthlyDataMap[monthKey] === 0) {
-        const monthInfoData = monthInfo[monthKey];
-        const monthDate = new Date(monthInfoData.year, new Date(monthInfoData.month + ' 1, 2000').getMonth(), 1);
-        const monthStartDate = startOfMonth(monthDate);
-        const monthEndDate = endOfMonth(monthDate);
-        
-        // Get all weeks in the month
-        const weeks = eachWeekOfInterval(
-          { start: monthStartDate, end: monthEndDate },
-          { weekStartsOn: 1 } // Start weeks on Monday
-        );
-        
-        let totalAchievement = 0;
-        let weekCount = 0;
-        
-        // Process each week in the month
-        for (const weekStart of weeks) {
-          const weekEnd = endOfWeek(weekStart, { weekStartsOn: 1 });
-          
-          // Get week number
-          const weekYear = weekStart.getFullYear();
-          const weekMonth = weekStart.getMonth() + 1;
-          const weekNumber = Math.ceil((weekStart.getDate() + new Date(weekYear, weekStart.getMonth(), 1).getDay()) / 7);
-          
-          // Query reports for this week
-          const weekQuery = query(
-            reportsRef,
-            where('userId', '==', userId),
-            where('year', '==', weekYear),
-            where('month', '==', weekMonth),
-            where('weekNumber', '==', weekNumber)
-          );
-          
-          const weekSnapshot = await getDocs(weekQuery);
-          
-          if (!weekSnapshot.empty) {
-            // Calculate achievement percentage for this week
-            let totalMeetings = 0;
-            let totalAttendedMeetings = 0;
-            let totalDuration = 0;
-            let totalClosing = 0;
-            
-            weekSnapshot.forEach(doc => {
-              const reportData = doc.data();
-              
-              totalMeetings += reportData.numMeetings || 0;
-              totalAttendedMeetings += reportData.positiveLeads || 0;
-              totalClosing += reportData.totalClosingAmount || 0;
-              
-              // Parse duration string - handle both formats
-              const durationStr = reportData.meetingDuration || '';
-              
-              // Check if it's in HH:MM:SS format
-              if (durationStr.includes(':')) {
-                const [hours, minutes, seconds] = durationStr.split(':').map(Number);
-                totalDuration += (hours * 3600) + (minutes * 60) + seconds;
-              } else {
-                // Handle "X hr Y mins" format
-                const hrMatch = durationStr.match(/(\d+)\s*hr/);
-                const minMatch = durationStr.match(/(\d+)\s*min/);
-                const hours = (hrMatch ? parseInt(hrMatch[1]) : 0) +
-                             (minMatch ? parseInt(minMatch[1]) / 60 : 0);
-                totalDuration += hours * 3600; // Convert to seconds
-              }
-            });
-            
-            // Calculate progress percentages
-            const meetingsPercentage = (totalMeetings / 30) * 100;
-            const attendedPercentage = (totalAttendedMeetings / 30) * 100;
-            const durationPercentage = (totalDuration / (20 * 3600)) * 100; // 20 hours in seconds
-            const closingPercentage = (totalClosing / 50000) * 100;
-            
-            // Calculate overall progress as average of all percentages
-            const overallProgress = Math.min(
-              (meetingsPercentage + attendedPercentage + durationPercentage + closingPercentage) / 4,
-            100
-        );
-            
-            totalAchievement += overallProgress;
-            weekCount++;
-          }
-        }
-        
-        // Calculate average achievement for the month
-        const averageAchievement = weekCount > 0 ? totalAchievement / weekCount : 0;
-        monthlyDataMap[monthKey] = Math.min(Math.max(Math.round(averageAchievement * 10) / 10, 0), 100);
-        
-        // Save the calculated data to monthly summary for future use
-        const monthlyData = {
-          userId,
-          monthStart: Timestamp.fromDate(monthStartDate),
-          monthEnd: Timestamp.fromDate(monthEndDate),
-          totalAchievement: averageAchievement,
-          weekCount: weekCount,
-          month: monthStartDate.getMonth() + 1,
-          year: monthStartDate.getFullYear(),
-          createdAt: Timestamp.fromDate(new Date()),
-          updatedAt: Timestamp.fromDate(new Date())
-        };
-        
-        await addDoc(monthlySummaryRef, monthlyData);
-      }
-    }
-
-    // Convert to array in correct order
-    const data = labels.map(monthKey => monthlyDataMap[monthKey]);
+    // Convert the map to an array of data points
+    const data = labels.map(label => monthlyDataMap[label] || 0);
 
     return {
       labels,
@@ -920,11 +815,13 @@ const BDMViewFullReport = () => {
             data={getActiveData()}
             width={screenWidth}
             height={300}
+            yAxisSuffix="%"
+            yAxisInterval={25}
             chartConfig={{
-              backgroundColor: 'white',
-              backgroundGradientFrom: 'white',
-              backgroundGradientTo: 'white',
-              decimalPlaces: 0,
+              backgroundColor: '#ffffff',
+              backgroundGradientFrom: '#ffffff',
+              backgroundGradientTo: '#ffffff',
+              decimalPlaces: 1,
               color: (opacity = 1) => `rgba(255, 132, 71, ${opacity})`,
               labelColor: (opacity = 1) => `rgba(128, 128, 128, ${opacity})`,
               style: {
@@ -937,9 +834,8 @@ const BDMViewFullReport = () => {
               },
               propsForBackgroundLines: {
                 stroke: '#E5E7EB',
-                strokeWidth: 1,
+                strokeWidth: 2,
               },
-              
               formatYLabel: (value) => {
                 const numValue = parseFloat(value);
                 return Math.min(Math.max(Math.round(numValue), 0), 100).toString();
@@ -947,17 +843,35 @@ const BDMViewFullReport = () => {
               useShadowColorFromDataset: false,
             }}
             bezier
-            style={styles.graph}
-            withVerticalLines={false}
+            style={{
+              marginVertical: 8,
+              borderRadius: 16,
+            }}
+            segments={4}
+            withInnerLines={true}
+            withOuterLines={true}
+            withVerticalLines={true}
             withHorizontalLines={true}
+            withDots={true}
             withVerticalLabels={true}
             withHorizontalLabels={true}
+            withShadow={false}
             fromZero={true}
-            yAxisLabel=""
-            yAxisSuffix="%"
-            yAxisInterval={25}
-            segments={4}
-            formatXLabel={(value) => value}
+            getDotProps={(value, index) => {
+              const isCurrentMonth = selectedPeriod === 'Half Yearly' && 
+                format(new Date(), 'MMM') === getActiveData().labels[index];
+              return {
+                r: isCurrentMonth ? '8' : '6',
+                strokeWidth: isCurrentMonth ? '3' : '2',
+                stroke: isCurrentMonth ? '#FF8447' : '#FF8447',
+              };
+            }}
+            formatXLabel={(value) => {
+              if (selectedPeriod === 'Half Yearly' || selectedPeriod === 'Quarterly') {
+                return value; // Already formatted as 'MMM yyyy'
+              }
+              return value; // Keep week labels as is
+            }}
           />
         </View>
 
@@ -980,7 +894,7 @@ const BDMViewFullReport = () => {
         </View>
 
         {/* Stats Cards */}
-        <View style={styles.statsContainer}>
+        {/* <View style={styles.statsContainer}>
           <View style={styles.statCard}>
             <Text style={styles.statTitle}>Average Achievement</Text>
             <Text style={styles.statValue}>{averageAchievement}%</Text>
@@ -989,7 +903,7 @@ const BDMViewFullReport = () => {
             <Text style={styles.statTitle}>Highest Achievement</Text>
             <Text style={styles.statValue}>{highestAchievement}%</Text>
           </View>
-        </View>
+        </View> */}
       </ScrollView>
     </View>
     </BDMMainLayout>

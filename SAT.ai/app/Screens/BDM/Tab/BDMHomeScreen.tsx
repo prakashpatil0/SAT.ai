@@ -26,7 +26,7 @@ import { useProfile } from '@/app/context/ProfileContext';
 import { BDMStackParamList, RootStackParamList } from '@/app/index';
 import BDMMainLayout from '@/app/components/BDMMainLayout';
 import CallLog from 'react-native-call-log';
-import { collection, query, where, getDocs, doc, getDoc, setDoc, orderBy, limit, serverTimestamp, Timestamp } from 'firebase/firestore';
+import { collection, query, where, getDocs, doc, getDoc, setDoc, orderBy, limit, serverTimestamp, Timestamp, addDoc } from 'firebase/firestore';
 import { db, auth } from '@/firebaseConfig';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import AppGradient from "@/app/components/AppGradient";
@@ -37,6 +37,7 @@ import { getCurrentWeekAchievements } from "@/app/services/targetService";
 import TelecallerAddContactModal from '@/app/Screens/Telecaller/TelecallerAddContactModal';
 import { useSharedValue, withRepeat, withSequence, withTiming, withDelay, useAnimatedStyle } from 'react-native-reanimated';
 import AnimatedReanimated from 'react-native-reanimated';
+import { startOfWeek, endOfWeek, format } from 'date-fns';
 
 interface CallLogEntry {
   phoneNumber: string;
@@ -630,13 +631,129 @@ const BDMHomeScreen = () => {
 
   const fetchWeeklyAchievement = async () => {
     try {
-      if (!auth.currentUser?.uid) return;
+      const userId = auth.currentUser?.uid;
+      if (!userId) {
+        console.log('No user ID found for fetching achievements');
+        return;
+      }
+
+      const now = new Date();
+      const weekStart = startOfWeek(now, { weekStartsOn: 1 }); // Monday
+      const weekEnd = endOfWeek(now, { weekStartsOn: 1 });
+
+      // Get current month, year, and week number
+      const currentMonth = now.getMonth() + 1;
+      const currentYear = now.getFullYear();
+      const currentWeekNumber = Math.ceil((now.getDate() + new Date(currentYear, now.getMonth(), 1).getDay()) / 7);
+
+      console.log("Fetching achievements for week:", currentYear, currentMonth, currentWeekNumber);
+
+      // First try to get from bdm_achievements collection
+      const achievementsRef = collection(db, 'bdm_achievements');
+      const q = query(
+        achievementsRef,
+        where('userId', '==', userId),
+        where('year', '==', currentYear),
+        where('month', '==', currentMonth),
+        where('weekNumber', '==', currentWeekNumber)
+      );
+
+      const querySnapshot = await getDocs(q);
       
-      const achievements = await getCurrentWeekAchievements(auth.currentUser.uid);
-      setWeeklyAchievement({
-        percentageAchieved: achievements.percentageAchieved,
-        isLoading: false
-      });
+      if (!querySnapshot.empty) {
+        const achievementData = querySnapshot.docs[0].data();
+        console.log('Found achievement data:', achievementData);
+        
+        setWeeklyAchievement({
+          percentageAchieved: achievementData.percentageAchieved || 0,
+          isLoading: false
+        });
+      } else {
+        // If no achievement record exists, calculate it directly from reports
+        console.log('No achievement record found, calculating from daily reports');
+        
+        // Query reports for the current week
+        const reportsRef = collection(db, 'bdm_reports');
+        const reportsQuery = query(
+          reportsRef,
+          where('userId', '==', userId),
+          where('year', '==', currentYear),
+          where('month', '==', currentMonth),
+          where('weekNumber', '==', currentWeekNumber)
+        );
+        
+        const reportsSnapshot = await getDocs(reportsQuery);
+        
+        let totalMeetings = 0;
+        let totalAttendedMeetings = 0;
+        let totalDuration = 0;
+        let totalClosing = 0;
+        
+        reportsSnapshot.forEach(doc => {
+          const data = doc.data();
+          totalMeetings += data.numMeetings || 0;
+          totalAttendedMeetings += data.positiveLeads || 0;
+          totalClosing += data.totalClosingAmount || 0;
+          
+          // Parse duration string - handle both formats
+          const durationStr = data.meetingDuration || '';
+          
+          // Check if it's in HH:MM:SS format
+          if (durationStr.includes(':')) {
+            const [hours, minutes, seconds] = durationStr.split(':').map(Number);
+            totalDuration += (hours * 3600) + (minutes * 60) + seconds;
+          } else {
+            // Handle "X hr Y mins" format
+            const hrMatch = durationStr.match(/(\d+)\s*hr/);
+            const minMatch = durationStr.match(/(\d+)\s*min/);
+            const hours = (hrMatch ? parseInt(hrMatch[1]) : 0) +
+                         (minMatch ? parseInt(minMatch[1]) / 60 : 0);
+            totalDuration += hours * 3600; // Convert to seconds
+          }
+        });
+        
+        // Calculate individual percentages using the same logic as BDM Target Screen
+        const meetingsPercentage = (totalMeetings / 30) * 100;
+        const attendedPercentage = (totalAttendedMeetings / 30) * 100;
+        const durationPercentage = (totalDuration / (20 * 3600)) * 100; // 20 hours in seconds
+        const closingPercentage = (totalClosing / 50000) * 100;
+        
+        // Calculate overall progress as average of all percentages
+        // Use the same rounding as in BDM View Full Report for consistency
+        const percentageAchieved = Math.min(
+          (meetingsPercentage + attendedPercentage + durationPercentage + closingPercentage) / 4,
+          100
+        );
+        
+        // Round to 1 decimal place for consistency with BDM View Full Report
+        const roundedPercentage = Math.min(Math.max(Math.round(percentageAchieved * 10) / 10, 0), 100);
+        
+        // Store the calculated achievement in the bdm_achievements collection
+        try {
+          await addDoc(collection(db, 'bdm_achievements'), {
+            userId,
+            year: currentYear,
+            month: currentMonth,
+            weekNumber: currentWeekNumber,
+            weekStart: Timestamp.fromDate(weekStart),
+            weekEnd: Timestamp.fromDate(weekEnd),
+            percentageAchieved: roundedPercentage,
+            totalMeetings,
+            totalAttendedMeetings,
+            totalDuration,
+            totalClosingAmount: totalClosing,
+            createdAt: serverTimestamp()
+          });
+          console.log('Stored weekly achievement in database');
+        } catch (error) {
+          console.error('Error storing weekly achievement:', error);
+        }
+        
+        setWeeklyAchievement({
+          percentageAchieved: roundedPercentage,
+          isLoading: false
+        });
+      }
     } catch (error) {
       console.error('Error fetching weekly achievement:', error);
       setWeeklyAchievement({

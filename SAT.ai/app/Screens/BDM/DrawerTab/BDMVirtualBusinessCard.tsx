@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useState } from 'react';
-import { View, Text, StyleSheet, Image, TouchableOpacity, Linking, Share, Animated, Alert } from 'react-native';
+import { View, Text, StyleSheet, Image, TouchableOpacity, Linking, Share, Animated, Alert, Modal, TextInput } from 'react-native';
 import ViewShot, { ViewShotProperties } from 'react-native-view-shot';
 import { Feather, MaterialIcons } from '@expo/vector-icons';
 import * as Sharing from 'expo-sharing';
@@ -11,9 +11,10 @@ import * as Animatable from "react-native-animatable";
 import { useNavigation } from "@react-navigation/native";
 import BDMMainLayout from "@/app/components/BDMMainLayout";
 import { auth, db } from "@/firebaseConfig";
-import { doc, getDoc, onSnapshot } from 'firebase/firestore';
+import { doc, getDoc, onSnapshot, updateDoc } from 'firebase/firestore';
 import { useProfile } from '@/app/context/ProfileContext';
 import AppGradient from '@/app/components/AppGradient';
+import * as ImagePicker from 'expo-image-picker';
 
 interface UserProfile {
   firstName: string;
@@ -22,6 +23,13 @@ interface UserProfile {
   phoneNumber: string;
   email: string;
   profileImage?: string;
+  dateOfBirth: Date;
+  profileImageUrl: string | null;
+  address?: string;
+  companyName?: string;
+  website?: string;
+  tollFreeNumber?: string;
+  companyLogo?: string;
 }
 
 const BDMVirtualBusinessCard = () => {
@@ -32,6 +40,12 @@ const BDMVirtualBusinessCard = () => {
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const { profileImage } = useProfile();
+  const [isEditModalVisible, setIsEditModalVisible] = useState(false);
+  const [tollFreeNumber, setTollFreeNumber] = useState('18001200771');
+  const [companyLogo, setCompanyLogo] = useState<string | null>(null);
+  const [editingField, setEditingField] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState('');
+  const [editLabel, setEditLabel] = useState('');
   
   // Fetch user profile data with real-time updates
   useEffect(() => {
@@ -66,7 +80,14 @@ const BDMVirtualBusinessCard = () => {
             designation: userData.designation || 'Business Development Manager',
             phoneNumber: userData.phoneNumber || '',
             email: userData.email || auth.currentUser?.email || '',
-            profileImage: userData.profileImageUrl
+            profileImage: userData.profileImageUrl,
+            dateOfBirth: userData.dateOfBirth || new Date(),
+            profileImageUrl: userData.profileImageUrl,
+            address: userData.address,
+            companyName: userData.companyName,
+            website: userData.website,
+            tollFreeNumber: userData.tollFreeNumber || '18001200771',
+            companyLogo: userData.companyLogo,
           });
           
           setIsLoading(false);
@@ -149,6 +170,93 @@ const BDMVirtualBusinessCard = () => {
     }
   };
 
+  // Add this function to handle logo selection
+  const handleLogoSelection = async () => {
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [4, 3],
+        quality: 1,
+      });
+
+      if (!result.canceled) {
+        setCompanyLogo(result.assets[0].uri);
+        // Update Firestore with new logo
+        if (auth.currentUser?.uid) {
+          await updateDoc(doc(db, 'users', auth.currentUser.uid), {
+            companyLogo: result.assets[0].uri
+          });
+        }
+      }
+    } catch (error) {
+      console.error('Error selecting logo:', error);
+      Alert.alert('Error', 'Failed to update logo');
+    }
+  };
+
+  // Function to open edit modal for any field
+  const openEditModal = (field: string, value: string, label: string) => {
+    setEditingField(field);
+    setEditValue(value);
+    setEditLabel(label);
+    setIsEditModalVisible(true);
+  };
+
+  // Function to handle field updates
+  const handleFieldUpdate = async () => {
+    try {
+      if (auth.currentUser?.uid && editingField) {
+        const updateData: any = {};
+        
+        // Map the editing field to the correct Firestore field
+        switch (editingField) {
+          case 'firstName':
+            updateData.name = `${editValue} ${userProfile?.lastName || ''}`;
+            break;
+          case 'lastName':
+            updateData.name = `${userProfile?.firstName || ''} ${editValue}`;
+            break;
+          case 'designation':
+            updateData.designation = editValue;
+            break;
+          case 'phoneNumber':
+            updateData.phoneNumber = editValue;
+            break;
+          case 'email':
+            updateData.email = editValue;
+            break;
+          case 'website':
+            updateData.website = editValue;
+            break;
+          case 'address':
+            updateData.address = editValue;
+            break;
+          case 'tollFreeNumber':
+            updateData.tollFreeNumber = editValue;
+            break;
+          default:
+            break;
+        }
+        
+        await updateDoc(doc(db, 'users', auth.currentUser.uid), updateData);
+        setIsEditModalVisible(false);
+        Alert.alert('Success', `${editLabel} updated successfully`);
+      }
+    } catch (error) {
+      console.error(`Error updating ${editingField}:`, error);
+      Alert.alert('Error', `Failed to update ${editLabel}`);
+    }
+  };
+
+  // Add this useEffect to load initial values
+  useEffect(() => {
+    if (userProfile) {
+      setTollFreeNumber(userProfile.tollFreeNumber || '18001200771');
+      setCompanyLogo(userProfile.companyLogo || null);
+    }
+  }, [userProfile]);
+
   if (isLoading) {
     return (
         <View style={styles.loadingContainer}>
@@ -177,41 +285,50 @@ const BDMVirtualBusinessCard = () => {
               <Svg width={300} height={120} viewBox="0 0 300 100" style={styles.wavyBackground}>
                 <Path fill="#FCE8DC" d="M0,0 C100,100 200,-50 300,0 L300,100 L0,100 Z" />
               </Svg>
-              <Image source={require("@/assets/images/policy_planner_logo.png")} style={styles.logo} />
+              <TouchableOpacity onPress={handleLogoSelection}>
+                <Image 
+                  source={companyLogo ? { uri: companyLogo } : require("@/assets/images/policy_planner_logo.png")} 
+                  style={styles.logo} 
+                />
+              </TouchableOpacity>
             </View>
 
             {/* Business Card Details */}
-            <Text style={styles.name}>
-              {userProfile?.firstName || ''} <Text style={styles.highlight}>{userProfile?.lastName || ''}</Text>
-            </Text>
-            <Text style={styles.designation}>{userProfile?.designation || ''}</Text>
+            <TouchableOpacity onPress={() => openEditModal('firstName', userProfile?.firstName || '', 'First Name')}>
+              <Text style={styles.name}>
+                {userProfile?.firstName || ''} <Text style={styles.highlight}>{userProfile?.lastName || ''}</Text>
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => openEditModal('designation', userProfile?.designation || '', 'Designation')}>
+              <Text style={styles.designation}>{userProfile?.designation || ''}</Text>
+            </TouchableOpacity>
 
             {/* Contact Details */}
             <View style={styles.infoContainer}>
-              <View style={styles.infoRow}>
+              <TouchableOpacity style={styles.infoRow} onPress={() => openEditModal('phoneNumber', userProfile?.phoneNumber || '', 'Phone Number')}>
                 <MaterialIcons name="phone" size={20} color="#ff7b42" />
                 <Text style={styles.infoText}>{userProfile?.phoneNumber || 'Not provided'}</Text>
-              </View>
-              <View style={styles.infoRow}>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.infoRow} onPress={() => openEditModal('email', userProfile?.email || '', 'Email')}>
                 <MaterialIcons name="email" size={20} color="#ff7b42" />
                 <Text style={styles.infoText}>{userProfile?.email || 'Not provided'}</Text>
-              </View>
-              <View style={styles.infoRow}>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.infoRow} onPress={() => openEditModal('website', userProfile?.website || '', 'Website')}>
                 <MaterialIcons name="language" size={20} color="#ff7b42" />
                 <Text style={[styles.infoText, styles.website]} onPress={() => Linking.openURL("https://www.policyplanner.com")}>
-                  www.policyplanner.com
+                  {userProfile?.website || 'www.policyplanner.com'}
                 </Text>
-              </View>
-              <View style={styles.infoRow}>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.infoRow} onPress={() => openEditModal('address', userProfile?.address || '', 'Address')}>
                 <MaterialIcons name="location-on" size={20} color="#ff7b42" />
                 <Text style={styles.infoText}>
-                  Office No. B-03, KPCT Mall, Near Vishal Mega Mart, Fatima Nagar, Wanawadi, Pune 411013.
+                  {userProfile?.address || 'Office No. B-03, KPCT Mall, Near Vishal Mega Mart, Fatima Nagar, Wanawadi, Pune 411013.'}
                 </Text>
-              </View>
-              <View style={styles.infoRow}>
-                  <MaterialIcons name="phone" size={20} color="#ff7b42" />
-                  <Text style={styles.infoText}>18001200771</Text>
-                </View>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.infoRow} onPress={() => openEditModal('tollFreeNumber', tollFreeNumber, 'Toll-free Number')}>
+                <MaterialIcons name="phone" size={20} color="#ff7b42" />
+                <Text style={styles.infoText}>{tollFreeNumber}</Text>
+              </TouchableOpacity>
             </View>
             <View style={styles.bottomLine} />
           </Animated.View>
@@ -231,6 +348,46 @@ const BDMVirtualBusinessCard = () => {
             </TouchableOpacity>
           </View>
         </Animatable.View>
+
+        {/* Edit Modal */}
+        <Modal
+          animationType="slide"
+          transparent={true}
+          visible={isEditModalVisible}
+          onRequestClose={() => setIsEditModalVisible(false)}
+        >
+          <View style={styles.modalContainer}>
+            <View style={styles.modalContent}>
+              <Text style={styles.modalTitle}>Edit {editLabel}</Text>
+              
+              <View style={styles.inputContainer}>
+                <Text style={styles.inputLabel}>{editLabel}</Text>
+                <TextInput
+                  style={styles.input}
+                  value={editValue}
+                  onChangeText={setEditValue}
+                  placeholder={`Enter ${editLabel.toLowerCase()}`}
+                  keyboardType={editingField === 'email' ? 'email-address' : 'default'}
+                />
+              </View>
+
+              <View style={styles.modalButtons}>
+                <TouchableOpacity 
+                  style={[styles.modalButton, styles.cancelButton]} 
+                  onPress={() => setIsEditModalVisible(false)}
+                >
+                  <Text style={styles.buttonText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity 
+                  style={[styles.modalButton, styles.saveButton]} 
+                  onPress={handleFieldUpdate}
+                >
+                  <Text style={styles.buttonText}>Save</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
       </View>
     </BDMMainLayout>
     </AppGradient>
@@ -377,6 +534,68 @@ const styles = StyleSheet.create({
     borderBottomLeftRadius: 15,
     borderBottomRightRadius: 15,
     alignSelf: "center",
+  },
+  editIcon: {
+    marginLeft: 8,
+  },
+  modalContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+  },
+  modalContent: {
+    backgroundColor: 'white',
+    borderRadius: 12,
+    padding: 20,
+    width: '80%',
+    alignItems: 'center',
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontFamily: "LexendDeca_600SemiBold",
+    color: '#262626',
+    marginBottom: 20,
+  },
+  inputContainer: {
+    width: '100%',
+    marginBottom: 20,
+  },
+  inputLabel: {
+    fontSize: 16,
+    fontFamily: "LexendDeca_500Medium",
+    color: '#333',
+    marginBottom: 8,
+  },
+  input: {
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 8,
+    padding: 12,
+    fontSize: 16,
+    fontFamily: "Inter_400Regular",
+  },
+  modalButtons: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    width: '100%',
+  },
+  modalButton: {
+    padding: 12,
+    borderRadius: 8,
+    width: '45%',
+    alignItems: 'center',
+  },
+  cancelButton: {
+    backgroundColor: '#f2f2f2',
+  },
+  saveButton: {
+    backgroundColor: '#ff7b42',
+  },
+  buttonText: {
+    fontSize: 16,
+    fontFamily: "LexendDeca_500Medium",
+    color: '#fff',
   },
 });
 

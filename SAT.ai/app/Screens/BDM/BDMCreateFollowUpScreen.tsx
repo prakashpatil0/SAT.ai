@@ -37,6 +37,26 @@ const CreateFollowUpScreen = () => {
   const [phoneNumber, setPhoneNumber] = useState(initialPhoneNumber);
   const [notes, setNotes] = useState(initialNotes);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  type RootStackParamList = {
+    BDMHomeScreen: undefined;
+    BDMCreateFollowUp: {
+      contactName: string;
+      phoneNumber?: string;
+      notes: string;
+    };
+    BDMCallNoteDetailsScreen: {
+      meeting: {
+        name: string;
+        time: string;
+        duration: string;
+        phoneNumber?: string;
+        date?: string;
+        type?: 'incoming' | 'outgoing' | 'missed';
+        contactType?: 'person' | 'company';
+      }
+    };
+  };
+  
 
   // Initialize today's date
   useEffect(() => {
@@ -50,16 +70,15 @@ const CreateFollowUpScreen = () => {
       if (route.params.contactName && route.params.contactName !== contactName) {
         setContactName(route.params.contactName);
       }
-      
       if (route.params.phoneNumber && route.params.phoneNumber !== phoneNumber) {
         setPhoneNumber(route.params.phoneNumber);
       }
-      
       if (route.params.notes && route.params.notes !== notes) {
         setNotes(route.params.notes);
       }
     }
   }, [route.params]);
+  
 
   const timeSlots = [
     ['9:00', '9:30', '10:00'],

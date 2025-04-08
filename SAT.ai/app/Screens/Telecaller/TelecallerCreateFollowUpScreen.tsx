@@ -1,21 +1,34 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Modal } from 'react-native';
-import { IconButton, Chip, Menu, Divider, Provider } from 'react-native-paper';
-import { useNavigation } from '@react-navigation/native';
+import { IconButton, Chip, Provider } from 'react-native-paper';
+import { useNavigation, useRoute } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
 import TelecallerMainLayout from '@/app/components/TelecallerMainLayout';
 import { MaterialIcons } from '@expo/vector-icons';
-import { doc, addDoc, collection } from 'firebase/firestore';
+import { addDoc, collection } from 'firebase/firestore';
 import { db } from '@/firebaseConfig';
 import { getAuth } from 'firebase/auth';
 
+// 👇 Meeting interface
+interface Meeting {
+  id: string;
+  phoneNumber: string;
+  timestamp: Date;
+  duration: number;
+  type: 'incoming' | 'outgoing' | 'missed';
+  status: 'completed' | 'missed' | 'in-progress';
+  contactId?: string;
+  contactName?: string;
+}
 
 const CreateFollowUpScreen = () => {
   const navigation = useNavigation();
+  const route = useRoute();
+  const { meeting } = route.params as { meeting?: Meeting };
+
   const [selectedTime, setSelectedTime] = useState('');
   const [selectedDate, setSelectedDate] = useState<number | null>(null);
   const [selectedMonth, setSelectedMonth] = useState(new Date());
-  const [menuVisible, setMenuVisible] = useState(false);
   const [hours, setHours] = useState('6');
   const [minutes, setMinutes] = useState('10');
   const [period, setPeriod] = useState('PM');
@@ -24,9 +37,17 @@ const CreateFollowUpScreen = () => {
   const [contactName, setContactName] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
 
+  // ✅ Auto-fill from meeting
+  useEffect(() => {
+    if (meeting) {
+      setPhoneNumber(meeting.phoneNumber || '');
+      setContactName(meeting.contactName || '');
+    }
+  }, [meeting]);
+
   const times = [
-    '9:00', '9:30', '10:00', '10:30', '11:00', '11:30', '12:00', 
-    '12:30', '13:00', '13:30', '14:00', '14:30', '16:30', '17:00', 
+    '9:00', '9:30', '10:00', '10:30', '11:00', '11:30', '12:00',
+    '12:30', '13:00', '13:30', '14:00', '14:30', '16:30', '17:00',
     '17:30', '18:00', '18:30', '19:00'
   ];
 
@@ -45,15 +66,15 @@ const CreateFollowUpScreen = () => {
     }
     for (let i = 1; i <= days; i++) {
       dates.push(
-         <TouchableOpacity 
-            key={`date-${i}`} 
-            style={[styles.dateCell, selectedDate === i && styles.selectedDate]} 
-            onPress={() => setSelectedDate(i)}
-         >
-            <Text style={styles.dateText}>{i}</Text>
-         </TouchableOpacity>
+        <TouchableOpacity
+          key={`date-${i}`}
+          style={[styles.dateCell, selectedDate === i && styles.selectedDate]}
+          onPress={() => setSelectedDate(i)}
+        >
+          <Text style={styles.dateText}>{i}</Text>
+        </TouchableOpacity>
       );
-   }   
+    }
     return dates;
   };
 
@@ -72,34 +93,27 @@ const CreateFollowUpScreen = () => {
     try {
       const auth = getAuth();
       const userId = auth.currentUser?.uid;
-
       if (!userId) {
         alert("Please login first");
         return;
       }
 
-      // Format the date and time
       const year = selectedMonth.getFullYear();
       const month = selectedMonth.getMonth();
       const date = new Date(year, month, selectedDate);
-      
-      // Convert 12-hour format to 24-hour format if using custom time
+
       let finalTime = selectedTime;
       if (!selectedTime) {
         let hour = parseInt(hours);
-        if (period === 'PM' && hour !== 12) {
-          hour += 12;
-        } else if (period === 'AM' && hour === 12) {
-          hour = 0;
-        }
+        if (period === 'PM' && hour !== 12) hour += 12;
+        else if (period === 'AM' && hour === 12) hour = 0;
         finalTime = `${hour.toString().padStart(2, '0')}:${minutes}`;
       }
 
-      // Create the follow-up event
       const followUpEvent = {
         title: 'Follow Up: ' + (description || 'Client Call'),
         startTime: finalTime,
-        endTime: addMinutes(finalTime, 30), // Add 30 minutes for end time
+        endTime: addMinutes(finalTime, 30),
         type: 'followup',
         date: date,
         description: description,
@@ -110,19 +124,15 @@ const CreateFollowUpScreen = () => {
         createdAt: new Date(),
       };
 
-      // Add to Firestore
       await addDoc(collection(db, 'followups'), followUpEvent);
-
       alert('Follow-up scheduled successfully!');
       navigation.goBack();
-
     } catch (error) {
       console.error('Error scheduling follow-up:', error);
       alert('Failed to schedule follow-up');
     }
   };
 
-  // Helper function to add minutes to time string
   const addMinutes = (time: string, minutes: number) => {
     const [hours, mins] = time.split(':').map(Number);
     const date = new Date(2000, 0, 1, hours, mins + minutes);
@@ -136,13 +146,12 @@ const CreateFollowUpScreen = () => {
       animationType="fade"
       onRequestClose={() => setShowTimePicker(false)}
     >
-      <TouchableOpacity 
+      <TouchableOpacity
         style={styles.modalOverlay}
         activeOpacity={1}
         onPress={() => setShowTimePicker(false)}
       >
         <View style={styles.timePickerContainer}>
-          {/* Hours */}
           <View style={styles.timeColumn}>
             <TouchableOpacity onPress={() => setHours(String(Number(hours) + 1))}>
               <MaterialIcons name="keyboard-arrow-up" size={24} color="#333" />
@@ -152,10 +161,7 @@ const CreateFollowUpScreen = () => {
               <MaterialIcons name="keyboard-arrow-down" size={24} color="#333" />
             </TouchableOpacity>
           </View>
-
           <Text style={styles.timeSeparator}>:</Text>
-
-          {/* Minutes */}
           <View style={styles.timeColumn}>
             <TouchableOpacity onPress={() => setMinutes(String(Number(minutes) + 1))}>
               <MaterialIcons name="keyboard-arrow-up" size={24} color="#333" />
@@ -165,16 +171,14 @@ const CreateFollowUpScreen = () => {
               <MaterialIcons name="keyboard-arrow-down" size={24} color="#333" />
             </TouchableOpacity>
           </View>
-
-          {/* AM/PM */}
           <View style={styles.periodContainer}>
-            <TouchableOpacity 
+            <TouchableOpacity
               style={[styles.periodButton, period === 'AM' && styles.periodButtonActive]}
               onPress={() => setPeriod('AM')}
             >
               <Text style={[styles.periodText, period === 'AM' && styles.periodTextActive]}>AM</Text>
             </TouchableOpacity>
-            <TouchableOpacity 
+            <TouchableOpacity
               style={[styles.periodButton, period === 'PM' && styles.periodButtonActive]}
               onPress={() => setPeriod('PM')}
             >
@@ -188,89 +192,86 @@ const CreateFollowUpScreen = () => {
 
   return (
     <LinearGradient colors={['#FFF8F0', '#FFF']} style={styles.gradient}>
-    <TelecallerMainLayout showDrawer showBackButton={true} showBottomTabs={true} title="Create Follow Up">
-    <Provider>
-      <ScrollView contentContainerStyle={styles.scrollContainer}>
-        <View style={styles.container}>
-          {/* Calendar */}
-          <View style={styles.calendarContainer}>
-            <View style={styles.calendarHeader}>
-              <IconButton icon="chevron-left" size={30} onPress={() => changeMonth('prev')} />
-              <Text style={styles.monthTitle}>
-                {selectedMonth.toLocaleString('default', { month: 'long' })} {selectedMonth.getFullYear()}
-              </Text>
-              <IconButton icon="chevron-right" size={30} onPress={() => changeMonth('next')} />
-            </View>
-            <View style={styles.calendar}>
-              {['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'].map(day => (
-                <Text key={day} style={styles.dayHeader}>{day}</Text>
-              ))}
-              {renderCalendar()}
-            </View>
-          </View>
+      <TelecallerMainLayout showDrawer showBackButton={true} showBottomTabs={true} title="Create Follow Up">
+        <Provider>
+          <ScrollView contentContainerStyle={styles.scrollContainer}>
+            <View style={styles.container}>
+              <View style={styles.calendarContainer}>
+                <View style={styles.calendarHeader}>
+                  <IconButton icon="chevron-left" size={30} onPress={() => changeMonth('prev')} />
+                  <Text style={styles.monthTitle}>
+                    {selectedMonth.toLocaleString('default', { month: 'long' })} {selectedMonth.getFullYear()}
+                  </Text>
+                  <IconButton icon="chevron-right" size={30} onPress={() => changeMonth('next')} />
+                </View>
+                <View style={styles.calendar}>
+                  {['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'].map(day => (
+                    <Text key={day} style={styles.dayHeader}>{day}</Text>
+                  ))}
+                  {renderCalendar()}
+                </View>
+              </View>
 
-          {/* Time Selection */}
-          <View style={styles.timeContainer}>
-            <Text style={styles.sectionTitle}>Select time for the follow up</Text>
-            <View style={styles.chipContainer}>
-              {times.map((time, index) => (
-                <Chip
-                  key={index}
-                  style={[
-                    styles.chip,
-                    selectedTime === time && styles.selectedChip
-                  ]}
-                  onPress={() => setSelectedTime(time)}
+              <View style={styles.timeContainer}>
+                <Text style={styles.sectionTitle}>Select time for the follow up</Text>
+                <View style={styles.chipContainer}>
+                  {times.map((time, index) => (
+                    <Chip
+                      key={index}
+                      style={[
+                        styles.chip,
+                        selectedTime === time && styles.selectedChip
+                      ]}
+                      onPress={() => setSelectedTime(time)}
+                    >
+                      {time}
+                    </Chip>
+                  ))}
+                </View>
+              </View>
+
+              <View style={styles.customTimeSection}>
+                <Text style={styles.sectionTitle}>Select Custom Time</Text>
+                <TouchableOpacity
+                  style={styles.customTimeButton}
+                  onPress={() => setShowTimePicker(true)}
                 >
-                  {time}
-                </Chip>
-              ))}
+                  <Text style={styles.customTimeText}>{`${hours}:${minutes} ${period}`}</Text>
+                  <MaterialIcons name="access-time" size={20} color="#666" />
+                </TouchableOpacity>
+              </View>
+
+              <TouchableOpacity style={styles.submitButton} onPress={handleSubmit}>
+                <Text style={styles.submitText}>Submit</Text>
+              </TouchableOpacity>
             </View>
-          </View>
 
-          {/* Custom Time Selection */}
-          <View style={styles.customTimeSection}>
-            <Text style={styles.sectionTitle}>Select Custom Time</Text>
-            <TouchableOpacity 
-              style={styles.customTimeButton}
-              onPress={() => setShowTimePicker(true)}
-            >
-              <Text style={styles.customTimeText}>{`${hours}:${minutes} ${period}`}</Text>
-              <MaterialIcons name="access-time" size={20} color="#666" />
-            </TouchableOpacity>
-          </View>
-
-          {/* Submit Button */}
-          <TouchableOpacity style={styles.submitButton} onPress={handleSubmit}>
-            <Text style={styles.submitText}>Submit</Text>
-          </TouchableOpacity>
-        </View>
-        <View style={styles.formContainer}>
-          <TextInput
-            style={styles.input}
-            placeholder="Contact Name"
-            value={contactName}
-            onChangeText={setContactName}
-          />
-          <TextInput
-            style={styles.input}
-            placeholder="Phone Number"
-            value={phoneNumber}
-            onChangeText={setPhoneNumber}
-            keyboardType="phone-pad"
-          />
-          <TextInput
-            style={[styles.input, styles.descriptionInput]}
-            placeholder="Description"
-            value={description}
-            onChangeText={setDescription}
-            multiline
-          />
-        </View>
-      </ScrollView>
-      <TimePickerModal />
-    </Provider>
-    </TelecallerMainLayout>
+            <View style={styles.formContainer}>
+              <TextInput
+                style={styles.input}
+                placeholder="Contact Name"
+                value={contactName}
+                onChangeText={setContactName}
+              />
+              <TextInput
+                style={styles.input}
+                placeholder="Phone Number"
+                value={phoneNumber}
+                onChangeText={setPhoneNumber}
+                keyboardType="phone-pad"
+              />
+              <TextInput
+                style={[styles.input, styles.descriptionInput]}
+                placeholder="Description"
+                value={description}
+                onChangeText={setDescription}
+                multiline
+              />
+            </View>
+          </ScrollView>
+          <TimePickerModal />
+        </Provider>
+      </TelecallerMainLayout>
     </LinearGradient>
   );
 };
@@ -288,16 +289,6 @@ const styles = StyleSheet.create({
     flex: 1,
     padding: 16,
     backgroundColor: 'transparent',
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  title: {
-    fontSize: 20,
-    fontFamily: "LexendDeca_600SemiBold",
-    marginLeft: 10,
   },
   calendarContainer: {
     backgroundColor: 'white',
@@ -342,6 +333,11 @@ const styles = StyleSheet.create({
   dateText: {
     fontSize: 14,
     fontFamily: "LexendDeca_400Regular",
+  },
+  selectedDate: {
+    backgroundColor: 'orange',
+    borderRadius: 20,
+    padding: 5,
   },
   timeContainer: {
     backgroundColor: 'white',
@@ -392,7 +388,7 @@ const styles = StyleSheet.create({
     width: '45%',
     height: 50,
     justifyContent: 'center',
-    alignItems: 'center', 
+    alignItems: 'center',
     alignSelf: "center",
     borderRadius: 10,
     marginVertical: 10,
@@ -403,11 +399,25 @@ const styles = StyleSheet.create({
     fontFamily: 'LexendDeca_600SemiBold',
     textAlign: "center",
   },
-  selectedDate: {
-    backgroundColor: 'orange',
-    borderRadius: 20,
-    padding: 5,
- }, 
+  formContainer: {
+    backgroundColor: 'white',
+    borderRadius: 10,
+    padding: 16,
+    marginBottom: 50,
+  },
+  input: {
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 12,
+    fontSize: 14,
+    fontFamily: 'LexendDeca_400Regular',
+  },
+  descriptionInput: {
+    height: 100,
+    textAlignVertical: 'top',
+  },
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
@@ -459,24 +469,5 @@ const styles = StyleSheet.create({
   },
   periodTextActive: {
     color: 'white',
-  },
-  formContainer: {
-    backgroundColor: 'white',
-    borderRadius: 10,
-    padding: 16,
-    marginBottom: 50,
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 12,
-    fontSize: 14,
-    fontFamily: 'LexendDeca_400Regular',
-  },
-  descriptionInput: {
-    height: 100,
-    textAlignVertical: 'top',
   },
 });

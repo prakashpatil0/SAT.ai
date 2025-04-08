@@ -12,7 +12,11 @@ import AppGradient from '@/app/components/AppGradient';
 // Define types
 type RootStackParamList = {
   BDMHomeScreen: undefined;
-  BDMCreateFollowUp: undefined;
+  BDMCreateFollowUp: {
+    contactName: string;
+    phoneNumber?: string;
+    notes: string;
+  };
   BDMCallNoteDetailsScreen: {
     meeting: {
       name: string;
@@ -66,9 +70,14 @@ const CallNoteDetailsScreen: React.FC<CallNoteDetailsScreenProps> = ({ route }) 
   const handleFollowUpPress = () => {
     setFollowUp(!followUp);
     if (!followUp) {
-      navigation.navigate('BDMCreateFollowUp');
+      navigation.navigate('BDMCreateFollowUp', {
+        contactName: meeting.name,
+        phoneNumber: meeting.phoneNumber,
+        notes,
+      });
     }
   };
+  
 
   const saveNote = async () => {
     if (!notes.trim()) {

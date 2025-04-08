@@ -195,7 +195,7 @@ const BDMMeetingLogScreen = () => {
 
   const handleSubmit = async () => {
     if (!validateForm()) {
-      Alert.alert('Validation Error', 'Please check the form for errors');
+      Alert.alert('All Fields are Required', 'Please fill all the fields correctly');
       return;
     }
     

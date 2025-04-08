@@ -540,6 +540,8 @@ export default function App() {
 
   const [appIsReady, setAppIsReady] = useState(false);
   const [permissionsGranted, setPermissionsGranted] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
 
   // Add app state tracking
   useEffect(() => {
@@ -556,34 +558,77 @@ export default function App() {
   const handleAppStateChange = async (nextAppState: string) => {
     if (nextAppState === 'active') {
       // App came to foreground
-      const sessionToken = await AsyncStorage.getItem('sessionToken');
-      const lastActiveTime = await AsyncStorage.getItem('lastActiveTime');
+      console.log('App came to foreground');
       
-      if (sessionToken && lastActiveTime) {
-        // Check if session is still valid (e.g., within 30 days)
-        const lastActive = new Date(lastActiveTime).getTime();
-        const now = new Date().getTime();
-        const thirtyDaysInMs = 30 * 24 * 60 * 60 * 1000;
+      // Check if user is already authenticated in Firebase
+      if (auth.currentUser) {
+        console.log('User is already authenticated in Firebase');
+        setIsAuthenticated(true);
         
-        if (now - lastActive > thirtyDaysInMs) {
-          // Session expired, clear it
-          await AsyncStorage.multiRemove(['sessionToken', 'lastActiveTime', 'userRole']);
-          auth.signOut();
+        // Update last active time
+        await AsyncStorage.setItem('lastActiveTime', new Date().toISOString());
+      } else {
+        // Try to restore session from AsyncStorage
+        const sessionToken = await AsyncStorage.getItem('sessionToken');
+        const lastActiveTime = await AsyncStorage.getItem('lastActiveTime');
+        
+        if (sessionToken && lastActiveTime) {
+          // Check if session is still valid (e.g., within 30 days)
+          const lastActive = new Date(lastActiveTime).getTime();
+          const now = new Date().getTime();
+          const thirtyDaysInMs = 30 * 24 * 60 * 60 * 1000;
+          
+          if (now - lastActive <= thirtyDaysInMs) {
+            console.log('Valid session found in AsyncStorage');
+            // Session is valid, but Firebase auth might have been cleared
+            // We'll keep the user logged in based on AsyncStorage
+            setIsAuthenticated(true);
+            
+            // Update last active time
+            await AsyncStorage.setItem('lastActiveTime', new Date().toISOString());
+          } else {
+            console.log('Session expired');
+            // Session expired, clear it
+            await AsyncStorage.multiRemove(['sessionToken', 'lastActiveTime', 'userRole']);
+            setIsAuthenticated(false);
+          }
+        } else {
+          console.log('No session found in AsyncStorage');
+          setIsAuthenticated(false);
         }
       }
     } else if (nextAppState === 'background' || nextAppState === 'inactive') {
       // App went to background
+      console.log('App went to background');
+      
       if (auth.currentUser) {
         // Save current time as last active
         await AsyncStorage.setItem('lastActiveTime', new Date().toISOString());
         // Store session token
         await AsyncStorage.setItem('sessionToken', auth.currentUser.uid);
+        console.log('Session saved to AsyncStorage');
       }
     }
   };
 
   const checkExistingSession = async () => {
     try {
+      setIsLoading(true);
+      
+      // First check if Firebase auth has a current user
+      if (auth.currentUser) {
+        console.log('User is authenticated in Firebase');
+        setIsAuthenticated(true);
+        
+        // Save session to AsyncStorage
+        await AsyncStorage.setItem('sessionToken', auth.currentUser.uid);
+        await AsyncStorage.setItem('lastActiveTime', new Date().toISOString());
+        
+        setIsLoading(false);
+        return;
+      }
+      
+      // If no Firebase auth, check AsyncStorage
       const [sessionToken, lastActiveTime] = await AsyncStorage.multiGet(['sessionToken', 'lastActiveTime']);
       
       if (sessionToken[1] && lastActiveTime[1]) {
@@ -592,18 +637,65 @@ export default function App() {
         const thirtyDaysInMs = 30 * 24 * 60 * 60 * 1000;
         
         if (now - lastActive <= thirtyDaysInMs) {
-          // Valid session exists, no need to logout
+          console.log('Valid session found in AsyncStorage');
+          // Valid session exists, keep user logged in
+          setIsAuthenticated(true);
+          
+          // Update last active time
           await AsyncStorage.setItem('lastActiveTime', new Date().toISOString());
         } else {
+          console.log('Session expired');
           // Session expired, clear it
           await AsyncStorage.multiRemove(['sessionToken', 'lastActiveTime', 'userRole']);
-          auth.signOut();
+          setIsAuthenticated(false);
         }
+      } else {
+        console.log('No session found in AsyncStorage');
+        setIsAuthenticated(false);
       }
     } catch (error) {
       console.error('Error checking existing session:', error);
+      setIsAuthenticated(false);
+    } finally {
+      setIsLoading(false);
     }
   };
+
+  // Set up Firebase auth state listener
+  useEffect(() => {
+    const unsubscribe = auth.onAuthStateChanged(async (user) => {
+      if (user) {
+        console.log('Firebase auth state changed: user is signed in');
+        setIsAuthenticated(true);
+        
+        // Save session to AsyncStorage
+        await AsyncStorage.setItem('sessionToken', user.uid);
+        await AsyncStorage.setItem('lastActiveTime', new Date().toISOString());
+      } else {
+        console.log('Firebase auth state changed: user is signed out');
+        // Only set isAuthenticated to false if we don't have a valid session in AsyncStorage
+        const sessionToken = await AsyncStorage.getItem('sessionToken');
+        const lastActiveTime = await AsyncStorage.getItem('lastActiveTime');
+        
+        if (!sessionToken || !lastActiveTime) {
+          setIsAuthenticated(false);
+        } else {
+          // Check if session is still valid
+          const lastActive = new Date(lastActiveTime).getTime();
+          const now = new Date().getTime();
+          const thirtyDaysInMs = 30 * 24 * 60 * 60 * 1000;
+          
+          if (now - lastActive > thirtyDaysInMs) {
+            // Session expired, clear it
+            await AsyncStorage.multiRemove(['sessionToken', 'lastActiveTime', 'userRole']);
+            setIsAuthenticated(false);
+          }
+        }
+      }
+    });
+    
+    return () => unsubscribe();
+  }, []);
 
   useEffect(() => {
     async function prepare() {
@@ -641,7 +733,7 @@ export default function App() {
     checkConnection();
   }, []);
 
-  if (!appIsReady || (!fontsLoaded && !fontError)) {
+  if (!appIsReady || (!fontsLoaded && !fontError) || isLoading) {
     return null;
   }
 

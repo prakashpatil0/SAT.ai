@@ -714,7 +714,9 @@ const BDMViewFullReport = () => {
       
       // Calculate average achievement for the current month
       const averageAchievement = weekCount > 0 ? totalAchievement / weekCount : 0;
-      monthlyDataMap[currentMonthKey] = Math.min(Math.max(Math.round(averageAchievement * 10) / 10, 0), 100);
+      const clampedAverage = Math.min(Math.max(averageAchievement, 0), 100);
+      monthlyDataMap[currentMonthKey] = parseFloat(clampedAverage.toFixed(1));
+      
       
       // Save the calculated data to monthly summary for consistency
       const monthlyQuery = query(
@@ -917,48 +919,43 @@ const BDMViewFullReport = () => {
         {/* Graph */}
         <View style={styles.graphCard}>
           <LineChart
-            data={getActiveData()}
-            width={screenWidth}
-            height={300}
-            chartConfig={{
-              backgroundColor: 'white',
-              backgroundGradientFrom: 'white',
-              backgroundGradientTo: 'white',
-              decimalPlaces: 0,
-              color: (opacity = 1) => `rgba(255, 132, 71, ${opacity})`,
-              labelColor: (opacity = 1) => `rgba(128, 128, 128, ${opacity})`,
-              style: {
-                borderRadius: 16,
-              },
-              propsForDots: {
-                r: '6',
-                strokeWidth: '2',
-                stroke: '#FF8447',
-              },
-              propsForBackgroundLines: {
-                stroke: '#E5E7EB',
-                strokeWidth: 1,
-              },
-              
-              formatYLabel: (value) => {
-                const numValue = parseFloat(value);
-                return Math.min(Math.max(Math.round(numValue), 0), 100).toString();
-              },
-              useShadowColorFromDataset: false,
-            }}
-            bezier
-            style={styles.graph}
-            withVerticalLines={false}
-            withHorizontalLines={true}
-            withVerticalLabels={true}
-            withHorizontalLabels={true}
-            fromZero={true}
-            yAxisLabel=""
-            yAxisSuffix="%"
-            yAxisInterval={25}
-            segments={4}
-            formatXLabel={(value) => value}
-          />
+         data={getActiveData()}
+         width={screenWidth}
+         height={300}
+         chartConfig={{
+           backgroundColor: 'white',
+           backgroundGradientFrom: 'white',
+           backgroundGradientTo: 'white',
+           decimalPlaces: 0,
+           color: (opacity = 1) => `rgba(255, 132, 71, ${opacity})`,
+           labelColor: (opacity = 1) => `rgba(128, 128, 128, ${opacity})`,
+           style: {
+             borderRadius: 16,
+           },
+           propsForDots: {
+             r: '6',
+             strokeWidth: '2',
+             stroke: '#FF8447',
+           },
+           propsForBackgroundLines: {
+             stroke: '#E5E7EB',
+             strokeWidth: 1,
+           },
+           formatYLabel: (value) => `${Math.round(parseFloat(value))}`, // keep it clean
+           useShadowColorFromDataset: false,
+         }}
+         bezier
+         style={styles.graph}
+         withVerticalLines={false}
+         withHorizontalLines={true}
+         withVerticalLabels={true}
+         withHorizontalLabels={true}
+         fromZero={true}
+         yAxisInterval={1} // required to show all ticks
+         segments={10}      // 10 segments for 0 to 100 (every 10 units)
+         yAxisLabel=""
+         yAxisSuffix="%"
+       />
         </View>
 
         {/* Motivational Message */}

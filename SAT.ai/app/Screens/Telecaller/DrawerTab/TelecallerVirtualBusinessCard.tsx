@@ -305,8 +305,11 @@ const VirtualBusinessCard = () => {
                 </TouchableOpacity>
               </View>
               <View style={styles.bottomLine} />
+              
+
             </Animated.View>
           </ViewShot>
+          <Text style={styles.noteText}>(You can edit your card click on content)</Text>
 
           <Animatable.View animation="pulse" iterationCount="infinite" duration={1500}>
             <View style={styles.actionRow}>
@@ -488,6 +491,15 @@ const styles = StyleSheet.create({
     borderBottomRightRadius: 15,
     alignSelf: "center",
   },
+  noteText: {
+    textAlign: 'center',
+    fontSize: 12,
+    color: '#666',
+    marginTop: 8,
+    fontFamily: 'Inter_400Regular',
+    fontStyle: 'italic', // 👈 This makes the text italic
+  },
+  
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',

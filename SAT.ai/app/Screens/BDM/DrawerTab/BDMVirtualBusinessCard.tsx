@@ -333,6 +333,7 @@ const BDMVirtualBusinessCard = () => {
             <View style={styles.bottomLine} />
           </Animated.View>
         </ViewShot>
+        <Text style={styles.noteText}>(You can edit your card click on content)</Text>
 
         {/* Share & Download Buttons */}
         <Animatable.View animation="pulse" iterationCount="infinite" duration={1500}>
@@ -508,6 +509,14 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_400Regular",
     color: '#333',
     marginLeft: 8,
+  },
+  noteText: {
+    textAlign: 'center',
+    fontSize: 12,
+    color: '#666',
+    marginTop: 8,
+    fontFamily: 'Inter_400Regular',
+    fontStyle: 'italic', // 👈 This makes the text italic
   },
   website: {
     color: '#007aff',

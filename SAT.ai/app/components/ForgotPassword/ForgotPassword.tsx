@@ -153,7 +153,7 @@ const ForgotPassword = () => {
           </Text>
 
           <View style={styles.optionsContainer}>
-            {/* <TouchableOpacity
+            <TouchableOpacity
               style={[
                 styles.optionButton,
                 selectedOption === 'otp' && styles.selectedOption
@@ -165,7 +165,7 @@ const ForgotPassword = () => {
                 styles.optionText,
                 selectedOption === 'otp' && styles.selectedOptionText
               ]}>Send OTP</Text>
-            </TouchableOpacity> */}
+            </TouchableOpacity>
 
             <TouchableOpacity
               style={[

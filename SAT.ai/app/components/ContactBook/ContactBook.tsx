@@ -10,15 +10,22 @@ import {
   Platform,
   ActionSheetIOS,
   Share,
-  Animated
+  Animated,Modal, KeyboardAvoidingView,     // add this
+  Keyboard  
 } from 'react-native';
 import { Text } from 'react-native-paper';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { MaterialIcons } from '@expo/vector-icons';
-import TelecallerAddContactModal from '@/app/Screens/Telecaller/TelecallerAddContactModal';
-import TelecallerMainLayout from '../TelecallerMainLayout';
+import TelecallerMainLayout from "@/app/components/TelecallerMainLayout";
 import AppGradient from '../AppGradient';
-
+type AddContactModalProps = {
+    visible: boolean;
+    onClose?: () => void;
+    phoneNumber: string;
+    onContactSaved?: (contact: Contact) => void;
+    editingContact?: Contact | null;
+  };
+  
 interface Contact {
   id: string;
   firstName: string;
@@ -31,6 +38,15 @@ interface Contact {
 const ALPHABETS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
 
 const ContactBook = () => {
+    
+    const [firstName, setFirstName] = useState('');
+    const [lastName, setLastName] = useState('');
+    const [phoneNumber, setPhoneNumber] = useState('');
+    const [email, setEmail] = useState('');
+    const [errors, setErrors] = useState({
+      firstName: '',
+      phoneNumber: ''
+    });
   const [contacts, setContacts] = useState<{ [key: string]: Contact[] }>({});
   const [searchQuery, setSearchQuery] = useState('');
   const [searchHistory, setSearchHistory] = useState<string[]>([]);
@@ -257,8 +273,6 @@ const ContactBook = () => {
           {
             text: 'Call',
             onPress: () => handleCall(contact.phoneNumber)
-            
-            
           },
           {
             text: 'Edit',
@@ -378,6 +392,89 @@ const ContactBook = () => {
       </View>
     </TouchableOpacity>
   );
+  const validateForm = () => {
+    let isValid = true;
+    const newErrors = {
+      firstName: '',
+      phoneNumber: ''
+    };
+
+    if (!firstName.trim()) {
+      newErrors.firstName = 'First name is required';
+      isValid = false;
+    }
+
+    if (!phoneNumber.trim()) {
+      newErrors.phoneNumber = 'Phone number is required';
+      isValid = false;
+    }
+
+    setErrors(newErrors);
+    return isValid;
+  };
+
+   const handleSave = async () => {
+      if (!validateForm()) {
+        return;
+      }
+  
+      try {
+        // Get existing contacts
+        const storedContacts = await AsyncStorage.getItem('contacts');
+        const currentContacts: Contact[] = storedContacts ? JSON.parse(storedContacts) : [];
+  
+        // Create or update contact
+        const updatedContact: Contact = {
+          id: editingContact?.id || Date.now().toString(),
+          firstName: firstName.trim(),
+          lastName: lastName.trim(),
+          phoneNumber: phoneNumber.trim(),
+          email: email.trim(),
+          favorite: editingContact?.favorite || false
+        };
+  
+        let updatedContacts: Contact[];
+        if (editingContact) {
+          // Update existing contact
+          updatedContacts = currentContacts.map(contact =>
+            contact.id === editingContact.id ? updatedContact : contact
+          );
+        } else {
+          // Add new contact
+          updatedContacts = [...currentContacts, updatedContact];
+        }
+  
+        // Save to AsyncStorage
+        await AsyncStorage.setItem('contacts', JSON.stringify(updatedContacts));
+  // Reload latest contacts in main list
+loadContacts(); 
+       
+  
+        // Show success message and close modal
+        Alert.alert(
+          'Success',
+          `Contact ${editingContact ? 'updated' : 'saved'} successfully!`,
+          [
+            {
+              text: 'OK',
+              onPress: () => {
+                // Reset form and close modal
+                setFirstName('');
+                setLastName('');
+                setPhoneNumber('');
+                setEmail('');
+                setErrors({ firstName: '', phoneNumber: '' });
+                Keyboard.dismiss();
+                setModalVisible(false);  // Close Modal
+              }
+            }
+          ]
+        );
+      } catch (error) {
+        console.error('Error saving contact:', error);
+        Alert.alert('Error', `Failed to ${editingContact ? 'update' : 'save'} contact. Please try again.`);
+      }
+    };
 
   return (
     <AppGradient>
@@ -444,15 +541,15 @@ const ContactBook = () => {
       </View>
 
       <TouchableOpacity
-        style={styles.createContactButton}
-        onPress={() => {
-          setEditingContact(null);
-          setModalVisible(true);
-        }}
-      >
-        <MaterialIcons name="person-add" size={24} color="#0099ff" />
-        <Text style={styles.createContactText}>Create New Contact</Text>
-      </TouchableOpacity>
+  style={styles.createContactButton}
+  onPress={() => {
+    setEditingContact(null); // For Add New Contact
+    setModalVisible(true);   // Open Modal
+  }}
+>
+  <MaterialIcons name="person-add" size={24} color="#0099ff" />
+  <Text style={styles.createContactText}>Create New Contact</Text>
+</TouchableOpacity>
 
       <View style={styles.contactsContainer}>
         <ScrollView 
@@ -531,17 +628,113 @@ const ContactBook = () => {
         </Animated.View>
       ) : null}
 
-      <TelecallerAddContactModal
-        visible={modalVisible}
-        onClose={() => {
-          setModalVisible(false);
-          setEditingContact(null);
-        }}
-        phoneNumber={editingContact?.phoneNumber || ""}
-        onContactSaved={handleContactSaved}
-        editingContact={editingContact}
-      />
+     
     </TelecallerMainLayout>
+    {modalVisible && (
+  <Modal
+  visible={modalVisible} // your existing state
+  animationType="slide"
+  transparent={true}
+  onRequestClose={() => setModalVisible(false)}
+>
+  <KeyboardAvoidingView
+    behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+    style={styles.modalContainer}
+  >
+    <View style={styles.modalContent}>
+
+      <View style={styles.modalHeader}>
+        <TouchableOpacity
+          onPress={() => {
+            Keyboard.dismiss();
+            setModalVisible(false); // Close Modal
+          }}
+          style={styles.closeButton}
+        >
+          <MaterialIcons name="close" size={24} color="#333" />
+        </TouchableOpacity>
+
+        <Text style={styles.modalTitle}>
+          {editingContact ? 'Edit Contact' : 'Add New Contact'}
+        </Text>
+        <View style={styles.placeholder} />
+      </View>
+
+      <ScrollView
+        style={styles.form}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      >
+        <View style={styles.inputGroup}>
+          <Text style={styles.label}>First Name <Text style={styles.required}>*</Text></Text>
+          <TextInput
+            style={[styles.input, errors.firstName ? styles.inputError : null]}
+            placeholder="Enter First Name"
+            value={firstName}
+            onChangeText={setFirstName}
+            returnKeyType="next"
+          />
+          {errors.firstName ? (
+            <Text style={styles.errorText}>{errors.firstName}</Text>
+          ) : null}
+        </View>
+
+        <View style={styles.inputGroup}>
+          <Text style={styles.label}>Last Name</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="Enter Last Name"
+            value={lastName}
+            onChangeText={setLastName}
+            returnKeyType="next"
+          />
+        </View>
+
+        <View style={styles.inputGroup}>
+          <Text style={styles.label}>Phone Number <Text style={styles.required}>*</Text></Text>
+          <TextInput
+            style={[styles.input, errors.phoneNumber ? styles.inputError : null]}
+            placeholder="Enter Phone Number"
+            value={phoneNumber}
+            onChangeText={setPhoneNumber}
+            keyboardType="phone-pad"
+            editable={editingContact ? false : true}
+            selectTextOnFocus={false}
+            returnKeyType="next"
+          />
+          {errors.phoneNumber ? (
+            <Text style={styles.errorText}>{errors.phoneNumber}</Text>
+          ) : null}
+        </View>
+
+        <View style={styles.inputGroup}>
+          <Text style={styles.label}>Email ID</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="Enter Email ID"
+            value={email}
+            onChangeText={setEmail}
+            keyboardType="email-address"
+            autoCapitalize="none"
+            returnKeyType="done"
+          />
+        </View>
+      </ScrollView>
+
+      <TouchableOpacity
+        style={styles.saveButton}
+        onPress={handleSave}
+      >
+        <Text style={styles.saveButtonText}>
+          {editingContact ? 'Update Contact' : 'Save Contact'}
+        </Text>
+      </TouchableOpacity>
+
+    </View>
+  </KeyboardAvoidingView>
+</Modal>
+)}
+
     </AppGradient>
   );
 };
@@ -804,6 +997,100 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.2,
     shadowRadius: 3,
+  },
+  modalContainer: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+  },
+  modalContent: {
+    backgroundColor: 'white',
+    margin: 20,
+    borderRadius: 12,
+    paddingBottom: 24,
+    maxHeight: '80%',
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
+  },
+  closeButton: {
+    padding: 8,
+    borderRadius: 20,
+    backgroundColor: '#F5F5F5',
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontFamily: 'LexendDeca_600SemiBold',
+    color: '#333',
+  },
+  placeholder: {
+    width: 40,
+  },
+  form: {
+    padding: 16,
+  },
+  inputGroup: {
+    marginBottom: 16,
+  },
+  label: {
+    fontSize: 14,
+    fontFamily: 'LexendDeca_500Medium',
+    color: '#333',
+    marginBottom: 8,
+  },
+  required: {
+    color: '#FF4444',
+    marginLeft: 4,
+  },
+  input: {
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 8,
+    padding: 12,
+    fontSize: 16,
+    fontFamily: 'LexendDeca_400Regular',
+    color: '#333',
+    backgroundColor: '#FFF',
+  },
+  inputError: {
+    borderColor: '#FF4444',
+  },
+  errorText: {
+    color: '#FF4444',
+    fontSize: 12,
+    fontFamily: 'LexendDeca_400Regular',
+    marginTop: 4,
+  },
+  saveButton: {
+    backgroundColor: '#FF8447',
+    marginHorizontal: 16,
+    padding: 16,
+    borderRadius: 8,
+    alignItems: 'center',
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 2,
+  },
+  saveButtonText: {
+    color: 'white',
+    fontSize: 16,
+    fontFamily: 'LexendDeca_600SemiBold',
+  },
+  readOnlyInput: {
+    backgroundColor: '#F5F5F5',
+    color: '#666',
   },
 });
 

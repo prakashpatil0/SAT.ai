@@ -184,7 +184,13 @@ const BDMDrawer = (props: DrawerContentComponentProps) => {
             style={styles.drawerItem}
             onPress={() => handleNavigate("BDMProfile")}
           />
-
+          <DrawerItem
+            label="Contact Book"
+            icon={({ size }) => <MaterialCommunityIcons name="contacts" size={size} color="#09142D" />}
+            labelStyle={styles.menuText}
+            style={styles.drawerItem}
+            onPress={() => handleNavigate("BDMContactBook")}  
+            />
           <DrawerItem
             label="Virtual Business Card"
             icon={({ size }) => <MaterialCommunityIcons name="card-account-details" size={size} color="#09142D" />}

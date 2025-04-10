@@ -27,7 +27,6 @@ import { BDMStackParamList, RootStackParamList } from '@/app/index';
 import BDMMainLayout from '@/app/components/BDMMainLayout';
 import CallLog from 'react-native-call-log';
 import { collection, addDoc,query, where, getDocs, doc, getDoc, setDoc, orderBy, limit, serverTimestamp, Timestamp } from 'firebase/firestore';
-import { collection, query, where, getDocs, doc, getDoc, setDoc, orderBy, limit, serverTimestamp, Timestamp, addDoc } from 'firebase/firestore';
 import { db, auth } from '@/firebaseConfig';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import AppGradient from "@/app/components/AppGradient";

@@ -36,7 +36,7 @@ type RootStackParamList = {
   };
 };
 
-interface Contact {
+export interface Contact {
   id: string;
   firstName: string;
   lastName: string;

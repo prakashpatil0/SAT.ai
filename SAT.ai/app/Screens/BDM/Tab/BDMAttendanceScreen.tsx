@@ -7,14 +7,34 @@ import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import PermissionsService from '@/app/services/PermissionsService';
 import { DEFAULT_LOCATION, DEFAULT_MAP_DELTA, GOOGLE_MAPS_STYLE } from '@/app/utils/MapUtils';
-import { format, startOfMonth, endOfMonth, parseISO } from 'date-fns';
-import { collection, addDoc, getDocs, query, where, Timestamp, updateDoc, doc, setDoc, getDoc } from 'firebase/firestore';
+import { format, startOfMonth, endOfMonth, parseISO, eachDayOfInterval } from 'date-fns';
+import { collection, addDoc, getDocs, query, where, Timestamp, updateDoc, doc, setDoc, getDoc, orderBy } from 'firebase/firestore';
 import { db, auth } from '@/firebaseConfig';
 import BDMMainLayout from '@/app/components/BDMMainLayout';
 import AppGradient from '@/app/components/AppGradient';
 import WaveSkeleton from '@/app/components/WaveSkeleton';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system';
+
+const STORAGE_KEY = '@attendance_records';
+const SYNC_INTERVAL = 5 * 60 * 1000; // 5 minutes
+
+const professionalMessages = {
+  absent: [
+    "Your presence is valuable to our team. Let's work together to maintain consistent attendance.",
+    "We notice you were absent. Please ensure to inform your manager in advance for future leaves.",
+    "Consistent attendance is key to our team's success. Let's strive for better attendance records.",
+    "Your contribution is important. Please maintain regular attendance for team efficiency.",
+    "We value your work. Let's work on improving attendance for better team coordination."
+  ],
+  halfDay: [
+    "Half-day attendance affects team productivity. Please try to maintain full-day attendance.",
+    "Your full presence is important for team success. Let's aim for complete attendance.",
+    "We appreciate your partial attendance. Let's work towards full-day attendance next time.",
+    "Team coordination works best with full-day presence. Let's maintain complete attendance.",
+    "Your complete presence is valuable. Let's strive for full-day attendance in the future."
+  ]
+};
 
 type RootStackParamList = {
   BDMCameraScreen: {
@@ -41,6 +61,7 @@ type AttendanceRecord = {
   timestamp: Date;
   photoUri?: string;
   location?: { latitude: number; longitude: number };
+  synced: boolean;
 };
 
 // Add new interfaces for month selection
@@ -64,422 +85,6 @@ const MONTHS: MonthOption[] = [
   { value: 11, label: 'December' }
 ];
 
-// Add styles first
-const styles = StyleSheet.create({
-  scrollView: {
-    flex: 1,
-    backgroundColor: '#FFF8F0',
-  },
-  mapContainer: {
-    height: 180,
-    borderRadius: 8,
-    overflow: 'hidden',
-    marginBottom: 16,
-  },
-  map: {
-    flex: 1,
-  },
-  mapFallback: {
-    flex: 1,
-    backgroundColor: '#F5F5F5',
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderRadius: 12,
-  },
-  mapFallbackText: {
-    fontSize: 16,
-    fontFamily: 'LexendDeca_400Regular',
-    color: '#666',
-    textAlign: 'center',
-    marginTop: 12,
-    paddingHorizontal: 24,
-  },
-  punchCard: {
-    backgroundColor: 'white',
-    borderRadius: 12,
-    padding: 16,
-    margin: 16,
-    marginTop: 0,
-    marginBottom: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 2,
-  },
-  punchInfo: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  punchLabel: {
-    fontSize: 16,
-    fontFamily: 'LexendDeca_500Medium',
-    color: '#333',
-  },
-  punchButton: {
-    backgroundColor: '#4CAF50',
-    paddingHorizontal: 20,
-    paddingVertical: 8,
-    borderRadius: 8,
-  },
-  punchOutButton: {
-    backgroundColor: '#FF4444',
-  },
-  punchButtonText: {
-    color: 'white',
-    fontFamily: 'LexendDeca_500Medium',
-  },
-  timeInfo: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-  },
-  timeColumn: {
-    alignItems: 'center',
-  },
-  timeLabel: {
-    fontSize: 14,
-    color: '#666',
-    fontFamily: 'LexendDeca_400Regular',
-  },
-  timeValue: {
-    fontSize: 16,
-    color: '#333',
-    fontFamily: 'LexendDeca_500Medium',
-    marginTop: 4,
-  },
-  weekCard: {
-    backgroundColor: 'white',
-    borderRadius: 12,
-    padding: 16,
-    margin: 16,
-    marginTop: 0,
-    marginBottom: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 2,
-  },
-  dateText: {
-    fontSize: 18,
-    color: '#333',
-    fontFamily: 'LexendDeca_500Medium',
-    marginBottom: 16,
-    textAlign: 'center',
-  },
-  weekDays: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingHorizontal: 8,
-  },
-  dayContainer: {
-    alignItems: 'center',
-    width: 45,
-  },
-  dayCircle: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 4,
-    borderWidth: 1,
-    borderColor: '#DDD',
-  },
-  weekDayText: {
-    fontSize: 14,
-    color: '#666',
-    fontFamily: 'LexendDeca_500Medium',
-    marginTop: 2,
-  },
-  weekDateText: {
-    fontSize: 12,
-    color: '#999',
-    fontFamily: 'LexendDeca_400Regular',
-  },
-  summaryContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    marginHorizontal: 16,
-    marginBottom: 16,
-  },
-  summaryItem: {
-    flex: 1,
-    backgroundColor: 'white',
-    borderRadius: 12,
-    padding: 12,
-    marginHorizontal: 4,
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 2,
-  },
-  summaryStatusPresent: {
-    fontSize: 16,
-    fontFamily: 'LexendDeca_500Medium',
-    color: '#4CAF50',
-    marginBottom: 4,
-  },
-  summaryStatusHalfDay: {
-    fontSize: 16,
-    fontFamily: 'LexendDeca_500Medium',
-    color: '#FFC107',
-    marginBottom: 4,
-  },
-  summaryStatusAbsent: {
-    fontSize: 16,
-    fontFamily: 'LexendDeca_500Medium',
-    color: '#FF5252',
-    marginBottom: 4,
-  },
-  summaryCount: {
-    fontSize: 14,
-    fontFamily: 'LexendDeca_400Regular',
-    color: '#666',
-  },
-  historyCard: {
-    backgroundColor: 'white',
-    borderRadius: 12,
-    padding: 16,
-    marginHorizontal: 16,
-    marginBottom: 8,
-    flexDirection: 'row',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 2,
-  },
-  dateColumn: {
-    alignItems: 'center',
-    width: 40,
-    marginRight: 12,
-  },
-  dateNumber: {
-    fontSize: 18,
-    fontFamily: 'LexendDeca_600SemiBold',
-    color: '#333',
-  },
-  dateDay: {
-    fontSize: 12,
-    color: '#666',
-    fontFamily: 'LexendDeca_400Regular',
-  },
-  punchDetails: {
-    flex: 1,
-    flexDirection: 'column',
-    marginRight: 8,
-  },
-  punchTimeContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 4,
-  },
-  punchTime: {
-    fontSize: 14,
-    color: '#333',
-    fontFamily: 'LexendDeca_500Medium',
-  },
-  punchType: {
-    fontSize: 12,
-    color: '#666',
-    fontFamily: 'LexendDeca_400Regular',
-  },
-  statusBadge: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 12,
-    justifyContent: 'center',
-    alignItems: 'center',
-    minWidth: 80,
-  },
-  presentStatus: {
-    backgroundColor: '#E8F5E9',
-  },
-  halfDayStatus: {
-    backgroundColor: '#FFF3E0',
-  },
-  leaveStatus: {
-    backgroundColor: '#FFEBEE',
-  },
-  presentText: {
-    color: '#4CAF50',
-    fontSize: 12,
-    fontFamily: 'LexendDeca_500Medium',
-  },
-  halfDayText: {
-    color: '#FFC107',
-    fontSize: 12,
-    fontFamily: 'LexendDeca_500Medium',
-  },
-  leaveText: {
-    color: '#FF5252',
-    fontSize: 12,
-    fontFamily: 'LexendDeca_500Medium',
-  },
-  statusText: {
-    fontSize: 12,
-    fontFamily: 'LexendDeca_500Medium',
-  },
-  markerContainer: {
-    width: 36,
-    height: 36,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  emptyHistoryContainer: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 40,
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    margin: 16,
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.1,
-    shadowRadius: 3.84,
-    elevation: 3,
-  },
-  emptyHistoryText: {
-    fontSize: 16,
-    color: '#666',
-    fontFamily: 'LexendDeca_500Medium',
-    marginTop: 16,
-  },
-  emptyHistorySubText: {
-    fontSize: 14,
-    color: '#999',
-    fontFamily: 'LexendDeca_400Regular',
-    marginTop: 8,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    color: '#333',
-    fontFamily: 'LexendDeca_600SemiBold',
-    marginHorizontal: 16,
-    marginVertical: 8,
-  },
-  historySection: {
-    marginTop: 16,
-  },
-  loadingLocation: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#F5F5F5',
-  },
-  loadingText: {
-    marginTop: 12,
-    fontSize: 16,
-    fontFamily: 'LexendDeca_400Regular',
-    color: '#666',
-  },
-  punchButtonDisabled: {
-    backgroundColor: '#CCCCCC',
-    opacity: 0.7,
-  },
-  punchButtonTextDisabled: {
-    color: '#666',
-  },
-  nextPunchInfo: {
-    textAlign: 'center',
-    fontSize: 12,
-    fontFamily: 'LexendDeca_400Regular',
-    color: '#666',
-    marginTop: 8,
-    fontStyle: 'italic',
-  },
-  summaryItemBlurred: {
-    opacity: 0.5,
-  },
-  summaryItemActive: {
-    borderWidth: 2,
-    borderColor: '#FF8447',
-    transform: [{ scale: 1.05 }],
-  },
-  historyHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginHorizontal: 16,
-    marginVertical: 8,
-  },
-  clearFilterButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FFF5E6',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 16,
-  },
-  clearFilterText: {
-    fontSize: 12,
-    fontFamily: 'LexendDeca_400Regular',
-    color: '#FF8447',
-    marginRight: 4,
-  },
-  monthScrollContainer: {
-    marginVertical: 8,
-  },
-  monthScrollContent: {
-    paddingHorizontal: 16,
-  },
-  monthItem: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    marginRight: 8,
-    borderRadius: 20,
-    backgroundColor: '#F5F5F5',
-  },
-  selectedMonthItem: {
-    backgroundColor: '#FF8447',
-  },
-  pastMonthItem: {
-    opacity: 0.6,
-  },
-  monthText: {
-    fontSize: 14,
-    color: '#666',
-    fontFamily: 'LexendDeca_400Regular',
-  },
-  selectedMonthText: {
-    color: '#FFFFFF',
-    fontFamily: 'LexendDeca_500Medium',
-  },
-  pastMonthText: {
-    color: '#999',
-  },
-  skeletonContainer: {
-    padding: 16,
-  },
-  skeletonMap: {
-    borderRadius: 12,
-    marginBottom: 16,
-  },
-  skeletonPunchCard: {
-    borderRadius: 12,
-    marginBottom: 16,
-  },
-  skeletonWeekCard: {
-    borderRadius: 12,
-    marginBottom: 16,
-  },
-  skeletonSummary: {
-    borderRadius: 12,
-    marginBottom: 16,
-  },
-  skeletonHistory: {
-    borderRadius: 12,
-  },
-});
 
 // Add AttendanceSkeleton component
 const AttendanceSkeleton = () => {
@@ -901,7 +506,8 @@ const BDMAttendanceScreen = () => {
           userId,
           timestamp: new Date(currentYear, selectedMonth, parseInt(record.date)),
           photoUri: record.photoUri,
-          location: record.location
+          location: record.location,
+          synced: false
         }));
 
         const sortedHistory = history.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
@@ -909,19 +515,31 @@ const BDMAttendanceScreen = () => {
         calculateStatusCounts(sortedHistory);
         updateWeekDaysStatus(sortedHistory);
 
-        // Update today's punch in/out status if today's record exists
-        const today = format(new Date(), 'dd');
-        const todayRecord = history.find(record => record.date === today);
-        if (todayRecord) {
-          setTodayRecord(todayRecord);
-          setPunchInTime(todayRecord.punchIn ? format(new Date(`2000-01-01T${todayRecord.punchIn}`), 'hh:mm a') : '');
-          setPunchOutTime(todayRecord.punchOut ? format(new Date(`2000-01-01T${todayRecord.punchOut}`), 'hh:mm a') : '');
-          setIsPunchedIn(!!todayRecord.punchIn && !todayRecord.punchOut);
+        // Update today's punch in/out status if today's record exists and it's the current month
+        if (selectedMonth === new Date().getMonth()) {
+          const today = format(new Date(), 'dd');
+          const todayRecord = history.find(record => record.date === today);
+          if (todayRecord) {
+            setTodayRecord(todayRecord);
+            setPunchInTime(todayRecord.punchIn ? format(new Date(`2000-01-01T${todayRecord.punchIn}`), 'hh:mm a') : '');
+            setPunchOutTime(todayRecord.punchOut ? format(new Date(`2000-01-01T${todayRecord.punchOut}`), 'hh:mm a') : '');
+            setIsPunchedIn(!!todayRecord.punchIn && !todayRecord.punchOut);
+          }
         }
       } else {
         // Fallback to individual attendance records if monthly data not found
         const attendanceRef = collection(db, 'users', userId, 'attendance');
-        const querySnapshot = await getDocs(attendanceRef);
+        const startDate = new Date(currentYear, selectedMonth, 1);
+        const endDate = new Date(currentYear, selectedMonth + 1, 0);
+        
+        const monthQuery = query(
+          attendanceRef,
+          where('timestamp', '>=', Timestamp.fromDate(startDate)),
+          where('timestamp', '<=', Timestamp.fromDate(endDate)),
+          orderBy('timestamp', 'desc')
+        );
+
+        const querySnapshot = await getDocs(monthQuery);
         
         const history: AttendanceRecord[] = [];
         const today = format(new Date(), 'dd');
@@ -930,9 +548,22 @@ const BDMAttendanceScreen = () => {
           const data = doc.data();
           const recordDate = data.timestamp.toDate();
           
-          // Only include records from selected month
-          if (recordDate.getMonth() === selectedMonth && recordDate.getFullYear() === currentYear) {
-            history.push({
+          history.push({
+            date: data.date,
+            day: data.day,
+            punchIn: data.punchIn,
+            punchOut: data.punchOut,
+            status: data.status,
+            userId: data.userId,
+            timestamp: recordDate,
+            photoUri: data.photoUri,
+            location: data.location,
+            synced: false
+          });
+
+          // Update today's punch in/out status if it's the current month
+          if (selectedMonth === new Date().getMonth() && data.date === today) {
+            setTodayRecord({
               date: data.date,
               day: data.day,
               punchIn: data.punchIn,
@@ -941,27 +572,13 @@ const BDMAttendanceScreen = () => {
               userId: data.userId,
               timestamp: recordDate,
               photoUri: data.photoUri,
-              location: data.location
+              location: data.location,
+              synced: false
             });
-
-            // Update today's punch in/out status
-            if (data.date === today) {
-              setTodayRecord({
-                date: data.date,
-                day: data.day,
-                punchIn: data.punchIn,
-                punchOut: data.punchOut,
-                status: data.status,
-                userId: data.userId,
-                timestamp: recordDate,
-                photoUri: data.photoUri,
-                location: data.location
-              });
-              
-              setPunchInTime(data.punchIn ? format(new Date(`2000-01-01T${data.punchIn}`), 'hh:mm a') : '');
-              setPunchOutTime(data.punchOut ? format(new Date(`2000-01-01T${data.punchOut}`), 'hh:mm a') : '');
-              setIsPunchedIn(!!data.punchIn && !data.punchOut);
-            }
+            
+            setPunchInTime(data.punchIn ? format(new Date(`2000-01-01T${data.punchIn}`), 'hh:mm a') : '');
+            setPunchOutTime(data.punchOut ? format(new Date(`2000-01-01T${data.punchOut}`), 'hh:mm a') : '');
+            setIsPunchedIn(!!data.punchIn && !data.punchOut);
           }
         });
 
@@ -1086,146 +703,6 @@ const BDMAttendanceScreen = () => {
       return 'Half Day';
     } else {
       return 'On Leave';
-    }
-  };
-
-  // Update saveAttendance to save by month
-  const saveAttendance = async (isPunchIn: boolean, photoUri: string, locationCoords: any) => {
-    try {
-      const userId = auth.currentUser?.uid;
-      if (!userId) {
-        Alert.alert('Error', 'User not authenticated');
-        return;
-      }
-
-      const currentTime = new Date();
-      const dateStr = format(currentTime, 'dd');
-      const dayStr = format(currentTime, 'EEE').toUpperCase();
-      const timeStr = format(currentTime, 'HH:mm');
-      const monthStr = format(currentTime, 'MM');
-      const yearStr = format(currentTime, 'yyyy');
-      const monthYearKey = `${yearStr}_${monthStr}`;
-
-      // Save to user's attendance collection
-      const attendanceRef = collection(db, 'users', userId, 'attendance');
-      const todayQuery = query(
-        attendanceRef,
-        where('date', '==', dateStr),
-        where('userId', '==', userId)
-      );
-
-      const querySnapshot = await getDocs(todayQuery);
-      
-      if (querySnapshot.empty) {
-        // Create new attendance record
-        await addDoc(attendanceRef, {
-          date: dateStr,
-          day: dayStr,
-          punchIn: isPunchIn ? timeStr : '',
-          punchOut: !isPunchIn ? timeStr : '',
-          status: isPunchIn ? 'Half Day' : 'On Leave',
-          userId,
-          timestamp: Timestamp.fromDate(currentTime),
-          photoUri,
-          location: locationCoords,
-          monthYear: monthYearKey
-        });
-      } else {
-        // Update existing record
-        const docRef = querySnapshot.docs[0].ref;
-        const existingData = querySnapshot.docs[0].data();
-        const newPunchIn = isPunchIn ? timeStr : existingData.punchIn;
-        const newPunchOut = !isPunchIn ? timeStr : existingData.punchOut;
-        
-        // Calculate new status based on punch times
-        const newStatus = calculateAttendanceStatus(newPunchIn, newPunchOut);
-        
-        await updateDoc(docRef, {
-          punchIn: newPunchIn,
-          punchOut: newPunchOut,
-          status: newStatus,
-          photoUri: !isPunchIn ? photoUri : existingData.photoUri,
-          location: !isPunchIn ? locationCoords : existingData.location
-        });
-      }
-
-      // Also save to monthly attendance collection for easier reporting
-      const monthlyAttendanceRef = doc(db, 'bdm_monthly_attendance', `${userId}_${monthYearKey}`);
-      const monthlyDoc = await getDoc(monthlyAttendanceRef);
-      
-      if (monthlyDoc.exists()) {
-        // Update existing monthly record
-        const monthlyData = monthlyDoc.data();
-        const records = monthlyData.records || [];
-        
-        // Check if record for this date already exists
-        const existingRecordIndex = records.findIndex((record: any) => record.date === dateStr);
-        
-        if (existingRecordIndex >= 0) {
-          // Update existing record
-          records[existingRecordIndex] = {
-            ...records[existingRecordIndex],
-            punchIn: isPunchIn ? timeStr : records[existingRecordIndex].punchIn,
-            punchOut: !isPunchIn ? timeStr : records[existingRecordIndex].punchOut,
-            status: calculateAttendanceStatus(
-              isPunchIn ? timeStr : records[existingRecordIndex].punchIn,
-              !isPunchIn ? timeStr : records[existingRecordIndex].punchOut
-            ),
-            photoUri: !isPunchIn ? photoUri : records[existingRecordIndex].photoUri,
-            location: !isPunchIn ? locationCoords : records[existingRecordIndex].location
-          };
-        } else {
-          // Add new record
-          records.push({
-            date: dateStr,
-            day: dayStr,
-            punchIn: isPunchIn ? timeStr : '',
-            punchOut: !isPunchIn ? timeStr : '',
-            status: isPunchIn ? 'Half Day' : 'On Leave',
-            photoUri,
-            location: locationCoords
-          });
-        }
-        
-        await updateDoc(monthlyAttendanceRef, {
-          records,
-          lastUpdated: Timestamp.fromDate(currentTime)
-        });
-      } else {
-        // Create new monthly record
-        await setDoc(monthlyAttendanceRef, {
-          userId,
-          monthYear: monthYearKey,
-          year: parseInt(yearStr),
-          month: parseInt(monthStr),
-          records: [{
-            date: dateStr,
-            day: dayStr,
-            punchIn: isPunchIn ? timeStr : '',
-            punchOut: !isPunchIn ? timeStr : '',
-            status: isPunchIn ? 'Half Day' : 'On Leave',
-            photoUri,
-            location: locationCoords
-          }],
-          createdAt: Timestamp.fromDate(currentTime),
-          lastUpdated: Timestamp.fromDate(currentTime)
-        });
-      }
-
-      // Update local state
-      if (isPunchIn) {
-        setPunchInTime(format(currentTime, 'hh:mm a'));
-        setIsPunchedIn(true);
-      } else {
-        setPunchOutTime(format(currentTime, 'hh:mm a'));
-        setIsPunchedIn(false);
-      }
-
-      // Refresh attendance history
-      fetchAttendanceHistory();
-    } catch (error) {
-      console.error('Error saving attendance:', error);
-      Alert.alert('Error', 'Failed to save attendance');
     }
   };
 
@@ -1662,6 +1139,172 @@ const BDMAttendanceScreen = () => {
     );
   };
 
+  const [absentHistory, setAbsentHistory] = useState<{date: string; message: string}[]>([]);
+  const [localRecords, setLocalRecords] = useState<AttendanceRecord[]>([]);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
+
+  // Load local records on component mount
+  useEffect(() => {
+    loadLocalRecords();
+    const syncInterval = setInterval(syncWithFirebase, SYNC_INTERVAL);
+    return () => clearInterval(syncInterval);
+  }, []);
+
+  const loadLocalRecords = async () => {
+    try {
+      const storedRecords = await AsyncStorage.getItem(STORAGE_KEY);
+      if (storedRecords) {
+        const parsedRecords = JSON.parse(storedRecords);
+        setLocalRecords(parsedRecords);
+        updateWeekDaysStatus(parsedRecords);
+        calculateStatusCounts(parsedRecords);
+      }
+    } catch (error) {
+      console.error('Error loading local records:', error);
+    }
+  };
+
+  const saveLocalRecord = async (record: AttendanceRecord) => {
+    try {
+      const updatedRecords = [...localRecords, record];
+      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updatedRecords));
+      setLocalRecords(updatedRecords);
+      return true;
+    } catch (error) {
+      console.error('Error saving local record:', error);
+      return false;
+    }
+  };
+
+  const syncWithFirebase = async () => {
+    if (isSyncing) return;
+    setIsSyncing(true);
+
+    try {
+      const userId = auth.currentUser?.uid;
+      if (!userId) return;
+
+      // Get records that haven't been synced
+      const unsyncedRecords = localRecords.filter(record => !record.synced);
+      
+      for (const record of unsyncedRecords) {
+        const attendanceRef = collection(db, 'users', userId, 'attendance');
+        const todayQuery = query(
+          attendanceRef,
+          where('date', '==', record.date),
+          where('userId', '==', userId)
+        );
+
+        const querySnapshot = await getDocs(todayQuery);
+        
+        if (querySnapshot.empty) {
+          await addDoc(attendanceRef, {
+            ...record,
+            timestamp: Timestamp.fromDate(record.timestamp),
+            synced: true
+          });
+        } else {
+          const docRef = querySnapshot.docs[0].ref;
+          await updateDoc(docRef, {
+            ...record,
+            timestamp: Timestamp.fromDate(record.timestamp),
+            synced: true
+          });
+        }
+      }
+
+      // Update local records to mark as synced
+      const updatedRecords = localRecords.map(record => ({
+        ...record,
+        synced: true
+      }));
+      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updatedRecords));
+      setLocalRecords(updatedRecords);
+      setLastSyncTime(new Date());
+    } catch (error) {
+      console.error('Error syncing with Firebase:', error);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const calculateAbsentHistory = (history: AttendanceRecord[]) => {
+    const currentMonth = format(new Date(), 'MM');
+    const currentYear = format(new Date(), 'yyyy');
+    const startDate = startOfMonth(new Date());
+    const endDate = endOfMonth(new Date());
+    const allDates = eachDayOfInterval({ start: startDate, end: endDate });
+    
+    const absentDates = allDates.filter(date => {
+      const dateStr = format(date, 'dd');
+      const day = format(date, 'EEE').toUpperCase();
+      const record = history.find(r => r.date === dateStr);
+      
+      return !record || record.status === 'On Leave';
+    });
+
+    const absentHistory = absentDates.map(date => ({
+      date: format(date, 'dd MMM yyyy'),
+      message: professionalMessages.absent[Math.floor(Math.random() * professionalMessages.absent.length)]
+    }));
+
+    setAbsentHistory(absentHistory);
+  };
+
+  const saveAttendance = async (isPunchIn: boolean, photoUri: string, locationCoords: any) => {
+    try {
+      const userId = auth.currentUser?.uid;
+      if (!userId) {
+        Alert.alert('Error', 'User not authenticated');
+        return;
+      }
+
+      const currentTime = new Date();
+      const dateStr = format(currentTime, 'dd');
+      const dayStr = format(currentTime, 'EEE').toUpperCase();
+      const timeStr = format(currentTime, 'HH:mm');
+
+      const newRecord: AttendanceRecord = {
+        date: dateStr,
+        day: dayStr,
+        punchIn: isPunchIn ? timeStr : '',
+        punchOut: !isPunchIn ? timeStr : '',
+        status: calculateAttendanceStatus(isPunchIn ? timeStr : '', !isPunchIn ? timeStr : ''),
+        userId,
+        timestamp: currentTime,
+        photoUri,
+        location: locationCoords,
+        synced: false
+      };
+
+      // Save to local storage first
+      const saved = await saveLocalRecord(newRecord);
+      if (!saved) {
+        Alert.alert('Error', 'Failed to save attendance locally');
+        return;
+      }
+
+      // Update UI
+      if (isPunchIn) {
+        setPunchInTime(format(currentTime, 'hh:mm a'));
+        setIsPunchedIn(true);
+      } else {
+        setPunchOutTime(format(currentTime, 'hh:mm a'));
+        setIsPunchedIn(false);
+      }
+
+      // Start sync process
+      syncWithFirebase();
+
+      // Update absent history
+      calculateAbsentHistory([...localRecords, newRecord]);
+    } catch (error) {
+      console.error('Error saving attendance:', error);
+      Alert.alert('Error', 'Failed to save attendance');
+    }
+  };
+
   return (
     <AppGradient>
       <BDMMainLayout 
@@ -1823,6 +1466,28 @@ const BDMAttendanceScreen = () => {
                   ))
                 )}
               </View>
+
+              {/* Absent History Section */}
+              {absentHistory.length > 0 && (
+                <View style={styles.absentHistoryContainer}>
+                  <Text style={styles.absentHistoryTitle}>Absent History</Text>
+                  {absentHistory.map((item, index) => (
+                    <View key={index} style={styles.absentHistoryItem}>
+                      <Text style={styles.absentDate}>{item.date}</Text>
+                      <Text style={styles.absentMessage}>{item.message}</Text>
+                    </View>
+                  ))}
+                </View>
+              )}
+
+              {/* Sync Status */}
+              <View style={styles.syncStatusContainer}>
+                <Text style={styles.syncStatusText}>
+                  {isSyncing ? 'Syncing...' : lastSyncTime ? 
+                    `Last synced: ${format(lastSyncTime, 'hh:mm a')}` : 
+                    'Not synced yet'}
+                </Text>
+              </View>
             </>
           )}
         </ScrollView>
@@ -1830,5 +1495,462 @@ const BDMAttendanceScreen = () => {
     </AppGradient>
   );
 };
+
+// Add styles first
+const styles = StyleSheet.create({
+  scrollView: {
+    flex: 1,
+    backgroundColor: '#FFF8F0',
+  },
+  mapContainer: {
+    height: 180,
+    borderRadius: 8,
+    overflow: 'hidden',
+    marginBottom: 16,
+  },
+  map: {
+    flex: 1,
+  },
+  mapFallback: {
+    flex: 1,
+    backgroundColor: '#F5F5F5',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: 12,
+  },
+  mapFallbackText: {
+    fontSize: 16,
+    fontFamily: 'LexendDeca_400Regular',
+    color: '#666',
+    textAlign: 'center',
+    marginTop: 12,
+    paddingHorizontal: 24,
+  },
+  punchCard: {
+    backgroundColor: 'white',
+    borderRadius: 12,
+    padding: 16,
+    margin: 16,
+    marginTop: 0,
+    marginBottom: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  punchInfo: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  punchLabel: {
+    fontSize: 16,
+    fontFamily: 'LexendDeca_500Medium',
+    color: '#333',
+  },
+  punchButton: {
+    backgroundColor: '#4CAF50',
+    paddingHorizontal: 20,
+    paddingVertical: 8,
+    borderRadius: 8,
+  },
+  punchOutButton: {
+    backgroundColor: '#FF4444',
+  },
+  punchButtonText: {
+    color: 'white',
+    fontFamily: 'LexendDeca_500Medium',
+  },
+  timeInfo: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+  },
+  timeColumn: {
+    alignItems: 'center',
+  },
+  timeLabel: {
+    fontSize: 14,
+    color: '#666',
+    fontFamily: 'LexendDeca_400Regular',
+  },
+  timeValue: {
+    fontSize: 16,
+    color: '#333',
+    fontFamily: 'LexendDeca_500Medium',
+    marginTop: 4,
+  },
+  weekCard: {
+    backgroundColor: 'white',
+    borderRadius: 12,
+    padding: 16,
+    margin: 16,
+    marginTop: 0,
+    marginBottom: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  dateText: {
+    fontSize: 18,
+    color: '#333',
+    fontFamily: 'LexendDeca_500Medium',
+    marginBottom: 16,
+    textAlign: 'center',
+  },
+  weekDays: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: 8,
+  },
+  dayContainer: {
+    alignItems: 'center',
+    width: 45,
+  },
+  dayCircle: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 4,
+    borderWidth: 1,
+    borderColor: '#DDD',
+  },
+  weekDayText: {
+    fontSize: 14,
+    color: '#666',
+    fontFamily: 'LexendDeca_500Medium',
+    marginTop: 2,
+  },
+  weekDateText: {
+    fontSize: 12,
+    color: '#999',
+    fontFamily: 'LexendDeca_400Regular',
+  },
+  summaryContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginHorizontal: 16,
+    marginBottom: 16,
+  },
+  summaryItem: {
+    flex: 1,
+    backgroundColor: 'white',
+    borderRadius: 12,
+    padding: 12,
+    marginHorizontal: 4,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  summaryStatusPresent: {
+    fontSize: 16,
+    fontFamily: 'LexendDeca_500Medium',
+    color: '#4CAF50',
+    marginBottom: 4,
+  },
+  summaryStatusHalfDay: {
+    fontSize: 16,
+    fontFamily: 'LexendDeca_500Medium',
+    color: '#FFC107',
+    marginBottom: 4,
+  },
+  summaryStatusAbsent: {
+    fontSize: 16,
+    fontFamily: 'LexendDeca_500Medium',
+    color: '#FF5252',
+    marginBottom: 4,
+  },
+  summaryCount: {
+    fontSize: 14,
+    fontFamily: 'LexendDeca_400Regular',
+    color: '#666',
+  },
+  historyCard: {
+    backgroundColor: 'white',
+    borderRadius: 12,
+    padding: 16,
+    marginHorizontal: 16,
+    marginBottom: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  dateColumn: {
+    alignItems: 'center',
+    width: 40,
+    marginRight: 12,
+  },
+  dateNumber: {
+    fontSize: 18,
+    fontFamily: 'LexendDeca_600SemiBold',
+    color: '#333',
+  },
+  dateDay: {
+    fontSize: 12,
+    color: '#666',
+    fontFamily: 'LexendDeca_400Regular',
+  },
+  punchDetails: {
+    flex: 1,
+    flexDirection: 'column',
+    marginRight: 8,
+  },
+  punchTimeContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 4,
+  },
+  punchTime: {
+    fontSize: 14,
+    color: '#333',
+    fontFamily: 'LexendDeca_500Medium',
+  },
+  punchType: {
+    fontSize: 12,
+    color: '#666',
+    fontFamily: 'LexendDeca_400Regular',
+  },
+  statusBadge: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+    minWidth: 80,
+  },
+  presentStatus: {
+    backgroundColor: '#E8F5E9',
+  },
+  halfDayStatus: {
+    backgroundColor: '#FFF3E0',
+  },
+  leaveStatus: {
+    backgroundColor: '#FFEBEE',
+  },
+  presentText: {
+    color: '#4CAF50',
+    fontSize: 12,
+    fontFamily: 'LexendDeca_500Medium',
+  },
+  halfDayText: {
+    color: '#FFC107',
+    fontSize: 12,
+    fontFamily: 'LexendDeca_500Medium',
+  },
+  leaveText: {
+    color: '#FF5252',
+    fontSize: 12,
+    fontFamily: 'LexendDeca_500Medium',
+  },
+  statusText: {
+    fontSize: 12,
+    fontFamily: 'LexendDeca_500Medium',
+  },
+  markerContainer: {
+    width: 36,
+    height: 36,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  emptyHistoryContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 40,
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    margin: 16,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 3.84,
+    elevation: 3,
+  },
+  emptyHistoryText: {
+    fontSize: 16,
+    color: '#666',
+    fontFamily: 'LexendDeca_500Medium',
+    marginTop: 16,
+  },
+  emptyHistorySubText: {
+    fontSize: 14,
+    color: '#999',
+    fontFamily: 'LexendDeca_400Regular',
+    marginTop: 8,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    color: '#333',
+    fontFamily: 'LexendDeca_600SemiBold',
+    marginHorizontal: 16,
+    marginVertical: 8,
+  },
+  historySection: {
+    marginTop: 16,
+  },
+  loadingLocation: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#F5F5F5',
+  },
+  loadingText: {
+    marginTop: 12,
+    fontSize: 16,
+    fontFamily: 'LexendDeca_400Regular',
+    color: '#666',
+  },
+  punchButtonDisabled: {
+    backgroundColor: '#CCCCCC',
+    opacity: 0.7,
+  },
+  punchButtonTextDisabled: {
+    color: '#666',
+  },
+  nextPunchInfo: {
+    textAlign: 'center',
+    fontSize: 12,
+    fontFamily: 'LexendDeca_400Regular',
+    color: '#666',
+    marginTop: 8,
+    fontStyle: 'italic',
+  },
+  summaryItemBlurred: {
+    opacity: 0.5,
+  },
+  summaryItemActive: {
+    borderWidth: 2,
+    borderColor: '#FF8447',
+    transform: [{ scale: 1.05 }],
+  },
+  historyHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginHorizontal: 16,
+    marginVertical: 8,
+  },
+  clearFilterButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFF5E6',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 16,
+  },
+  clearFilterText: {
+    fontSize: 12,
+    fontFamily: 'LexendDeca_400Regular',
+    color: '#FF8447',
+    marginRight: 4,
+  },
+  monthScrollContainer: {
+    marginVertical: 8,
+  },
+  monthScrollContent: {
+    paddingHorizontal: 16,
+  },
+  monthItem: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    marginRight: 8,
+    borderRadius: 20,
+    backgroundColor: '#F5F5F5',
+  },
+  selectedMonthItem: {
+    backgroundColor: '#FF8447',
+  },
+  pastMonthItem: {
+    opacity: 0.6,
+  },
+  monthText: {
+    fontSize: 14,
+    color: '#666',
+    fontFamily: 'LexendDeca_400Regular',
+  },
+  selectedMonthText: {
+    color: '#FFFFFF',
+    fontFamily: 'LexendDeca_500Medium',
+  },
+  pastMonthText: {
+    color: '#999',
+  },
+  skeletonContainer: {
+    padding: 16,
+  },
+  skeletonMap: {
+    borderRadius: 12,
+    marginBottom: 16,
+  },
+  skeletonPunchCard: {
+    borderRadius: 12,
+    marginBottom: 16,
+  },
+  skeletonWeekCard: {
+    borderRadius: 12,
+    marginBottom: 16,
+  },
+  skeletonSummary: {
+    borderRadius: 12,
+    marginBottom: 16,
+  },
+  skeletonHistory: {
+    borderRadius: 12,
+  },
+  absentHistoryContainer: {
+    backgroundColor: 'white',
+    borderRadius: 12,
+    padding: 16,
+    margin: 16,
+    marginTop: 8,
+  },
+  absentHistoryTitle: {
+    fontSize: 18,
+    fontFamily: 'LexendDeca_600SemiBold',
+    color: '#333',
+    marginBottom: 12,
+  },
+  absentHistoryItem: {
+    marginBottom: 12,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F0F0F0',
+  },
+  absentDate: {
+    fontSize: 14,
+    fontFamily: 'LexendDeca_500Medium',
+    color: '#666',
+    marginBottom: 4,
+  },
+  absentMessage: {
+    fontSize: 14,
+    fontFamily: 'LexendDeca_400Regular',
+    color: '#333',
+    lineHeight: 20,
+  },
+  syncStatusContainer: {
+    padding: 16,
+    alignItems: 'center',
+  },
+  syncStatusText: {
+    fontSize: 12,
+    fontFamily: 'LexendDeca_400Regular',
+    color: '#666',
+  },
+});
 
 export default BDMAttendanceScreen; 

@@ -705,8 +705,8 @@ const BDMViewFullReport = () => {
           // Calculate overall progress as average of all percentages
           const overallProgress = Math.min(
             (meetingsPercentage + attendedPercentage + durationPercentage + closingPercentage) / 4,
-            100
-          );
+      100
+    );
           
           totalAchievement += overallProgress;
           weekCount++;

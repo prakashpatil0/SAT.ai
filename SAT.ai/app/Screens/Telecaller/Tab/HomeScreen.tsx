@@ -23,6 +23,7 @@ import targetService from "@/app/services/targetService";
 import Dialer from '@/app/components/Dialer/Dialer';
 import { startOfWeek, endOfWeek } from 'date-fns';
 import { Timestamp } from 'firebase/firestore';
+import { Contact } from '../../../components/Dialer/Dialer';
 
 // Define navigation types
 type RootStackParamList = {
@@ -76,17 +77,6 @@ interface SimCallLog {
   timestamp: number;
   duration: number;
   contactName?: string;
-}
-
-// Update the Contact interface
-interface Contact {
-  id: string;
-  firstName: string;
-  lastName: string;
-  phoneNumber: string;
-  email?: string;
-  userId: string;
-  createdAt: Date;
 }
 
 // Update the MonthlyCallHistory interface
@@ -180,13 +170,40 @@ const HomeScreen = () => {
     return savedContacts[phoneNumber] || false;
   };
 
-  // Add function to load saved contacts
+  // Update the handleContactSaved function
+  const handleContactSaved = async (contact: Contact) => {
+    try {
+      // Update saved contacts state
+      setSavedContacts(prev => ({
+        ...prev,
+        [contact.phoneNumber]: true
+      }));
+
+      // Update contacts list
+      setContacts(prev => {
+        const existingIndex = prev.findIndex(c => c.phoneNumber === contact.phoneNumber);
+        if (existingIndex !== -1) {
+          const updated = [...prev];
+          updated[existingIndex] = contact;
+          return updated;
+        }
+        return [...prev, contact];
+      });
+
+      // Refresh call logs to show updated contact name
+      await fetchCallLogs();
+    } catch (error) {
+      console.error('Error handling saved contact:', error);
+    }
+  };
+
+  // Update the loadSavedContacts function
   const loadSavedContacts = async () => {
     try {
       const storedContacts = await AsyncStorage.getItem('contacts');
       if (storedContacts) {
         const contacts = JSON.parse(storedContacts);
-        const contactsMap = contacts.reduce((acc: {[key: string]: boolean}, contact: any) => {
+        const contactsMap = contacts.reduce((acc: {[key: string]: boolean}, contact: Contact) => {
           if (contact.phoneNumber) {
             acc[contact.phoneNumber] = true;
           }
@@ -199,10 +216,26 @@ const HomeScreen = () => {
     }
   };
 
-  // Update useEffect to load contacts
-  useEffect(() => {
-    loadSavedContacts();
-  }, []);
+  // Update the fetchContacts function
+  const fetchContacts = async () => {
+    try {
+      setIsLoadingContacts(true);
+      const storedContacts = await AsyncStorage.getItem('contacts');
+      if (storedContacts) {
+        const parsedContacts = JSON.parse(storedContacts) as Contact[];
+        // Ensure all contacts have the favorite property
+        const normalizedContacts = parsedContacts.map(contact => ({
+          ...contact,
+          favorite: contact.favorite ?? false
+        }));
+        setContacts(normalizedContacts);
+      }
+    } catch (error) {
+      console.error('Error fetching contacts:', error);
+    } finally {
+      setIsLoadingContacts(false);
+    }
+  };
 
   // Update the checkFirstTimeUser function
   const checkFirstTimeUser = async () => {
@@ -260,38 +293,6 @@ const HomeScreen = () => {
 
     fetchUserDetails();
   }, [userProfile]);
-
-  // Update the fetchContacts function
-  const fetchContacts = async () => {
-    try {
-      setIsLoadingContacts(true);
-      const userId = auth.currentUser?.uid;
-      if (!userId) return;
-
-      const contactsRef = collection(db, 'contacts');
-      const q = query(contactsRef, where('userId', '==', userId));
-      const querySnapshot = await getDocs(q);
-      
-      const contactsList = querySnapshot.docs.map(doc => {
-        const data = doc.data();
-        return {
-          id: doc.id,
-          firstName: data.firstName || '',
-          lastName: data.lastName || '',
-          phoneNumber: data.phoneNumber || '',
-          email: data.email,
-          userId: data.userId,
-          createdAt: data.createdAt?.toDate() || new Date(),
-        } as Contact;
-      });
-
-      setContacts(contactsList);
-    } catch (error) {
-      console.error('Error fetching contacts:', error);
-    } finally {
-      setIsLoadingContacts(false);
-    }
-  };
 
   // Add useEffect to fetch contacts
   useEffect(() => {
@@ -1488,11 +1489,7 @@ const HomeScreen = () => {
           visible={addContactModalVisible}
           onClose={() => setAddContactModalVisible(false)}
           phoneNumber={selectedNumber}
-          onContactSaved={(contact) => {
-            setAddContactModalVisible(false);
-            loadSavedContacts();
-            fetchCallLogs();
-          }}
+          onContactSaved={handleContactSaved}
         />
       </TelecallerMainLayout>
     </AppGradient>

@@ -5,7 +5,7 @@ import { MaterialIcons, Ionicons, FontAwesome5 } from '@expo/vector-icons';
 import BDMMainLayout from '@/app/components/BDMMainLayout';
 import AppGradient from '@/app/components/AppGradient';
 import { auth, db, storage } from '@/firebaseConfig';
-import { collection, query, where, getDocs, Timestamp } from 'firebase/firestore';
+import { collection, query, where, getDocs, Timestamp, orderBy, getDoc, doc } from 'firebase/firestore';
 import { ref, getDownloadURL } from 'firebase/storage';
 import { useProfile } from '@/app/context/ProfileContext';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -180,100 +180,97 @@ const BDMLeaderBoard = () => {
       if (showRefreshing) setRefreshing(true);
       else setLoading(true);
 
-      // Get start and end of current week
-      const now = new Date();
-      const startOfWeek = new Date(now);
-      startOfWeek.setDate(now.getDate() - now.getDay());
-      startOfWeek.setHours(0, 0, 0, 0);
+      // Get all BDM achievements
+      const achievementsRef = collection(db, 'bdm_achievements');
+      const achievementsQuery = query(
+        achievementsRef,
+        orderBy('percentageAchieved', 'desc')
+      );
+
+      const achievementsSnapshot = await getDocs(achievementsQuery);
       
-      const endOfWeek = new Date(startOfWeek);
-      endOfWeek.setDate(startOfWeek.getDate() + 6);
-      endOfWeek.setHours(23, 59, 59, 999);
+      // Group achievements by user and get their highest achievement
+      const userAchievements: Record<string, {
+        highestPercentage: number;
+        latestDate: Date;
+      }> = {};
 
-      // Get all BDM users
-      const usersRef = collection(db, 'users');
-      const usersQuery = query(usersRef, where('role', '==', 'bdm'));
-      const usersSnapshot = await getDocs(usersQuery);
-      
-      const userProgressPromises = usersSnapshot.docs.map(async (userDoc) => {
-        const userData = userDoc.data();
-        const userId = userData.uid;
+      achievementsSnapshot.forEach(doc => {
+        const data = doc.data();
+        const userId = data.userId;
+        const percentage = data.percentageAchieved;
+        const date = data.createdAt.toDate();
 
-        if (!userId) return null; // Skip if no userId
-
-        // Fetch reports for current week
-        const reportsRef = collection(db, 'bdm_reports');
-        const reportsQuery = query(
-          reportsRef,
-          where('userId', '==', userId),
-          where('createdAt', '>=', Timestamp.fromDate(startOfWeek)),
-          where('createdAt', '<=', Timestamp.fromDate(endOfWeek))
-        );
-
-        try {
-          const querySnapshot = await getDocs(reportsQuery);
-          let totalMeetings = 0;
-          let totalAttendedMeetings = 0;
-          let totalDuration = 0;
-          let totalClosing = 0;
-
-          querySnapshot.forEach(doc => {
-            const data = doc.data();
-            totalMeetings += data.numMeetings || 0;
-            totalAttendedMeetings += data.numMeetings || 0;
-            
-            // Parse duration string (e.g., "1 hr 30 mins" -> hours)
-            const durationStr = data.meetingDuration || '';
-            const hrMatch = durationStr.match(/(\d+)\s*hr/);
-            const minMatch = durationStr.match(/(\d+)\s*min/);
-            const hours = (hrMatch ? parseInt(hrMatch[1]) : 0) +
-                         (minMatch ? parseInt(minMatch[1]) / 60 : 0);
-            totalDuration += hours;
-
-            totalClosing += data.totalClosingAmount || 0;
-          });
-
-          // Calculate progress percentages using same targets as BDMTargetScreen
-          const progressPercentages = [
-            (totalMeetings / 30) * 100, // projectedMeetings target: 30
-            (totalAttendedMeetings / 30) * 100, // attendedMeetings target: 30
-            (totalDuration / 20) * 100, // meetingDuration target: 20 hours
-            (totalClosing / 50000) * 100 // closing target: 50000
-          ];
-
-          const averageProgress = Math.min(
-            Math.round(progressPercentages.reduce((a, b) => a + b, 0) / progressPercentages.length),
-            100
-          );
-
-          return {
-            userId,
-            name: userData.name || 
-                  (userData.firstName && userData.lastName ? `${userData.firstName} ${userData.lastName}` : null) ||
-                  userData.displayName || 
-                  'Unknown User',
-            profileImage: userData.profileImageUrl || null,
-            percentageAchieved: averageProgress
+        if (!userAchievements[userId] || 
+            percentage > userAchievements[userId].highestPercentage ||
+            (percentage === userAchievements[userId].highestPercentage && 
+             date > userAchievements[userId].latestDate)) {
+          userAchievements[userId] = {
+            highestPercentage: percentage,
+            latestDate: date
           };
-        } catch (error) {
-          console.error(`Error fetching reports for user ${userId}:`, error);
-          return null;
         }
       });
 
-      const userProgressResults = await Promise.all(userProgressPromises);
-      
-      // Filter out null results and sort by percentage
-      const sortedUsers = userProgressResults
-        .filter(result => result !== null)
-        .sort((a, b) => b.percentageAchieved - a.percentageAchieved)
-        .map((user, index) => ({
-          ...user,
-          rank: index + 1
-        }));
+      // Convert to array and sort by highest percentage
+      const sortedUsers = Object.entries(userAchievements)
+        .map(([userId, data]) => ({
+          userId,
+          percentageAchieved: data.highestPercentage,
+          latestDate: data.latestDate
+        }))
+        .sort((a, b) => b.percentageAchieved - a.percentageAchieved);
+
+      // Fetch user details for all users
+      const leaderboardData = await Promise.all(
+        sortedUsers.map(async (user) => {
+          try {
+            // Try to get user from users collection
+            const userDoc = await getDoc(doc(db, "users", user.userId));
+            let userName = "Unknown User";
+            let profileImage = null;
+
+            if (userDoc.exists()) {
+              const userData = userDoc.data();
+              // Try different name fields
+              userName = userData.name || 
+                        (userData.firstName && userData.lastName ? `${userData.firstName} ${userData.lastName}` : null) ||
+                        userData.displayName || 
+                        userData.email || 
+                        "Unknown User";
+
+              // Try different profile image fields
+              const imageFields = ["profileImageUrl", "profileImage", "photoURL", "avatar", "picture"];
+              for (const field of imageFields) {
+                if (userData[field] && typeof userData[field] === 'string') {
+                  profileImage = String(userData[field]);
+                  break;
+                }
+              }
+            }
+
+            return {
+              userId: user.userId,
+              name: userName,
+              profileImage: profileImage || defaultProfileImages[0],
+              percentageAchieved: user.percentageAchieved,
+              rank: sortedUsers.indexOf(user) + 1
+            };
+          } catch (error) {
+            console.error(`Error fetching user details for ${user.userId}:`, error);
+            return {
+              userId: user.userId,
+              name: "Unknown User",
+              profileImage: defaultProfileImages[0],
+              percentageAchieved: user.percentageAchieved,
+              rank: sortedUsers.indexOf(user) + 1
+            };
+          }
+        })
+      );
 
       // Fill remaining positions with placeholder data if needed
-      const topUsers = sortedUsers.slice(0, 10);
+      const topUsers = leaderboardData.slice(0, 10);
       const remainingPlaceholders = placeholderData
         .slice(topUsers.length)
         .map((placeholder, index) => ({
@@ -297,24 +294,30 @@ const BDMLeaderBoard = () => {
     }
   };
 
-  const getProfileImage = (user: LeaderboardUser) => {
+  const getProfileImage = (user: LeaderboardUser | { profileImage: string | null, rank: number, isPlaceholder?: boolean }) => {
+    // For placeholder entries, use the default profile image
     if (user.isPlaceholder) {
-      return defaultProfileImages[0] ? { uri: defaultProfileImages[0] } : null;
+      return defaultProfileImages[0] ? { uri: defaultProfileImages[0] } : undefined;
     }
     
-    if (user.profileImage) {
-      return { uri: user.profileImage };
+    // If this is the current user, try to get image from userProfile
+    if ('userId' in user && isCurrentUser(user.userId) && userProfile?.profileImageUrl) {
+      return { uri: String(userProfile.profileImageUrl) };
     }
     
-    if (isCurrentUser(user.userId) && userProfile?.profileImageUrl) {
-      return { uri: userProfile.profileImageUrl };
+    // Use the user's profile image if available and valid
+    if (user.profileImage && typeof user.profileImage === 'string') {
+      return { uri: String(user.profileImage) };
     }
     
-    if (user.rank <= 3 && defaultProfileImages[user.rank - 1]) {
-      return { uri: defaultProfileImages[user.rank - 1] };
-    }
-    
-    return defaultProfileImages[0] ? { uri: defaultProfileImages[0] } : null;
+    // Default fallback image from Firebase Storage
+    return defaultProfileImages[0] ? { uri: defaultProfileImages[0] } : undefined;
+  };
+
+  // Helper function specifically for Avatar.Image component
+  const getAvatarImageSource = (user: LeaderboardUser | { profileImage: string | null, rank: number, isPlaceholder?: boolean }) => {
+    const imageSource = getProfileImage(user);
+    return imageSource || { uri: 'https://via.placeholder.com/40' }; // Fallback to a placeholder image
   };
 
   const isCurrentUser = (userId: string) => {
@@ -384,7 +387,7 @@ const BDMLeaderBoard = () => {
         </View>
 
         {/* List Section Skeleton */}
-        <View style={styles.listContainer}>
+        <View style={styles.leaderboardContainer}>
           {[1, 2, 3, 4, 5, 6, 7].map((_, index) => (
             <View key={index} style={styles.skeletonListItem}>
               <WaveSkeleton width={25} height={20} style={styles.skeletonText} />
@@ -466,7 +469,7 @@ const BDMLeaderBoard = () => {
                     </View>
                   ) : (
                     <Image 
-                      source={getProfileImage(topThree[1] || { ...placeholderData[1], rank: 2 }) ? getProfileImage(topThree[1] || { ...placeholderData[1], rank: 2 }) : null}
+                      source={getAvatarImageSource(topThree[1] || { ...placeholderData[1], rank: 2 })}
                       style={[
                         styles.topThreeImage,
                         topThree[1]?.isPlaceholder && styles.placeholderImage,
@@ -509,7 +512,7 @@ const BDMLeaderBoard = () => {
                     </View>
                   ) : (
                     <Image 
-                      source={getProfileImage(topThree[0] || { ...placeholderData[0], rank: 1 }) ? getProfileImage(topThree[0] || { ...placeholderData[0], rank: 1 }) : null}
+                      source={getAvatarImageSource(topThree[0] || { ...placeholderData[0], rank: 1 })}
                       style={[
                         styles.topThreeImage,
                         styles.firstImage,
@@ -554,7 +557,7 @@ const BDMLeaderBoard = () => {
                     </View>
                   ) : (
                     <Image 
-                      source={getProfileImage(topThree[2] || { ...placeholderData[2], rank: 3 }) ? getProfileImage(topThree[2] || { ...placeholderData[2], rank: 3 }) : null}
+                      source={getAvatarImageSource(topThree[2] || { ...placeholderData[2], rank: 3 })}
                       style={[
                         styles.topThreeImage,
                         topThree[2]?.isPlaceholder && styles.placeholderImage,
@@ -588,11 +591,11 @@ const BDMLeaderBoard = () => {
               </View>
             </View>
 
-            {/* Rest of the Leaderboard */}
+            {/* List Section - Show all remaining users */}
             <View style={styles.leaderboardContainer}>
               <Text style={styles.leaderboardTitle}>Full Leaderboard</Text>
               
-              {remainingUsers.map((user, index) => (
+              {remainingUsers.map((user) => (
                 <View 
                   key={user.userId} 
                   style={[
@@ -616,7 +619,7 @@ const BDMLeaderBoard = () => {
                       </View>
                     ) : (
                       <Image 
-                        source={getProfileImage(user) ? getProfileImage(user) : null}
+                        source={getAvatarImageSource(user)}
                         style={[
                           styles.userImage,
                           user.isPlaceholder && styles.placeholderImage,
@@ -717,7 +720,7 @@ const styles = StyleSheet.create({
     borderWidth: 3,
   },
   placeholderImage: {
-    opacity: 1.5,
+    opacity: 0.5,
   },
   currentUserImage: {
     borderColor: "#FF8447",
@@ -833,9 +836,6 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-  },
-  placeholderImage: {
-    opacity: 0.5,
   },
   currentUserItem: {
     backgroundColor: "#FFF8F0",

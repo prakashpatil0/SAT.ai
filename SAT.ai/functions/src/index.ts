@@ -1,6 +1,7 @@
 import * as functions from 'firebase-functions';
 import * as admin from 'firebase-admin';
 import sgMail from '@sendgrid/mail';
+import * as nodemailer from 'nodemailer';
 
 admin.initializeApp();
 
@@ -79,5 +80,39 @@ export const sendOTPEmail = functions.https.onCall(async (request: functions.htt
       success: false,
       message: error.message || 'Failed to send OTP'
     };
+  }
+});
+
+export const sendOTP = functions.https.onCall(async (data, context) => {
+  const { email, otp } = data;
+
+  // Create a transporter using your email service
+  const transporter = nodemailer.createTransport({
+    service: 'gmail', // or your email service
+    auth: {
+      user: 'your-email@gmail.com',
+      pass: 'your-app-password'
+    }
+  });
+
+  // Email content
+  const mailOptions = {
+    from: 'your-email@gmail.com',
+    to: email,
+    subject: 'Your OTP for Password Reset',
+    html: `
+      <h2>Password Reset OTP</h2>
+      <p>Your OTP is: <strong>${otp}</strong></p>
+      <p>This OTP will expire in 5 minutes.</p>
+      <p>If you didn't request this, please ignore this email.</p>
+    `
+  };
+
+  try {
+    await transporter.sendMail(mailOptions);
+    return { success: true };
+  } catch (error) {
+    console.error('Error sending email:', error);
+    throw new functions.https.HttpsError('internal', 'Failed to send OTP email');
   }
 }); 

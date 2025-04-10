@@ -87,12 +87,12 @@ const AddContactModal = ({ visible, onClose = () => {}, phoneNumber: initialPhon
     }
 
     try {
-      // Get existing contacts
+      // Get existing contacts from device storage
       const storedContacts = await AsyncStorage.getItem('contacts');
       const currentContacts: Contact[] = storedContacts ? JSON.parse(storedContacts) : [];
 
-      // Create or update contact
-      const updatedContact: Contact = {
+      // Create new contact
+      const newContact: Contact = {
         id: editingContact?.id || Date.now().toString(),
         firstName: firstName.trim(),
         lastName: lastName.trim(),
@@ -101,26 +101,31 @@ const AddContactModal = ({ visible, onClose = () => {}, phoneNumber: initialPhon
         favorite: editingContact?.favorite || false
       };
 
+      // Check if contact with same phone number already exists
+      const existingContactIndex = currentContacts.findIndex(
+        contact => contact.phoneNumber === newContact.phoneNumber
+      );
+
       let updatedContacts: Contact[];
-      if (editingContact) {
+      if (existingContactIndex !== -1) {
         // Update existing contact
-        updatedContacts = currentContacts.map(contact =>
-          contact.id === editingContact.id ? updatedContact : contact
+        updatedContacts = currentContacts.map((contact, index) =>
+          index === existingContactIndex ? newContact : contact
         );
       } else {
         // Add new contact
-        updatedContacts = [...currentContacts, updatedContact];
+        updatedContacts = [...currentContacts, newContact];
       }
 
-      // Save to AsyncStorage
+      // Save to device storage
       await AsyncStorage.setItem('contacts', JSON.stringify(updatedContacts));
 
       // Notify parent component
       if (onContactSaved) {
-        onContactSaved(updatedContact);
+        onContactSaved(newContact);
       }
 
-      // Show success message and close modal
+      // Show success message
       Alert.alert(
         'Success',
         `Contact ${editingContact ? 'updated' : 'saved'} successfully!`,

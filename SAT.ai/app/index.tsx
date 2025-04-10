@@ -78,7 +78,7 @@ import { auth } from '@/firebaseConfig';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import AlertScreen from "@/app/Screens/Telecaller/Tab/AlertScreen";
 import TelecallerIdleTimer from "./Screens/Telecaller/Tab/TelecallerIdleTimer";
-
+import BDMContactBook from "@/app/components/ContactBook/BDMContactBook"
 
 
 
@@ -125,6 +125,7 @@ export type RootStackParamList = {
   BDMCallHistory: undefined;
   BDMPersonNote: undefined;
   BDMCameraScreen: undefined;
+  BDMContactBook: undefined;
   BDMCallModal: undefined;
   BDMContactDetails: {
     contact: {
@@ -202,6 +203,7 @@ export type BDMStackParamList = {
       userId: string;
     }
   };
+  BDMContactBook:undefined;
   BDMTarget: undefined;
   BDMAttendance: undefined;
   BDMReport: undefined;
@@ -373,6 +375,16 @@ function BDMStackNavigator() {
           ),
         }}
       />
+      <BDMStack.Screen
+        name="BDMContactBook" 
+        component={BDMContactBook}
+        options={{
+          title: 'Contact Book',
+          drawerIcon: ({ color }) => (
+            <MaterialIcons name="contacts" size={24} color={color} />
+          ),
+        }}
+      />  
       <BDMStack.Screen 
         name="BDMVirtualBusinessCard" 
         component={BDMVirtualBusinessCard}

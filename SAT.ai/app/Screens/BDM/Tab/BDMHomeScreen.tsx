@@ -15,7 +15,7 @@ import {
   RefreshControl,
   PermissionsAndroid,
   ScrollView,
-  Easing
+  Easing, Dimensions 
 } from "react-native";
 import { ProgressBar, Card } from "react-native-paper";
 import { useNavigation } from "@react-navigation/native";
@@ -26,6 +26,7 @@ import { useProfile } from '@/app/context/ProfileContext';
 import { BDMStackParamList, RootStackParamList } from '@/app/index';
 import BDMMainLayout from '@/app/components/BDMMainLayout';
 import CallLog from 'react-native-call-log';
+import { collection, addDoc,query, where, getDocs, doc, getDoc, setDoc, orderBy, limit, serverTimestamp, Timestamp } from 'firebase/firestore';
 import { collection, query, where, getDocs, doc, getDoc, setDoc, orderBy, limit, serverTimestamp, Timestamp, addDoc } from 'firebase/firestore';
 import { db, auth } from '@/firebaseConfig';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -38,6 +39,9 @@ import TelecallerAddContactModal from '@/app/Screens/Telecaller/TelecallerAddCon
 import { useSharedValue, withRepeat, withSequence, withTiming, withDelay, useAnimatedStyle } from 'react-native-reanimated';
 import AnimatedReanimated from 'react-native-reanimated';
 import { startOfWeek, endOfWeek, format } from 'date-fns';
+import Dialer from '@/app/components/Dialer/Dialer';
+import * as Linking from 'expo-linking';
+
 
 interface CallLogEntry {
   phoneNumber: string;
@@ -226,7 +230,17 @@ const SkeletonLoader = ({ width, height, style }: { width: number | string; heig
 
 const BDMHomeScreen = () => {
   const [callLogs, setCallLogs] = useState<GroupedCallLog[]>([]);
+  const [isDialerVisible, setDialerVisible] = useState(false);
+  const [dialerHeight] = useState(new Animated.Value(0));
+  const [dialerY] = useState(new Animated.Value(Dimensions.get('window').height));
+  const dialerOpacity = useRef(new Animated.Value(1)).current;
+  const [phoneNumber, setPhoneNumber] = useState('');
   const [isLoading, setIsLoading] = useState(true);
+  const [isScrolling, setIsScrolling] = useState(false);
+  const [callDuration, setCallDuration] = useState(0);
+  const [callTimer, setCallTimer] = useState<NodeJS.Timeout | null>(null);
+  const [callStartTime, setCallStartTime] = useState<Date | null>(null);
+  const [isCallActive, setCallActive] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [progress, setProgress] = useState(0.4);
   const [progressText, setProgressText] = useState("40%");
@@ -578,6 +592,225 @@ const BDMHomeScreen = () => {
     }
   };
 
+
+  const [isLoadingContacts, setIsLoadingContacts] = useState(false);
+  const dialPad = [
+    { num: '1', alpha: '' },
+    { num: '2', alpha: 'ABC' },
+    { num: '3', alpha: 'DEF' },
+    { num: '4', alpha: 'GHI' },
+    { num: '5', alpha: 'JKL' },
+    { num: '6', alpha: 'MNO' },
+    { num: '7', alpha: 'PQRS' },
+    { num: '8', alpha: 'TUV' },
+    { num: '9', alpha: 'WXYZ' },
+    { num: '*', alpha: '' },
+    { num: '0', alpha: '+' },
+    { num: '#', alpha: '' }
+  ];
+
+  const handleDialPress = (digit: string) => {
+    setPhoneNumber(prev => prev + digit);
+  };
+    const handleBackspace = () => {
+      setPhoneNumber(prev => prev.slice(0, -1));
+    };
+  
+    const handleScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      const velocity = event.nativeEvent.velocity?.y;
+      const scrolling = velocity !== undefined && velocity !== 0;
+      
+      if (scrolling && !isScrolling) {
+        setIsScrolling(true);
+        Animated.timing(dialerOpacity, {
+          toValue: 0,
+          duration: 200,
+          useNativeDriver: true
+        }).start();
+      }
+    };
+  
+    const handleScrollEnd = () => {
+      setIsScrolling(false);
+      Animated.timing(dialerOpacity, {
+        toValue: 1,
+        duration: 200,
+        useNativeDriver: true
+      }).start();
+    };
+  
+    // Function to start call duration timer
+    const startCallTimer = () => {
+      const startTime = new Date();
+      setCallStartTime(startTime);
+      
+      // Update duration every second
+      const timer = setInterval(() => {
+        const currentTime = new Date();
+        const durationInSeconds = Math.floor((currentTime.getTime() - startTime.getTime()) / 1000);
+        setCallDuration(durationInSeconds);
+  
+        // Update the call log in Firestore with current duration
+        updateCallDurationInFirestore(durationInSeconds);
+      }, 1000);
+      
+      setCallTimer(timer);
+    };
+  
+    // Function to stop call duration timer
+    const stopCallTimer = () => {
+      if (callTimer) {
+        clearInterval(callTimer);
+        setCallTimer(null);
+      }
+      setCallStartTime(null);
+      setCallDuration(0);
+    };
+      // Function to update call duration in Firestore
+      const updateCallDurationInFirestore = async (duration: number) => {
+        try {
+          const userId = auth.currentUser?.uid;
+          if (!userId) return;
+    
+          const callLogsRef = collection(db, 'callLogs');
+          const q = query(
+            callLogsRef,
+            where('userId', '==', userId),
+            where('status', '==', 'in-progress'),
+            orderBy('timestamp', 'desc')
+          );
+    
+          const querySnapshot = await getDocs(q);
+          const lastCallLog = querySnapshot.docs[0];
+    
+          if (lastCallLog) {
+            await updateDoc(doc(db, 'callLogs', lastCallLog.id), {
+              duration: duration,
+              lastUpdated: new Date()
+            });
+          }
+        } catch (error) {
+          console.error('Error updating call duration:', error);
+        }
+      };
+ // Update the handleCall function
+  const handleCall = async (phoneNumber: string) => {
+    try {
+      if (Platform.OS === 'android') {
+        const hasPermission = await requestCallLogPermission();
+        
+        if (hasPermission) {
+          const url = `tel:${phoneNumber}`;
+          await Linking.openURL(url);
+          setDialerVisible(false);
+        }
+      } else {
+        const url = `tel:${phoneNumber}`;
+        await Linking.openURL(url);
+        setDialerVisible(false);
+      }
+    } catch (error) {
+      console.error('Error making call:', error);
+      Alert.alert('Error', 'Failed to initiate call');
+    }
+  };
+ // Function to handle call from call logs
+  const handleCallFromLogs = async (phoneNumber: string) => {
+    try {
+      const userId = auth.currentUser?.uid;
+      if (!userId) {
+        Alert.alert('Error', 'User not authenticated');
+        return;
+      }
+
+      const startTime = new Date();
+      // Create call log entry with initial state
+      const callLogRef = await addDoc(collection(db, 'callLogs'), {
+        userId,
+        phoneNumber,
+        timestamp: startTime,
+        startTime: startTime,
+        type: 'outgoing',
+        status: 'in-progress',
+        duration: 0
+      });
+
+      // Start call duration timer
+      startCallTimer();
+
+      // Make the actual phone call
+      const phoneUrl = Platform.select({
+        ios: `telprompt:${phoneNumber}`,
+        android: `tel:${phoneNumber}`
+      });
+
+      if (phoneUrl && await Linking.canOpenURL(phoneUrl)) {
+        await Linking.openURL(phoneUrl);
+        setCallActive(true);
+        // Clear the phone number if dialer is open
+        if (isDialerVisible) {
+          setPhoneNumber('');
+          closeDialer();
+        }
+      } else {
+        throw new Error('Cannot make phone call');
+      }
+
+    } catch (error) {
+      console.error('Call Error:', error);
+      Alert.alert('Error', 'Failed to initiate call. Please check phone permissions.');
+      setCallActive(false);
+      stopCallTimer();
+    }
+  };
+  const resetPermissions = async () => {
+    if (__DEV__) {
+      Alert.alert(
+        'Dev: Reset Permissions',
+        'Do you want to open settings to reset permissions?',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { 
+            text: 'Open Settings',
+            onPress: () => Linking.openSettings()
+          }
+        ]
+      );
+    }
+  };
+
+    // Add these functions to handle dialer animations
+    const openDialer = () => {
+      setDialerVisible(true);
+      Animated.parallel([
+        Animated.timing(dialerHeight, {
+          toValue: 1,
+          duration: 300,
+          useNativeDriver: true,
+        }),
+        Animated.spring(dialerY, {
+          toValue: 0,
+          tension: 65,
+          friction: 11,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    };
+  
+    const closeDialer = () => {
+      Animated.parallel([
+        Animated.timing(dialerHeight, {
+          toValue: 0,
+          duration: 300,
+          useNativeDriver: true,
+        }),
+        Animated.timing(dialerY, {
+          toValue: Dimensions.get('window').height,
+          duration: 300,
+          useNativeDriver: true,
+        }),
+      ]).start(() => setDialerVisible(false));
+    };
   // Add new function to deduplicate call logs
   const deduplicateCallLogs = (logs: any[]): any[] => {
     const seen = new Set();
@@ -905,9 +1138,9 @@ const BDMHomeScreen = () => {
     }
   };
 
-  const handleScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
-    scrollY.current.setValue(event.nativeEvent.contentOffset.y);
-  };
+  // const handleScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+  //   scrollY.current.setValue(event.nativeEvent.contentOffset.y);
+  // };
 
   const renderCallCard = ({ item, index }: { item: GroupedCallLog; index: number }) => {
     const isNewDate = index === 0 || 
@@ -1176,6 +1409,9 @@ const BDMHomeScreen = () => {
               })}
               keyExtractor={item => `${new Date(item.timestamp).toISOString()}-${item.phoneNumber}`}
               renderItem={renderCallCard}
+              onScroll={handleScroll}
+              onScrollEndDrag={handleScrollEnd}
+              onMomentumScrollEnd={handleScrollEnd}
               refreshControl={
                 <RefreshControl 
                   refreshing={refreshing} 
@@ -1188,6 +1424,26 @@ const BDMHomeScreen = () => {
             />
         )}
       </View>
+ {/* Floating Dialer Button */}
+        <Animated.View style={[
+          styles.dialerFAB,
+          { opacity: dialerOpacity }
+        ]}>
+          <TouchableOpacity
+            onPress={openDialer}
+          >
+            <MaterialIcons name="dialpad" size={24} color="#FFF" />
+          </TouchableOpacity>
+        </Animated.View>
+
+        {/* Dialer Modal */}
+        <Dialer
+          visible={isDialerVisible}
+          onClose={() => setDialerVisible(false)}
+          onCallPress={handleCall}
+          contacts={Object.values(contacts)}
+          isLoading={isLoadingContacts}
+        />
 
         <TelecallerAddContactModal
           visible={addContactModalVisible}
@@ -1262,6 +1518,23 @@ const styles = StyleSheet.create({
   },
   refreshButton: {
     padding: 8,
+  },
+  dialerFAB: {
+    position: 'absolute',
+    right: 20,
+    bottom: 90,
+    backgroundColor: '#FF8447',
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    justifyContent: 'center',
+    alignItems: 'center',
+    elevation: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 5,
+    zIndex: 1000,
   },
   dateHeader: {
     flexDirection: 'row',

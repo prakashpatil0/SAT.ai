@@ -6,6 +6,7 @@ import { collection, query, where, getDocs, Timestamp, addDoc, updateDoc, orderB
 import BDMMainLayout from '@/app/components/BDMMainLayout';
 import AppGradient from '@/app/components/AppGradient';
 import { format, startOfMonth, endOfMonth, eachWeekOfInterval, endOfWeek, subMonths, startOfWeek, endOfDay } from 'date-fns';
+import { Easing } from 'react-native';
 
 const screenWidth = Dimensions.get('window').width - 40;
 
@@ -601,165 +602,33 @@ const BDMViewFullReport = () => {
     const halfYearSnapshot = await getDocs(halfYearQuery);
     const monthlyDataMap: { [key: string]: number } = {};
     const labels: string[] = [];
-    const monthInfo: { [key: string]: { year: number, month: string } } = {};
 
     // Generate labels for the last 6 months (current month and previous 5)
     for (let i = 5; i >= 0; i--) {
       const monthDate = new Date(currentYear, currentMonthIndex - i, 1);
-      const monthKey = format(monthDate, 'MMM yyyy');
+      const monthKey = format(monthDate, 'MMM'); // Changed to show only month
       labels.push(monthKey);
       monthlyDataMap[monthKey] = 0; // Initialize with 0
-      monthInfo[monthKey] = {
-        year: monthDate.getFullYear(),
-        month: format(monthDate, 'MMMM')
-      };
     }
 
     // Process monthly achievements
     halfYearSnapshot.docs.forEach(doc => {
       const monthData = doc.data();
       const achievementDate = monthData.monthStart.toDate();
-      const monthKey = format(achievementDate, 'MMM yyyy');
+      const monthKey = format(achievementDate, 'MMM'); // Changed to show only month
       
       if (monthlyDataMap[monthKey] !== undefined) {
-        // Use the totalAchievement directly and ensure it's properly formatted
         const achievement = monthData.totalAchievement || 0;
         monthlyDataMap[monthKey] = Math.min(Math.max(Math.round(achievement * 10) / 10, 0), 100);
       }
     });
-
-    // For the current month, calculate real-time data if not already in the snapshot
-    const now = new Date();
-    const currentMonthKey = format(now, 'MMM yyyy');
-    
-    if (monthlyDataMap[currentMonthKey] === 0) {
-      // Calculate current month data from weekly achievements
-      const monthStart = startOfMonth(now);
-      const monthEnd = endOfMonth(now);
-      
-      const weeks = eachWeekOfInterval(
-        { start: monthStart, end: monthEnd },
-        { weekStartsOn: 1 } // Start weeks on Monday
-      );
-      
-      let totalAchievement = 0;
-      let weekCount = 0;
-      
-      // Process each week in the current month
-      for (const weekStart of weeks) {
-        const weekEnd = endOfWeek(weekStart, { weekStartsOn: 1 });
-        
-        // Get current year, month, and week number
-        const weekYear = weekStart.getFullYear();
-        const weekMonth = weekStart.getMonth() + 1;
-        const weekNumber = Math.ceil((weekStart.getDate() + new Date(weekYear, weekStart.getMonth(), 1).getDay()) / 7);
-        
-        // Query reports for this week
-        const weekQuery = query(
-          reportsRef,
-          where('userId', '==', userId),
-          where('year', '==', weekYear),
-          where('month', '==', weekMonth),
-          where('weekNumber', '==', weekNumber)
-        );
-        
-        const weekSnapshot = await getDocs(weekQuery);
-        
-        if (!weekSnapshot.empty) {
-          // Calculate achievement percentage for this week
-          let totalMeetings = 0;
-          let totalAttendedMeetings = 0;
-          let totalDuration = 0;
-          let totalClosing = 0;
-          
-          weekSnapshot.forEach(doc => {
-            const reportData = doc.data();
-            
-            totalMeetings += reportData.numMeetings || 0;
-            totalAttendedMeetings += reportData.positiveLeads || 0;
-            totalClosing += reportData.totalClosingAmount || 0;
-            
-            // Parse duration string - handle both formats
-            const durationStr = reportData.meetingDuration || '';
-            
-            // Check if it's in HH:MM:SS format
-            if (durationStr.includes(':')) {
-              const [hours, minutes, seconds] = durationStr.split(':').map(Number);
-              totalDuration += (hours * 3600) + (minutes * 60) + seconds;
-            } else {
-              // Handle "X hr Y mins" format
-              const hrMatch = durationStr.match(/(\d+)\s*hr/);
-              const minMatch = durationStr.match(/(\d+)\s*min/);
-              const hours = (hrMatch ? parseInt(hrMatch[1]) : 0) +
-                           (minMatch ? parseInt(minMatch[1]) / 60 : 0);
-              totalDuration += hours * 3600; // Convert to seconds
-            }
-          });
-          
-          // Calculate progress percentages
-          const meetingsPercentage = (totalMeetings / 30) * 100;
-          const attendedPercentage = (totalAttendedMeetings / 30) * 100;
-          const durationPercentage = (totalDuration / (20 * 3600)) * 100; // 20 hours in seconds
-          const closingPercentage = (totalClosing / 50000) * 100;
-          
-          // Calculate overall progress as average of all percentages
-          const overallProgress = Math.min(
-            (meetingsPercentage + attendedPercentage + durationPercentage + closingPercentage) / 4,
-      100
-    );
-          
-          totalAchievement += overallProgress;
-          weekCount++;
-        }
-      }
-      
-      // Calculate average achievement for the current month
-      const averageAchievement = weekCount > 0 ? totalAchievement / weekCount : 0;
-      monthlyDataMap[currentMonthKey] = Math.min(Math.max(Math.round(averageAchievement * 10) / 10, 0), 100);
-      
-      // Save the calculated data to monthly summary for consistency
-      const monthlyQuery = query(
-        monthlySummaryRef,
-        where('userId', '==', userId),
-        where('monthStart', '==', Timestamp.fromDate(monthStart)),
-        where('monthEnd', '==', Timestamp.fromDate(monthEnd))
-      );
-      
-      const monthlySnapshot = await getDocs(monthlyQuery);
-      
-      if (!monthlySnapshot.empty) {
-        // Update existing monthly summary
-        const existingMonthly = monthlySnapshot.docs[0];
-        await updateDoc(existingMonthly.ref, {
-          totalAchievement: averageAchievement,
-          weekCount: weekCount,
-          updatedAt: Timestamp.fromDate(new Date())
-        });
-      } else {
-        // Create new monthly summary
-        const monthlyData = {
-          userId,
-          monthStart: Timestamp.fromDate(monthStart),
-          monthEnd: Timestamp.fromDate(monthEnd),
-          totalAchievement: averageAchievement,
-          weekCount: weekCount,
-          month: monthStart.getMonth() + 1,
-          year: monthStart.getFullYear(),
-          createdAt: Timestamp.fromDate(new Date()),
-          updatedAt: Timestamp.fromDate(new Date())
-        };
-        
-        await addDoc(monthlySummaryRef, monthlyData);
-      }
-    }
 
     // Convert the map to an array of data points
     const data = labels.map(label => monthlyDataMap[label] || 0);
 
     return {
       labels,
-      datasets: [{ data }],
-      monthInfo
+      datasets: [{ data }]
     };
   };
 
@@ -816,12 +685,12 @@ const BDMViewFullReport = () => {
             width={screenWidth}
             height={300}
             yAxisSuffix="%"
-            yAxisInterval={25}
+            yAxisInterval={10} // Show labels every 20%
             chartConfig={{
               backgroundColor: '#ffffff',
               backgroundGradientFrom: '#ffffff',
               backgroundGradientTo: '#ffffff',
-              decimalPlaces: 1,
+              decimalPlaces: 1, // Show one decimal place for accuracy
               color: (opacity = 1) => `rgba(255, 132, 71, ${opacity})`,
               labelColor: (opacity = 1) => `rgba(128, 128, 128, ${opacity})`,
               style: {
@@ -834,11 +703,11 @@ const BDMViewFullReport = () => {
               },
               propsForBackgroundLines: {
                 stroke: '#E5E7EB',
-                strokeWidth: 2,
+                strokeWidth: 1,
               },
               formatYLabel: (value) => {
                 const numValue = parseFloat(value);
-                return Math.min(Math.max(Math.round(numValue), 0), 100).toString();
+                return `${Math.min(Math.max(Number(numValue.toFixed(1)), 0), 100)}%`;
               },
               useShadowColorFromDataset: false,
             }}
@@ -847,7 +716,7 @@ const BDMViewFullReport = () => {
               marginVertical: 8,
               borderRadius: 16,
             }}
-            segments={4}
+            segments={5} // Show 5 segments (0%, 20%, 40%, 60%, 80%, 100%)
             withInnerLines={true}
             withOuterLines={true}
             withVerticalLines={true}
@@ -868,7 +737,7 @@ const BDMViewFullReport = () => {
             }}
             formatXLabel={(value) => {
               if (selectedPeriod === 'Half Yearly' || selectedPeriod === 'Quarterly') {
-                return value; // Already formatted as 'MMM yyyy'
+                return value; // Already formatted as 'MMM'
               }
               return value; // Keep week labels as is
             }}

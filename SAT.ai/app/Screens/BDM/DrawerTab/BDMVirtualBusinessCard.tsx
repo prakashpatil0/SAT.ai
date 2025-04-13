@@ -302,7 +302,6 @@ const BDMVirtualBusinessCard = () => {
             <TouchableOpacity onPress={() => openEditModal('designation', userProfile?.designation || '', 'Designation')}>
               <Text style={styles.designation}>{userProfile?.designation || ''}</Text>
             </TouchableOpacity>
-
             {/* Contact Details */}
             <View style={styles.infoContainer}>
               <TouchableOpacity style={styles.infoRow} onPress={() => openEditModal('phoneNumber', userProfile?.phoneNumber || '', 'Phone Number')}>

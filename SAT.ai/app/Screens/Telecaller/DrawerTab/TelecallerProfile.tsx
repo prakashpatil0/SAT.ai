@@ -112,7 +112,7 @@ const ProfileScreen = () => {
   const loadDefaultProfileImage = async () => {
     try {
       console.log('Loading default profile image from Firebase Storage');
-      const imageRef = ref(storage, 'assets/person.png');
+      const imageRef = ref(storage, 'assets/girl.png');
       const url = await getDownloadURL(imageRef);
       console.log('Successfully loaded default profile image URL:', url);
       setDefaultProfileImage(url);

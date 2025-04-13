@@ -1391,7 +1391,7 @@ const BDMHomeScreen = () => {
               onPress={handleRefresh}
               style={styles.refreshButton}
             >
-              <MaterialIcons name="refresh" size={24} color="#FF8447" />
+              {/* <MaterialIcons name="refresh" size={24} color="#FF8447" /> */}
             </TouchableOpacity>
           </View>
           
@@ -1431,7 +1431,7 @@ const BDMHomeScreen = () => {
           <TouchableOpacity
             onPress={openDialer}
           >
-            <MaterialIcons name="dialpad" size={24} color="#FFF" />
+            <MaterialIcons name="dialpad" size={30} color="#FFF" />
           </TouchableOpacity>
         </Animated.View>
 
@@ -1522,7 +1522,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     right: 20,
     bottom: 90,
-    backgroundColor: '#FF8447',
+    backgroundColor: '#4CAF50',
     width: 60,
     height: 60,
     borderRadius: 30,

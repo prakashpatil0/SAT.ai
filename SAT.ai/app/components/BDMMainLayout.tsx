@@ -129,9 +129,9 @@ const BDMMainLayout: React.FC<BDMMainLayoutProps> = ({
         </View>
       </View>
 
-      <AppGradient>
+      {/* <AppGradient> */}
         {children}
-      </AppGradient>
+      {/* </AppGradient> */}
 
       {showBottomTabs && <BDMBottomTabs />}
     </View>

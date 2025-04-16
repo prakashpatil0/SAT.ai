@@ -35,7 +35,8 @@ import ContactInfo from "@/app/Screens/Telecaller/TelecallerContactInfo";
 import AddContactModal from "@/app/Screens/Telecaller/TelecallerAddContactModal";
 import CallHistory from "./Screens/Telecaller/TelecallerCallHistory";
 import TelecallerPersonNotes from "@/app/Screens/Telecaller/TelecallerPersonNotes";
-import ContactBook from "@/app/components/ContactBook/ContactBook";
+
+
 
 
 import BDMBottomTabs from "@/app/Screens/BDM/BDMBottomTabs";
@@ -79,7 +80,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import AlertScreen from "@/app/Screens/Telecaller/Tab/AlertScreen";
 import TelecallerIdleTimer from "./Screens/Telecaller/Tab/TelecallerIdleTimer";
 import BDMContactBook from "@/app/components/ContactBook/BDMContactBook"
-
+import ContactBook from "@/app/components/ContactBook/ContactBook";
 
 
 export type RootStackParamList = {
@@ -312,6 +313,9 @@ const DrawerNavigator = () => {
       <Drawer.Screen name="TelecallerCallNoteDetails" component={TelecallerCallNoteDetails} />
       <Drawer.Screen name="TelecallerIdleTimer" component={TelecallerIdleTimer} />
       <Drawer.Screen name="AlertScreen" component={AlertScreen} />
+     
+
+    
     </Drawer.Navigator>
     </IdleTimerProvider>
   );

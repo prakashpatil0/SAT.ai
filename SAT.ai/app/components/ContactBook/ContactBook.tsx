@@ -73,12 +73,13 @@ const ContactBook = () => {
 
   const loadContacts = async () => {
     try {
-      const storedContacts = await AsyncStorage.getItem('contacts');
+      // Correct Storage Key
+      const storedContacts = await AsyncStorage.getItem('telecaller_contacts');
+      
       if (storedContacts) {
         const parsedContacts = JSON.parse(storedContacts);
         organizeContactsByAlphabet(parsedContacts);
-        
-        // Find which letters have contacts
+  
         const lettersWithContacts = parsedContacts.reduce((letters: string[], contact: Contact) => {
           const firstLetter = contact.firstName[0].toUpperCase();
           if (!letters.includes(firstLetter)) {
@@ -86,7 +87,7 @@ const ContactBook = () => {
           }
           return letters;
         }, []);
-        
+  
         setActiveLetters(lettersWithContacts.sort());
       }
     } catch (error) {
@@ -94,6 +95,7 @@ const ContactBook = () => {
       Alert.alert('Error', 'Failed to load contacts');
     }
   };
+  
 
   const loadSearchHistory = async () => {
     try {
@@ -239,86 +241,37 @@ const ContactBook = () => {
   };
 
   const handleContactOptions = (contact: Contact) => {
-    if (Platform.OS === 'ios') {
-      ActionSheetIOS.showActionSheetWithOptions(
+    Alert.alert(
+      `${contact.firstName} ${contact.lastName}`,
+      'Choose an action',
+      [
         {
-          options: ['Cancel', 'Call', 'Edit', 'Toggle Favorite', 'Delete'],
-          destructiveButtonIndex: 4,
-          cancelButtonIndex: 0,
-          title: `${contact.firstName} ${contact.lastName}`,
+          text: 'Call',
+          onPress: () => handleCall(contact.phoneNumber)
         },
-        (buttonIndex) => {
-          switch (buttonIndex) {
-            case 1:
-              handleCall(contact.phoneNumber);
-              break;
-            case 2:
-              setEditingContact(contact);
-              setModalVisible(true);
-              break;
-            case 3:
-              toggleFavorite(contact);
-              break;
-            case 4:
-              handleDelete(contact);
-              break;
+        {
+          text: 'Edit',
+          onPress: () => {
+            setEditingContact(contact);
+            setModalVisible(true);
           }
+        },
+        {
+          text: 'Delete',
+          onPress: () => handleDelete(contact),
+          style: 'destructive'
+        },
+        {
+          text: 'Cancel',
+          style: 'cancel'
         }
-      );
-    } else {
-      Alert.alert(
-        `${contact.firstName} ${contact.lastName}`,
-        'Choose an action',
-        [
-          {
-            text: 'Call',
-            onPress: () => handleCall(contact.phoneNumber)
-          },
-          {
-            text: 'Edit',
-            onPress: () => {
-              setEditingContact(contact);
-              setModalVisible(true);
-            }
-          },
-          {
-            text: contact.favorite ? 'Remove from Favorites' : 'Add to Favorites',
-            onPress: () => toggleFavorite(contact)
-          },
-          {
-            text: 'Delete',
-            onPress: () => handleDelete(contact),
-            style: 'destructive'
-          },
-          {
-            text: 'Cancel',
-            style: 'cancel'
-          }
-        ],
-        { cancelable: true }
-      );
-    }
+      ],
+      { cancelable: true }
+    );
   };
+  
 
-  const toggleFavorite = async (contact: Contact) => {
-    try {
-      const storedContacts = await AsyncStorage.getItem('contacts');
-      if (storedContacts) {
-        const contacts = JSON.parse(storedContacts);
-        const updatedContacts = contacts.map((c: Contact) => {
-          if (c.id === contact.id) {
-            return { ...c, favorite: !c.favorite };
-          }
-          return c;
-        });
-        await AsyncStorage.setItem('contacts', JSON.stringify(updatedContacts));
-        loadContacts(); // Reload contacts to reflect changes
-      }
-    } catch (error) {
-      console.error('Error toggling favorite:', error);
-      Alert.alert('Error', 'Failed to update favorite status');
-    }
-  };
+ 
 
   const handleDelete = (contact: Contact) => {
     Alert.alert(
@@ -331,11 +284,11 @@ const ContactBook = () => {
           style: 'destructive',
           onPress: async () => {
             try {
-              const storedContacts = await AsyncStorage.getItem('contacts');
+              const storedContacts = await AsyncStorage.getItem('telecaller_contacts');
               if (storedContacts) {
                 const contacts = JSON.parse(storedContacts);
                 const updatedContacts = contacts.filter((c: Contact) => c.id !== contact.id);
-                await AsyncStorage.setItem('contacts', JSON.stringify(updatedContacts));
+                await AsyncStorage.setItem('telecaller_contacts', JSON.stringify(updatedContacts));
                 loadContacts(); // Reload contacts to reflect changes
               }
             } catch (error) {
@@ -355,27 +308,19 @@ const ContactBook = () => {
       onLongPress={() => handleContactOptions(contact)}
       delayLongPress={500}
     >
-      <View style={[styles.avatarContainer, contact.favorite && styles.favoriteAvatarContainer]}>
+      <View style={styles.avatarContainer}>
         <Text style={styles.avatarText}>
           {contact.firstName[0].toUpperCase()}
         </Text>
       </View>
+  
       <View style={styles.contactInfo}>
-        <View style={styles.nameContainer}>
-          <Text style={styles.contactName}>
-            {`${contact.firstName} ${contact.lastName}`.trim()}
-          </Text>
-          {contact.favorite && (
-            <MaterialIcons
-              name="star"
-              size={16}
-              color="#FFB347"
-              style={styles.favoriteIcon}
-            />
-          )}
-        </View>
+        <Text style={styles.contactName}>
+          {`${contact.firstName} ${contact.lastName}`.trim()}
+        </Text>
         <Text style={styles.contactPhone}>{contact.phoneNumber}</Text>
       </View>
+  
       <View style={styles.actionButtons}>
         <TouchableOpacity
           style={styles.quickActionButton}
@@ -383,15 +328,18 @@ const ContactBook = () => {
         >
           <MaterialIcons name="phone" size={24} color="#FF8447" />
         </TouchableOpacity>
+  
         <TouchableOpacity
           style={styles.quickActionButton}
           onPress={() => handleContactOptions(contact)}
         >
-          <MaterialIcons name="more-vert" size={24} color="#666" />
+          <Text style={{ fontSize: 22, fontWeight: 'bold', color: '#333' }}>⋮</Text>
         </TouchableOpacity>
       </View>
     </TouchableOpacity>
   );
+  
+  
   const validateForm = () => {
     let isValid = true;
     const newErrors = {
@@ -413,68 +361,57 @@ const ContactBook = () => {
     return isValid;
   };
 
-   const handleSave = async () => {
-      if (!validateForm()) {
-        return;
-      }
+  const handleSave = async () => {
+    if (!validateForm()) {
+      return;
+    }
   
-      try {
-        // Get existing contacts
-        const storedContacts = await AsyncStorage.getItem('contacts');
-        const currentContacts: Contact[] = storedContacts ? JSON.parse(storedContacts) : [];
+    try {
+      const storedContacts = await AsyncStorage.getItem('telecaller_contacts');
+      const currentContacts: Contact[] = storedContacts ? JSON.parse(storedContacts) : [];
   
-        // Create or update contact
-        const updatedContact: Contact = {
-          id: editingContact?.id || Date.now().toString(),
-          firstName: firstName.trim(),
-          lastName: lastName.trim(),
-          phoneNumber: phoneNumber.trim(),
-          email: email.trim(),
-          favorite: editingContact?.favorite || false
-        };
+      const updatedContact: Contact = {
+        id: editingContact?.id || Date.now().toString(),
+        firstName: firstName.trim(),
+        lastName: lastName.trim(),
+        phoneNumber: phoneNumber.trim(),
+        email: email.trim(),
+        favorite: editingContact?.favorite || false
+      };
   
-        let updatedContacts: Contact[];
-        if (editingContact) {
-          // Update existing contact
-          updatedContacts = currentContacts.map(contact =>
-            contact.id === editingContact.id ? updatedContact : contact
-          );
-        } else {
-          // Add new contact
-          updatedContacts = [...currentContacts, updatedContact];
-        }
+      let updatedContacts: Contact[];
   
-        // Save to AsyncStorage
-        await AsyncStorage.setItem('contacts', JSON.stringify(updatedContacts));
-  // Reload latest contacts in main list
-loadContacts(); 
-       
-  
-        // Show success message and close modal
-        Alert.alert(
-          'Success',
-          `Contact ${editingContact ? 'updated' : 'saved'} successfully!`,
-          [
-            {
-              text: 'OK',
-              onPress: () => {
-                // Reset form and close modal
-                setFirstName('');
-                setLastName('');
-                setPhoneNumber('');
-                setEmail('');
-                setErrors({ firstName: '', phoneNumber: '' });
-                Keyboard.dismiss();
-                setModalVisible(false);  // Close Modal
-              }
-            }
-          ]
+      if (editingContact) {
+        updatedContacts = currentContacts.map(contact =>
+          contact.id === editingContact.id ? updatedContact : contact
         );
-      } catch (error) {
-        console.error('Error saving contact:', error);
-        Alert.alert('Error', `Failed to ${editingContact ? 'update' : 'save'} contact. Please try again.`);
+      } else {
+        updatedContacts = [...currentContacts, updatedContact];
       }
-    };
+  
+      await AsyncStorage.setItem('telecaller_contacts', JSON.stringify(updatedContacts));
+      loadContacts();
+  
+      Alert.alert('Success', `Contact ${editingContact ? 'updated' : 'saved'} successfully!`, [
+        {
+          text: 'OK',
+          onPress: () => {
+            setFirstName('');
+            setLastName('');
+            setPhoneNumber('');
+            setEmail('');
+            setErrors({ firstName: '', phoneNumber: '' });
+            Keyboard.dismiss();
+            setModalVisible(false);
+          }
+        }
+      ]);
+    } catch (error) {
+      console.error('Error saving contact:', error);
+      Alert.alert('Error', `Failed to ${editingContact ? 'update' : 'save'} contact. Please try again.`);
+    }
+  };
+  
 
   return (
     <AppGradient>
@@ -524,22 +461,7 @@ loadContacts();
         </View>
       )}
 
-      <View style={styles.filterContainer}>
-        <TouchableOpacity
-          style={[styles.filterButton, showFavoritesOnly && styles.filterButtonActive]}
-          onPress={() => setShowFavoritesOnly(!showFavoritesOnly)}
-        >
-          <MaterialIcons 
-            name="star" 
-            size={20} 
-            color={showFavoritesOnly ? "#FFD700" : "#666"} 
-          />
-          <Text style={[styles.filterButtonText, showFavoritesOnly && styles.filterButtonTextActive]}>
-            Favorites
-          </Text>
-        </TouchableOpacity>
-      </View>
-
+      
       <TouchableOpacity
   style={styles.createContactButton}
   onPress={() => {

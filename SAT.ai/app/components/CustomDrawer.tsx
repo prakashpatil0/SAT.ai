@@ -199,7 +199,16 @@ const CustomDrawer = (props: DrawerContentComponentProps) => {
             onPress={() => handleNavigate("Leaderboard")}
           />
         </View>
-
+        <View style={styles.sectionContainer}>
+        <Text style={styles.sectionTitle}>EMPLOYEE SERVICES</Text>
+        <DrawerItem
+          label="HR-Leave Mule(under cons.)"
+          icon={({ color, size }) => <MaterialCommunityIcons name="calendar-star" size={size} color="#09142D" />}
+          labelStyle={styles.menuText}
+          style={styles.drawerItem}
+          onPress={() => handleNavigate("TelecallerLeaveApplication")}
+          />
+        </View>
         {/* Tools & Settings */}
         <View style={styles.sectionContainer}>
           <Text style={styles.sectionTitle}>TOOLS & SETTINGS</Text>

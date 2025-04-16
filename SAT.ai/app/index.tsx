@@ -36,7 +36,7 @@ import AddContactModal from "@/app/Screens/Telecaller/TelecallerAddContactModal"
 import CallHistory from "./Screens/Telecaller/TelecallerCallHistory";
 import TelecallerPersonNotes from "@/app/Screens/Telecaller/TelecallerPersonNotes";
 import ContactBook from "@/app/components/ContactBook/ContactBook";
-
+import TelecallerLeaveApplication from "@/app/HRMS/TelecallerLeaveApplication";
 
 import BDMBottomTabs from "@/app/Screens/BDM/BDMBottomTabs";
 import BDMContactDetailsScreen from "@/app/Screens/BDM/BDMContactDetailsScreen";
@@ -79,8 +79,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import AlertScreen from "@/app/Screens/Telecaller/Tab/AlertScreen";
 import TelecallerIdleTimer from "./Screens/Telecaller/Tab/TelecallerIdleTimer";
 import BDMContactBook from "@/app/components/ContactBook/BDMContactBook"
-
-
+import ApplyLeaveScreen from "@/app/HRMS/ApplyLeaveScreen";
+import CalendarViewScreen from "@/app/HRMS/CalendarViewScreen";
 
 export type RootStackParamList = {
   // Auth Screens
@@ -96,7 +96,7 @@ export type RootStackParamList = {
   BDMHomeScreen: undefined;
   Profile: undefined;
   ContactBook: undefined;
-
+  
   // BDM Screens
   MeetingDetails: { meetingId: string };
   DealDetails: { dealId: string };
@@ -150,6 +150,7 @@ type ScreenComponentType<T extends ParamListBase, K extends keyof T> = FC<{
 // Update the BDMStackParamList to include all screens
 export type BDMStackParamList = {
   BDMHomeScreen: undefined;
+  TelecallerLeaveApplication: undefined;
   BDMCallHistory: {
     customerName: string;
     meetings: {
@@ -312,6 +313,9 @@ const DrawerNavigator = () => {
       <Drawer.Screen name="TelecallerCallNoteDetails" component={TelecallerCallNoteDetails} />
       <Drawer.Screen name="TelecallerIdleTimer" component={TelecallerIdleTimer} />
       <Drawer.Screen name="AlertScreen" component={AlertScreen} />
+      <Drawer.Screen name="TelecallerLeaveApplication" component={TelecallerLeaveApplication} />
+      <Drawer.Screen name="ApplyLeaveScreen" component={ApplyLeaveScreen} />
+      <Drawer.Screen name="CalendarViewScreen" component={CalendarViewScreen} />
     </Drawer.Navigator>
     </IdleTimerProvider>
   );
@@ -505,6 +509,10 @@ function BDMStackNavigator() {
         component={BDMViewFullReport} 
         options={{ headerShown: false }}
       />
+      <BDMStack.Screen 
+      name="TelecallerLeaveApplication" 
+      component={TelecallerLeaveApplication} 
+      options={{ headerShown: false }}/>
     </BDMStack.Navigator>
   );
 }
@@ -524,6 +532,8 @@ const RootStack = () => {
       <Stack.Screen name="VerifyEmail" component={VerifyEmail} />
       <Stack.Screen name="SetNewPassword" component={SetNewPassword} />
       <Stack.Screen name="MainApp" component={DrawerNavigator} />
+      
+      
       <Stack.Screen 
         name="BDMStack" 
         component={BDMStackNavigator}

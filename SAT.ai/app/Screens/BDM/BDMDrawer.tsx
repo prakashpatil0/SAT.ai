@@ -11,7 +11,6 @@ import { useProfile } from '@/app/context/ProfileContext';
 import { LinearGradient } from 'expo-linear-gradient';
 import { storage } from '@/firebaseConfig';
 import { ref, getDownloadURL } from 'firebase/storage';
-
 const BDMDrawer = (props: DrawerContentComponentProps) => {
   const navigation = useNavigation();
   const auth = getAuth();
@@ -244,6 +243,13 @@ const BDMDrawer = (props: DrawerContentComponentProps) => {
             onPress={() => handleNavigate("BDMLeaderBoard")}
           />
         </View>
+                <DrawerItem
+                  label="Leave Application"
+                  icon={({ color, size }) => <MaterialCommunityIcons name="calendar-star" size={size} color="#09142D" />}
+                  labelStyle={styles.menuText}
+                  style={styles.drawerItem}
+                  onPress={() => handleNavigate("TelecallerLeaveApplication")}
+                  />
       </DrawerContentScrollView>
 
       {/* App Version */}

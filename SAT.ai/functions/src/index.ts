@@ -6,7 +6,7 @@ import * as nodemailer from 'nodemailer';
 admin.initializeApp();
 
 // Initialize SendGrid with API key
-sgMail.setApiKey('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');
+sgMail.setApiKey(process.env.SENDGRID_API_KEY || '');
 
 interface OTPRequest {
   email: string;

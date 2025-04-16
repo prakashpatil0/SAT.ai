@@ -1,11 +1,11 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { View, StyleSheet, KeyboardAvoidingView, Platform, Alert, Modal, Animated } from "react-native";
 import { TextInput, Button, Text, useTheme, HelperText } from "react-native-paper";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useNavigation } from "@react-navigation/native";
 import { StackNavigationProp } from '@react-navigation/stack';
 import { auth, db } from "@/firebaseConfig";
-import { signInWithEmailAndPassword, getAuth } from "firebase/auth";
+import { signInWithEmailAndPassword, getAuth, browserLocalPersistence, signInWithCustomToken } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
 import AppGradient from "@/app/components/AppGradient";
 import { getFirestore } from "firebase/firestore";
@@ -44,6 +44,48 @@ const LoginScreen = () => {
   const [alertType, setAlertType] = useState<'error' | 'success'>('error');
   const [shakeAnimation] = useState(new Animated.Value(0));
   
+  // Add session check on component mount
+  useEffect(() => {
+    checkExistingSession();
+  }, []);
+
+  const checkExistingSession = async () => {
+    try {
+      const [sessionToken, lastActiveTime] = await AsyncStorage.multiGet([
+        'sessionToken',
+        'lastActiveTime'
+      ]);
+
+      if (sessionToken[1] && lastActiveTime[1]) {
+        const lastActive = new Date(lastActiveTime[1]).getTime();
+        const now = new Date().getTime();
+        const thirtyDaysInMs = 30 * 24 * 60 * 60 * 1000;
+
+        if (now - lastActive <= thirtyDaysInMs) {
+          // Try to restore Firebase auth state
+          try {
+            const userCredential = await signInWithCustomToken(auth, sessionToken[1]);
+            if (userCredential.user) {
+              // Get user role from Firestore
+              const userDoc = await getDoc(doc(db, 'users', userCredential.user.uid));
+              if (userDoc.exists()) {
+                const userData = userDoc.data();
+                await AsyncStorage.setItem('userRole', userData.role.toLowerCase());
+                navigateBasedOnRole(userData.role.toLowerCase());
+              }
+            }
+          } catch (error) {
+            console.log('Failed to restore session:', error);
+            // Clear invalid session
+            await AsyncStorage.multiRemove(['sessionToken', 'lastActiveTime', 'userRole']);
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error checking session:', error);
+    }
+  };
+
   const showCustomAlert = (message: string, type: 'error' | 'success' = 'error') => {
     setAlertMessage(message);
     setAlertType(type);
@@ -87,12 +129,12 @@ const LoginScreen = () => {
     }
     try {
       setLoading(true);
-      const auth = getAuth();
+      
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      const user = userCredential.user;
       
       // Get user role from Firestore
-      const db = getFirestore();
-      const userDoc = await getDoc(doc(db, 'users', userCredential.user.uid));
+      const userDoc = await getDoc(doc(db, 'users', user.uid));
       
       if (!userDoc.exists()) {
         showCustomAlert('Oops! We couldn\'t find your account. Please try again or contact support.');
@@ -100,16 +142,11 @@ const LoginScreen = () => {
       }
 
       const userData = userDoc.data();
-
-      if (!userData.role) {
-        showCustomAlert('Oops! Something went wrong. Please contact support.');
-        return;
-      }
-
-      // Store user role and session data in AsyncStorage
+      
+      // Store session data in AsyncStorage
       await AsyncStorage.multiSet([
         ['userRole', userData.role.toLowerCase()],
-        ['sessionToken', userCredential.user.uid],
+        ['sessionToken', user.uid],
         ['lastActiveTime', new Date().toISOString()]
       ]);
 
@@ -117,50 +154,19 @@ const LoginScreen = () => {
       showCustomAlert('Welcome back! Login successful.', 'success');
 
       // Navigate based on role
-      setTimeout(() => {
-        switch (userData.role.toLowerCase()) {
-          case 'telecaller':
-            navigation.reset({
-              index: 0,
-              routes: [{ name: 'MainApp' }],
-            });
-            break;
-          case 'bdm':
-            navigation.reset({
-              index: 0,
-              routes: [{ name: 'BDMStack' }],
-            });
-            break;
-          case 'admin':
-            navigation.reset({
-              index: 0,
-              routes: [{ name: 'AdminDrawer' }],
-            });
-            break;
-          default:
-            showCustomAlert('Oops! Something went wrong. Please contact support.');
-        }
-      }, 1000);
+      navigateBasedOnRole(userData.role.toLowerCase());
 
     } catch (error: any) {
-      let errorMessage = 'Oops! Something went wrong. Please try again.';
+      let errorMessage = 'Failed to login';
       
       if (error.code === 'auth/user-not-found') {
-        errorMessage = 'We couldn\'t find an account with this email. Please check your email or create a new account.';
+        errorMessage = 'No account found with this email';
       } else if (error.code === 'auth/wrong-password') {
-        errorMessage = 'That\'s not the right password. Please try again or use "Forgot Password" if you need help.';
+        errorMessage = 'Incorrect password';
       } else if (error.code === 'auth/invalid-email') {
-        errorMessage = 'Please enter a valid email address (e.g., example@email.com).';
-      } else if (error.code === 'auth/too-many-requests') {
-        errorMessage = 'Too many attempts. Please wait a few minutes before trying again.';
+        errorMessage = 'Invalid email address';
       } else if (error.code === 'auth/network-request-failed') {
-        errorMessage = 'No internet connection. Please check your connection and try again.';
-      } else if (error.code === 'auth/user-disabled') {
-        errorMessage = 'This account has been disabled. Please contact support for help.';
-      } else if (error.code === 'auth/email-not-verified') {
-        errorMessage = 'Please verify your email address before logging in.';
-      } else if (error.message) {
-        errorMessage = 'Oops! Something went wrong. Please try again.';
+        errorMessage = 'Network error. Please check your internet connection';
       }
       
       showCustomAlert(errorMessage);
@@ -208,6 +214,31 @@ const LoginScreen = () => {
     }
   };
 
+  const navigateBasedOnRole = (role: string) => {
+    switch (role.toLowerCase()) {
+      case 'telecaller':
+        navigation.reset({
+          index: 0,
+          routes: [{ name: 'MainApp' }],
+        });
+        break;
+      case 'bdm':
+        navigation.reset({
+          index: 0,
+          routes: [{ name: 'BDMStack' }],
+        });
+        break;
+      case 'admin':
+        navigation.reset({
+          index: 0,
+          routes: [{ name: 'AdminDrawer' }],
+        });
+        break;
+      default:
+        showCustomAlert('Oops! Something went wrong. Please contact support.');
+    }
+  };
+
   return (
     <AppGradient>
       <KeyboardAvoidingView
@@ -236,7 +267,7 @@ const LoginScreen = () => {
                 colors: {
                   primary: "#FF8447",
                   text: "#333",
-                  placeholder: "#999",
+                  placeholder: "#F8F8F8",
                   error: "#DC3545",
                 },
                 fonts: {
@@ -269,7 +300,7 @@ const LoginScreen = () => {
               left={<TextInput.Icon icon="lock" color="#B1B1B1"/>}
               right={
                 <TextInput.Icon
-                  icon={showPassword ? "eye-off" : "eye"}
+                  icon={showPassword ? "eye-off-outline" : "eye-outline"}
                   color="#FF8447"
                   onPress={() => setShowPassword(!showPassword)}
                 />
@@ -279,7 +310,7 @@ const LoginScreen = () => {
                 colors: {
                   primary: "#FF8447",
                   text: "#333",
-                  placeholder: "#999",
+                  placeholder: "#969595",
                   error: "#DC3545",
                 },
                 fonts: {
@@ -411,8 +442,9 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   input: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#F8F8F8',
     fontSize: 16,
+    fontFamily: 'LexendDeca_400Regular',
   },
   inputError: {
     borderColor: '#DC3545',

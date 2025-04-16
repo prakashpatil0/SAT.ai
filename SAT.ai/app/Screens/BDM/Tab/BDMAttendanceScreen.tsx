@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Linking, Platform, Alert, Image, ActivityIndicator, Share } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
@@ -18,6 +18,8 @@ import * as FileSystem from 'expo-file-system';
 
 const STORAGE_KEY = '@attendance_records';
 const SYNC_INTERVAL = 5 * 60 * 1000; // 5 minutes
+const LOCATION_CACHE_TIMEOUT = 5 * 60 * 1000; // 5 minutes
+const ATTENDANCE_CACHE_TIMEOUT = 24 * 60 * 60 * 1000; // 24 hours
 
 const professionalMessages = {
   absent: [
@@ -202,6 +204,12 @@ const BDMAttendanceScreen = () => {
     timestamp: Date.now()
   };
 
+  // Add new state for loading optimization
+  const [isInitialLoadComplete, setIsInitialLoadComplete] = useState(false);
+  const [isDataLoading, setIsDataLoading] = useState(false);
+  const [cachedLocation, setCachedLocation] = useState<Location.LocationObject | null>(null);
+  const [cachedAttendance, setCachedAttendance] = useState<AttendanceRecord[]>([]);
+
   // Add checkAndRequestPermissions function
   const checkAndRequestPermissions = async () => {
     try {
@@ -243,19 +251,122 @@ const BDMAttendanceScreen = () => {
     }
   };
 
-  // Add effect for initial loading
-  useEffect(() => {
-    const loadInitialData = async () => {
-      setIsLoading(true);
-      await Promise.all([
-        checkAndRequestPermissions(),
-        fetchAttendanceHistory()
+  // Optimized data loading function
+  const loadInitialData = useCallback(async () => {
+    try {
+      setIsDataLoading(true);
+      
+      // Load data in parallel
+      const [locationData, attendanceData] = await Promise.all([
+        loadLocation(),
+        loadCachedAttendance()
       ]);
-      setIsLoading(false);
-    };
 
-    loadInitialData();
+      // Update states
+      setLocation(locationData);
+      setCachedLocation(locationData);
+      setAttendanceHistory(attendanceData);
+      setCachedAttendance(attendanceData);
+      
+      // Initialize other data
+      initializeDate();
+      updateWeekDaysStatus(attendanceData);
+      calculateStatusCounts(attendanceData);
+      
+      setIsInitialLoadComplete(true);
+    } catch (error) {
+      console.error('Error loading initial data:', error);
+    } finally {
+      setIsDataLoading(false);
+    }
   }, []);
+
+  // Optimized location loading
+  const loadLocation = useCallback(async () => {
+    try {
+      // Check cache first
+      const cachedLoc = await getCachedLocation();
+      if (cachedLoc) {
+        return cachedLoc;
+      }
+
+      // Get fresh location
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status === 'granted') {
+        const location = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced,
+          timeInterval: 5000
+        });
+        
+        // Cache the location
+        await cacheLocation(location);
+        return location;
+      }
+      
+      return null;
+    } catch (error) {
+      console.error('Error loading location:', error);
+      return null;
+    }
+  }, []);
+
+  // Optimized attendance loading
+  const loadCachedAttendance = useCallback(async () => {
+    try {
+      // Check cache first
+      const cachedData = await AsyncStorage.getItem(STORAGE_KEY);
+      if (cachedData) {
+        const { data, timestamp } = JSON.parse(cachedData);
+        const now = Date.now();
+        
+        if (now - timestamp < ATTENDANCE_CACHE_TIMEOUT) {
+          return data;
+        }
+      }
+
+      // Load from Firebase if cache is invalid
+      const userId = auth.currentUser?.uid;
+      if (!userId) return [];
+
+      const attendanceRef = collection(db, 'users', userId, 'attendance');
+      const q = query(
+        attendanceRef,
+        where('timestamp', '>=', Timestamp.fromDate(startOfMonth(new Date()))),
+        orderBy('timestamp', 'desc')
+      );
+
+      const querySnapshot = await getDocs(q);
+      const attendanceData = querySnapshot.docs.map(doc => ({
+        ...doc.data(),
+        timestamp: doc.data().timestamp.toDate()
+      })) as AttendanceRecord[];
+
+      // Cache the data
+      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify({
+        data: attendanceData,
+        timestamp: Date.now()
+      }));
+
+      return attendanceData;
+    } catch (error) {
+      console.error('Error loading attendance:', error);
+      return [];
+    }
+  }, []);
+
+  // Optimized useEffect for initial load
+  useEffect(() => {
+    loadInitialData();
+
+    // Set up sync interval
+    const syncInterval = setInterval(() => {
+      if (!isDataLoading) {
+        loadCachedAttendance();
+      }
+    }, SYNC_INTERVAL);
+
+    return () => clearInterval(syncInterval);
+  }, [loadInitialData, loadCachedAttendance]);
 
   useEffect(() => {
     // Request location permission immediately on screen load
@@ -303,7 +414,7 @@ const BDMAttendanceScreen = () => {
     initializeDate();
     
     // Fetch attendance history
-    fetchAttendanceHistory();
+    loadCachedAttendance();
   }, []);
 
   // Add filtered history effect
@@ -387,63 +498,6 @@ const BDMAttendanceScreen = () => {
     });
     
     setWeekDaysStatus(updatedWeekDays);
-  };
-
-  // Optimize map loading with caching
-  const loadLocation = async () => {
-    try {
-      // First try to get cached location
-      const cachedLocation = await getCachedLocation();
-      if (cachedLocation) {
-        setLocation(cachedLocation);
-        return;
-      }
-
-      // If no cached location, request new location
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      setPermissionStatus(status);
-      
-      if (status !== 'granted') {
-        setMapError(true);
-        return;
-      }
-      
-      const locationService = await Location.hasServicesEnabledAsync();
-      setLocationServiceEnabled(locationService);
-      
-      if (!locationService) {
-        setMapError(true);
-        return;
-      }
-      
-      // Get location with high accuracy but with a timeout
-      const location = await Promise.race([
-        Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.High,
-          timeInterval: 5000
-        }),
-        new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Location timeout')), 10000)
-        )
-      ]).catch(async () => {
-        // Fallback to lower accuracy if high accuracy times out
-        return Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.Balanced,
-          timeInterval: 5000
-        });
-      });
-      
-      if (location && typeof location === 'object' && 'coords' in location) {
-        const locationObj = location as Location.LocationObject;
-        setLocation(locationObj);
-        await cacheLocation(locationObj);
-      } else {
-        throw new Error('Invalid location data');
-      }
-    } catch (error) {
-      console.error('Error loading location:', error);
-      setMapError(true);
-    }
   };
 
   // Cache location for faster loading
@@ -1312,185 +1366,183 @@ const BDMAttendanceScreen = () => {
         showBackButton
         showDrawer={true}
       >
-        <ScrollView style={styles.scrollView}>
-          {isLoading ? (
-            <AttendanceSkeleton />
-          ) : (
-            <>
-              {/* Punch Card with Map */}
-              <View style={styles.punchCard}>
-                {/* Map View */}
-                <View style={styles.mapContainer}>
-                  {renderMap()}
-                </View>
-
-                {/* Punch Info */}
-                <View style={styles.punchInfo}>
-                  <Text style={styles.punchLabel}>Take Attendance</Text>
-                  <TouchableOpacity
-                    style={[
-                      styles.punchButton, 
-                      isPunchedIn && styles.punchOutButton,
-                      isPunchButtonDisabled && styles.punchButtonDisabled
-                    ]}
-                    onPress={handlePunch}
-                    disabled={isPunchButtonDisabled}
-                  >
-                    <Text style={[
-                      styles.punchButtonText,
-                      isPunchButtonDisabled && styles.punchButtonTextDisabled
-                    ]}>
-                      {isPunchedIn ? 'Punch Out' : 'Punch In'}
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-
-                <View style={styles.timeInfo}>
-                  <View style={styles.timeColumn}>
-                    <Text style={styles.timeLabel}>Punch In</Text>
-                    <Text style={styles.timeValue}>{punchInTime || '-----'}</Text>
-                  </View>
-                  <View style={styles.timeColumn}>
-                    <Text style={styles.timeLabel}>Punch Out</Text>
-                    <Text style={styles.timeValue}>{punchOutTime || '-----'}</Text>
-                  </View>
-                </View>
+        {!isInitialLoadComplete ? (
+          <AttendanceSkeleton />
+        ) : (
+          <ScrollView style={styles.scrollView}>
+            {/* Punch Card with Map */}
+            <View style={styles.punchCard}>
+              {/* Map View */}
+              <View style={styles.mapContainer}>
+                {renderMap()}
               </View>
 
-              {/* Week View */}
-              <View style={styles.weekCard}>
-                <Text style={styles.dateText}>{format(currentDate, 'dd MMMM (EEEE)')}</Text>
-                <View style={styles.weekDays}>
-                  {weekDaysStatus.map((day, index) => (
-                    <View key={index} style={styles.dayContainer}>
-                      <View 
-                        style={[
-                          styles.dayCircle,
-                          { 
-                            backgroundColor: getStatusCircleColor(day.status),
-                            borderColor: getStatusBorderColor(day.status)
-                          }
-                        ]}
-                      >
-                        {getStatusIcon(day.status)}
-                      </View>
-                      <Text style={styles.weekDayText}>{day.day}</Text>
-                      {day.date && <Text style={styles.weekDateText}>{day.date}</Text>}
-                    </View>
-                  ))}
-                </View>
-              </View>
-
-              {/* Month Scroll */}
-              <MonthScroll 
-                selectedMonth={selectedMonth}
-                onSelectMonth={setSelectedMonth}
-                onLongPressMonth={handleLongPressMonth}
-              />
-
-              {/* Attendance Summary */}
-              <View style={styles.summaryContainer}>
-                <TouchableOpacity 
-                  style={getSummaryItemStyle('Present')}
-                  onPress={() => handleSummaryItemPress('Present')}
+              {/* Punch Info */}
+              <View style={styles.punchInfo}>
+                <Text style={styles.punchLabel}>Take Attendance</Text>
+                <TouchableOpacity
+                  style={[
+                    styles.punchButton, 
+                    isPunchedIn && styles.punchOutButton,
+                    isPunchButtonDisabled && styles.punchButtonDisabled
+                  ]}
+                  onPress={handlePunch}
+                  disabled={isPunchButtonDisabled}
                 >
-                  <Text style={styles.summaryStatusPresent}>Present</Text>
-                  <Text style={styles.summaryCount}>{statusCounts.Present} days</Text>
-                </TouchableOpacity>
-                <TouchableOpacity 
-                  style={getSummaryItemStyle('Half Day')}
-                  onPress={() => handleSummaryItemPress('Half Day')}
-                >
-                  <Text style={styles.summaryStatusHalfDay}>Half Day</Text>
-                  <Text style={styles.summaryCount}>{statusCounts["Half Day"]} days</Text>
-                </TouchableOpacity>
-                <TouchableOpacity 
-                  style={getSummaryItemStyle('On Leave')}
-                  onPress={() => handleSummaryItemPress('On Leave')}
-                >
-                  <Text style={styles.summaryStatusAbsent}>Absent</Text>
-                  <Text style={styles.summaryCount}>{statusCounts["On Leave"]} days</Text>
+                  <Text style={[
+                    styles.punchButtonText,
+                    isPunchButtonDisabled && styles.punchButtonTextDisabled
+                  ]}>
+                    {isPunchedIn ? 'Punch Out' : 'Punch In'}
+                  </Text>
                 </TouchableOpacity>
               </View>
 
-              {/* Attendance History */}
-              <View style={styles.historySection}>
-                <View style={styles.historyHeader}>
-                  <Text style={styles.sectionTitle}>Attendance History</Text>
-                  {activeFilter && (
-                    <TouchableOpacity
-                      style={styles.clearFilterButton}
-                      onPress={() => setActiveFilter(null)}
+              <View style={styles.timeInfo}>
+                <View style={styles.timeColumn}>
+                  <Text style={styles.timeLabel}>Punch In</Text>
+                  <Text style={styles.timeValue}>{punchInTime || '-----'}</Text>
+                </View>
+                <View style={styles.timeColumn}>
+                  <Text style={styles.timeLabel}>Punch Out</Text>
+                  <Text style={styles.timeValue}>{punchOutTime || '-----'}</Text>
+                </View>
+              </View>
+            </View>
+
+            {/* Week View */}
+            <View style={styles.weekCard}>
+              <Text style={styles.dateText}>{format(currentDate, 'dd MMMM (EEEE)')}</Text>
+              <View style={styles.weekDays}>
+                {weekDaysStatus.map((day, index) => (
+                  <View key={index} style={styles.dayContainer}>
+                    <View 
+                      style={[
+                        styles.dayCircle,
+                        { 
+                          backgroundColor: getStatusCircleColor(day.status),
+                          borderColor: getStatusBorderColor(day.status)
+                        }
+                      ]}
                     >
-                      <Text style={styles.clearFilterText}>Clear Filter</Text>
-                      <MaterialIcons name="clear" size={16} color="#FF8447" />
-                    </TouchableOpacity>
-                  )}
-                </View>
-                
-                {filteredHistory.length === 0 ? (
-                  <View style={styles.emptyHistoryContainer}>
-                    <MaterialIcons name="event-busy" size={48} color="#999" />
-                    <Text style={styles.emptyHistoryText}>
-                      {activeFilter 
-                        ? `No ${activeFilter} records found` 
-                        : "No attendance records found"}
-                    </Text>
-                    <Text style={styles.emptyHistorySubText}>
-                      {activeFilter 
-                        ? "Try selecting a different filter" 
-                        : "Your attendance history will appear here"}
-                    </Text>
-                  </View>
-                ) : (
-                  filteredHistory.map((record, index) => (
-                    <View key={index} style={styles.historyCard}>
-                      <View style={styles.dateColumn}>
-                        <Text style={styles.dateNumber}>{record.date}</Text>
-                        <Text style={styles.dateDay}>{record.day}</Text>
-                      </View>
-                      <View style={styles.punchDetails}>
-                        <View style={styles.punchTimeContainer}>
-                          <Text style={styles.punchTime}>{record.punchIn ? format(new Date(`2000-01-01T${record.punchIn}`), 'hh:mm a') : '-----'}</Text>
-                          <Text style={styles.punchType}>Punch In</Text>
-                        </View>
-                        <View style={styles.punchTimeContainer}>
-                          <Text style={styles.punchTime}>{record.punchOut ? format(new Date(`2000-01-01T${record.punchOut}`), 'hh:mm a') : '-----'}</Text>
-                          <Text style={styles.punchType}>Punch Out</Text>
-                        </View>
-                      </View>
-                      <View style={[styles.statusBadge, getStatusStyle(record.status)]}>
-                        <Text style={[styles.statusText, getStatusTextStyle(record.status)]}>{record.status}</Text>
-                      </View>
+                      {getStatusIcon(day.status)}
                     </View>
-                  ))
+                    <Text style={styles.weekDayText}>{day.day}</Text>
+                    {day.date && <Text style={styles.weekDateText}>{day.date}</Text>}
+                  </View>
+                ))}
+              </View>
+            </View>
+
+            {/* Month Scroll */}
+            <MonthScroll 
+              selectedMonth={selectedMonth}
+              onSelectMonth={setSelectedMonth}
+              onLongPressMonth={handleLongPressMonth}
+            />
+
+            {/* Attendance Summary */}
+            <View style={styles.summaryContainer}>
+              <TouchableOpacity 
+                style={getSummaryItemStyle('Present')}
+                onPress={() => handleSummaryItemPress('Present')}
+              >
+                <Text style={styles.summaryStatusPresent}>Present</Text>
+                <Text style={styles.summaryCount}>{statusCounts.Present} days</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={getSummaryItemStyle('Half Day')}
+                onPress={() => handleSummaryItemPress('Half Day')}
+              >
+                <Text style={styles.summaryStatusHalfDay}>Half Day</Text>
+                <Text style={styles.summaryCount}>{statusCounts["Half Day"]} days</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={getSummaryItemStyle('On Leave')}
+                onPress={() => handleSummaryItemPress('On Leave')}
+              >
+                <Text style={styles.summaryStatusAbsent}>Absent</Text>
+                <Text style={styles.summaryCount}>{statusCounts["On Leave"]} days</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Attendance History */}
+            <View style={styles.historySection}>
+              <View style={styles.historyHeader}>
+                <Text style={styles.sectionTitle}>Attendance History</Text>
+                {activeFilter && (
+                  <TouchableOpacity
+                    style={styles.clearFilterButton}
+                    onPress={() => setActiveFilter(null)}
+                  >
+                    <Text style={styles.clearFilterText}>Clear Filter</Text>
+                    <MaterialIcons name="clear" size={16} color="#FF8447" />
+                  </TouchableOpacity>
                 )}
               </View>
-
-              {/* Absent History Section */}
-              {absentHistory.length > 0 && (
-                <View style={styles.absentHistoryContainer}>
-                  <Text style={styles.absentHistoryTitle}>Absent History</Text>
-                  {absentHistory.map((item, index) => (
-                    <View key={index} style={styles.absentHistoryItem}>
-                      <Text style={styles.absentDate}>{item.date}</Text>
-                      <Text style={styles.absentMessage}>{item.message}</Text>
-                    </View>
-                  ))}
+              
+              {filteredHistory.length === 0 ? (
+                <View style={styles.emptyHistoryContainer}>
+                  <MaterialIcons name="event-busy" size={48} color="#999" />
+                  <Text style={styles.emptyHistoryText}>
+                    {activeFilter 
+                      ? `No ${activeFilter} records found` 
+                      : "No attendance records found"}
+                  </Text>
+                  <Text style={styles.emptyHistorySubText}>
+                    {activeFilter 
+                      ? "Try selecting a different filter" 
+                      : "Your attendance history will appear here"}
+                  </Text>
                 </View>
+              ) : (
+                filteredHistory.map((record, index) => (
+                  <View key={index} style={styles.historyCard}>
+                    <View style={styles.dateColumn}>
+                      <Text style={styles.dateNumber}>{record.date}</Text>
+                      <Text style={styles.dateDay}>{record.day}</Text>
+                    </View>
+                    <View style={styles.punchDetails}>
+                      <View style={styles.punchTimeContainer}>
+                        <Text style={styles.punchTime}>{record.punchIn ? format(new Date(`2000-01-01T${record.punchIn}`), 'hh:mm a') : '-----'}</Text>
+                        <Text style={styles.punchType}>Punch In</Text>
+                      </View>
+                      <View style={styles.punchTimeContainer}>
+                        <Text style={styles.punchTime}>{record.punchOut ? format(new Date(`2000-01-01T${record.punchOut}`), 'hh:mm a') : '-----'}</Text>
+                        <Text style={styles.punchType}>Punch Out</Text>
+                      </View>
+                    </View>
+                    <View style={[styles.statusBadge, getStatusStyle(record.status)]}>
+                      <Text style={[styles.statusText, getStatusTextStyle(record.status)]}>{record.status}</Text>
+                    </View>
+                  </View>
+                ))
               )}
+            </View>
 
-              {/* Sync Status */}
-              <View style={styles.syncStatusContainer}>
-                <Text style={styles.syncStatusText}>
-                  {isSyncing ? 'Syncing...' : lastSyncTime ? 
-                    `Last synced: ${format(lastSyncTime, 'hh:mm a')}` : 
-                    'Not synced yet'}
-                </Text>
+            {/* Absent History Section */}
+            {absentHistory.length > 0 && (
+              <View style={styles.absentHistoryContainer}>
+                <Text style={styles.absentHistoryTitle}>Absent History</Text>
+                {absentHistory.map((item, index) => (
+                  <View key={index} style={styles.absentHistoryItem}>
+                    <Text style={styles.absentDate}>{item.date}</Text>
+                    <Text style={styles.absentMessage}>{item.message}</Text>
+                  </View>
+                ))}
               </View>
-            </>
-          )}
-        </ScrollView>
+            )}
+
+            {/* Sync Status */}
+            <View style={styles.syncStatusContainer}>
+              <Text style={styles.syncStatusText}>
+                {isSyncing ? 'Syncing...' : lastSyncTime ? 
+                  `Last synced: ${format(lastSyncTime, 'hh:mm a')}` : 
+                  'Not synced yet'}
+              </Text>
+            </View>
+          </ScrollView>
+        )}
       </BDMMainLayout>
     </AppGradient>
   );

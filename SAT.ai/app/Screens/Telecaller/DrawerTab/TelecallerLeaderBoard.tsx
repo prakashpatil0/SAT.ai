@@ -10,7 +10,8 @@ import { auth, storage } from '@/firebaseConfig';
 import { ref, getDownloadURL } from 'firebase/storage';
 import { useProfile } from '@/app/context/ProfileContext';
 import { db } from '@/firebaseConfig';
-import { collection, query, where, getDocs, orderBy, getDoc, doc } from 'firebase/firestore';
+import { collection, query, where, getDocs, orderBy, getDoc, doc, limit } from 'firebase/firestore';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Define the LeaderboardUser type
 type LeaderboardUser = {
@@ -49,10 +50,14 @@ const LeaderBoard = () => {
   const currentUserId = auth.currentUser?.uid;
   const { userProfile, refreshProfile } = useProfile();
 
+  // Cache key for leaderboard data
+  const CACHE_KEY = 'telecaller_leaderboard_cache';
+  const CACHE_EXPIRY = 5 * 60 * 1000; // 5 minutes
+
   useEffect(() => {
-    refreshProfile(); // Ensure we have the latest profile data
+    refreshProfile();
     loadDefaultProfileImage();
-    fetchLeaderboardData();
+    loadCachedLeaderboardData();
     fetchAllUserNames();
   }, []);
   
@@ -85,6 +90,38 @@ const LeaderBoard = () => {
       console.error('Error loading default profile image:', error);
     } finally {
       setImageLoading(false);
+    }
+  };
+
+  const loadCachedLeaderboardData = async () => {
+    try {
+      const cachedData = await AsyncStorage.getItem(CACHE_KEY);
+      if (cachedData) {
+        const { data, timestamp } = JSON.parse(cachedData);
+        const now = Date.now();
+        
+        if (now - timestamp < CACHE_EXPIRY) {
+          setLeaderboardData(data);
+          setLoading(false);
+          return;
+        }
+      }
+      fetchLeaderboardData();
+    } catch (error) {
+      console.error('Error loading cached data:', error);
+      fetchLeaderboardData();
+    }
+  };
+
+  const saveLeaderboardToCache = async (data: LeaderboardUser[]) => {
+    try {
+      const cacheData = {
+        data,
+        timestamp: Date.now()
+      };
+      await AsyncStorage.setItem(CACHE_KEY, JSON.stringify(cacheData));
+    } catch (error) {
+      console.error('Error saving to cache:', error);
     }
   };
 
@@ -126,7 +163,8 @@ const LeaderBoard = () => {
       const achievementsRef = collection(db, 'telecaller_achievements');
       const achievementsQuery = query(
         achievementsRef,
-        orderBy('percentageAchieved', 'desc')
+        orderBy('percentageAchieved', 'desc'),
+        limit(10) // Limit to top 10 users
       );
 
       const achievementsSnapshot = await getDocs(achievementsQuery);
@@ -161,7 +199,8 @@ const LeaderBoard = () => {
           percentageAchieved: data.highestPercentage,
           latestDate: data.latestDate
         }))
-        .sort((a, b) => b.percentageAchieved - a.percentageAchieved);
+        .sort((a, b) => b.percentageAchieved - a.percentageAchieved)
+        .slice(0, 10); // Ensure we only take top 10
 
       // Fetch user details for all users
       const leaderboardData = await Promise.all(
@@ -211,8 +250,18 @@ const LeaderBoard = () => {
         })
       );
 
-      console.log('Leaderboard data:', leaderboardData); // Add logging to debug
-      setLeaderboardData(leaderboardData);
+      // Fill remaining positions with placeholder data if needed
+      const topUsers = leaderboardData.slice(0, 10);
+      const remainingPlaceholders = placeholderData
+        .slice(topUsers.length)
+        .map((placeholder, index) => ({
+          ...placeholder,
+          rank: topUsers.length + index + 1
+        }));
+
+      const finalData = [...topUsers, ...remainingPlaceholders].slice(0, 10);
+      setLeaderboardData(finalData);
+      saveLeaderboardToCache(finalData);
 
     } catch (error) {
       console.error('Error fetching leaderboard data:', error);

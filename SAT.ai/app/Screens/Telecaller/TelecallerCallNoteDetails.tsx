@@ -15,7 +15,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 interface Meeting {
   id: string;
   phoneNumber: string;
-  timestamp: Date;
+  timestamp: Date | string | number; // Can be Date, string, or number
   duration: number;
   type: 'incoming' | 'outgoing' | 'missed';
   status: 'completed' | 'missed' | 'in-progress';
@@ -50,6 +50,23 @@ const TelecallerCallNoteDetails = () => {
   const [status, setStatus] = useState('Mark Status');
   const [showStatusModal, setShowStatusModal] = useState(false);
   const { meeting } = route.params as { meeting: Meeting };
+
+  // Helper function to safely parse dates
+  const parseDate = (dateValue: Date | string | number): Date => {
+    if (dateValue instanceof Date) {
+      return dateValue;
+    }
+    // If it's a string or number, try to parse it
+    const parsedDate = new Date(dateValue);
+    if (isNaN(parsedDate.getTime())) {
+      // If parsing fails, return current date as fallback
+      return new Date();
+    }
+    return parsedDate;
+  };
+
+  // Ensure we have a valid timestamp
+  const callTimestamp = parseDate(meeting.timestamp);
 
   const statusOptions = ['Prospect', 'Suspect', 'Closing'];
 
@@ -99,63 +116,52 @@ const TelecallerCallNoteDetails = () => {
         throw new Error('User not authenticated');
       }
 
+      // Create a unique call ID using timestamp and phone number
+      const callId = `${meeting.phoneNumber}_${callTimestamp.getTime()}`;
+
       const noteData = {
         userId,
-        callId: meeting.id,
+        callId,
         phoneNumber: meeting.phoneNumber,
         contactName: meeting.contactName || meeting.phoneNumber,
         notes,
         status,
         timestamp: new Date().toISOString(),
         followUp,
-        callTimestamp: meeting.timestamp,
-        callDuration: meeting.duration
+        callTimestamp: callTimestamp.toISOString(),
+        callDuration: meeting.duration,
+        type: meeting.type || 'outgoing'
       };
-
-      // Try to save to Firestore first
-      let firestoreSaved = false;
-      try {
-        await addDoc(collection(db, 'callNotes'), {
-          ...noteData,
-          timestamp: new Date(),
-          callTimestamp: new Date(meeting.timestamp)
-        });
-        
-        if (status !== 'Mark Status') {
-          await updateDoc(doc(db, 'callLogs', meeting.id), {
-            status: status.toLowerCase(),
-            lastUpdated: new Date()
-          });
-        }
-        firestoreSaved = true;
-      } catch (firestoreError) {
-        console.error('Firestore save failed, falling back to AsyncStorage:', firestoreError);
-      }
 
       // Save to AsyncStorage
       try {
         const existingNotesStr = await AsyncStorage.getItem(CALL_NOTES_STORAGE_KEY);
         const existingNotes = existingNotesStr ? JSON.parse(existingNotesStr) : [];
         
-        existingNotes.push({
+        // Remove any existing note for this call
+        const filteredNotes = existingNotes.filter((note: any) => 
+          note.callId !== callId && 
+          new Date(note.callTimestamp).getTime() !== callTimestamp.getTime()
+        );
+        
+        // Add the new note
+        filteredNotes.push({
           ...noteData,
           id: Date.now().toString()
         });
 
-        await AsyncStorage.setItem(CALL_NOTES_STORAGE_KEY, JSON.stringify(existingNotes));
+        await AsyncStorage.setItem(CALL_NOTES_STORAGE_KEY, JSON.stringify(filteredNotes));
       } catch (asyncError) {
         console.error('AsyncStorage save failed:', asyncError);
-        if (!firestoreSaved) {
-          throw new Error('Failed to save note to both Firestore and AsyncStorage');
-        }
+        throw new Error('Failed to save note to AsyncStorage');
       }
 
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       
-      // Navigate to TelecallerPersonNotes
+      // Navigate to TelecallerPersonNotes with properly formatted timestamp
       navigation.navigate('TelecallerPersonNotes', {
         name: meeting.contactName || meeting.phoneNumber,
-        time: format(new Date(meeting.timestamp), 'hh:mm a'),
+        time: format(callTimestamp, 'hh:mm a'),
         duration: formatDuration(meeting.duration),
         status: status !== 'Mark Status' ? status : 'No Status',
         notes: [notes],
@@ -163,7 +169,7 @@ const TelecallerCallNoteDetails = () => {
         contactInfo: {
           name: meeting.contactName || meeting.phoneNumber,
           phoneNumber: meeting.phoneNumber,
-          timestamp: meeting.timestamp,
+          timestamp: callTimestamp,
           duration: meeting.duration
         }
       });
@@ -184,7 +190,7 @@ const TelecallerCallNoteDetails = () => {
                 {meeting.phoneNumber}
               </Text>
               <Text style={styles.timeText}>
-                {format(new Date(meeting.timestamp), 'hh:mm a')} • {formatDuration(meeting.duration)}
+                {format(callTimestamp, 'hh:mm a')} • {formatDuration(meeting.duration)}
               </Text>
             </View>
           </View>
@@ -295,14 +301,14 @@ const styles = StyleSheet.create({
   },
   headerSection: {
     marginBottom: 24,
-    backgroundColor: '#FFFFFF',
+    // backgroundColor: '#FFFFFF',
     padding: 16,
-    borderRadius: 12,
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
+    // borderRadius: 12,
+    // elevation: 2,
+    // shadowColor: '#000',
+    // shadowOffset: { width: 0, height: 2 },
+    // shadowOpacity: 0.1,
+    // shadowRadius: 4,
   },
   titleRow: {
     marginBottom: 4,
@@ -323,7 +329,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     backgroundColor: '#FFF',
-    padding: 16,
+    padding: 10,
     borderRadius: 12,
     marginBottom: 24,
     elevation: 2,
@@ -391,14 +397,7 @@ const styles = StyleSheet.create({
   followUpContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FFF',
     padding: 16,
-    borderRadius: 12,
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
   },
   checkbox: {
     width: 24,

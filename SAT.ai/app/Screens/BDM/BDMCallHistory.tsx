@@ -267,37 +267,43 @@ const calculateTotalDuration = (meetings: Meeting[]): string => {
     return '0 mins';
   }
 
-  let totalHours = 0;
-  let totalMinutes = 0;
+  let totalSeconds = 0;
   
   meetings.forEach(meeting => {
     if (!meeting.duration) return;
     
-    const durationParts = meeting.duration.split(' ');
-    
-    for (let i = 0; i < durationParts.length; i += 2) {
-      const value = parseInt(durationParts[i], 10);
-      const unit = durationParts[i + 1];
+    // Parse duration string
+    const durationStr = meeting.duration;
+    if (durationStr.includes(':')) {
+      // Handle HH:MM:SS format
+      const [hours, minutes, seconds] = durationStr.split(':').map(Number);
+      totalSeconds += (hours * 3600) + (minutes * 60) + seconds;
+    } else {
+      // Handle "X hr Y mins" format
+      const hrMatch = durationStr.match(/(\d+)\s*hr/);
+      const minMatch = durationStr.match(/(\d+)\s*min/);
+      const secMatch = durationStr.match(/(\d+)\s*s/);
       
-      if (!unit) continue;
+      const hours = hrMatch ? parseInt(hrMatch[1]) : 0;
+      const minutes = minMatch ? parseInt(minMatch[1]) : 0;
+      const seconds = secMatch ? parseInt(secMatch[1]) : 0;
       
-      if (unit.startsWith('hr')) {
-        totalHours += value;
-      } else if (unit.startsWith('min')) {
-        totalMinutes += value;
-      }
+      totalSeconds += (hours * 3600) + (minutes * 60) + seconds;
     }
   });
   
-  totalHours += Math.floor(totalMinutes / 60);
-  totalMinutes = totalMinutes % 60;
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
   
-  if (totalHours > 0 && totalMinutes > 0) {
-    return `${totalHours} hr ${totalMinutes} mins`;
-  } else if (totalHours > 0) {
-    return `${totalHours} hr`;
+  if (hours > 0 && minutes > 0) {
+    return `${hours}h ${minutes}m`;
+  } else if (hours > 0) {
+    return `${hours}h`;
+  } else if (minutes > 0) {
+    return `${minutes}m ${seconds}s`;
   } else {
-    return `${totalMinutes} mins`;
+    return `${seconds}s`;
   }
 };
 

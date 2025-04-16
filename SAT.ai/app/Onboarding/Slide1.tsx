@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { View, Text, StyleSheet, Image, TouchableOpacity, Dimensions, Animated, Platform, Linking } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import Swiper from 'react-native-swiper';
@@ -6,6 +6,8 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialIcons } from '@expo/vector-icons';
 import { storage } from '@/firebaseConfig';
 import { ref, getDownloadURL } from 'firebase/storage';
+import * as FileSystem from 'expo-file-system';
+import { Asset } from 'expo-asset';
 
 const { width, height } = Dimensions.get('window');
 
@@ -46,32 +48,52 @@ const OnboardingScreen = () => {
   const navigation = useNavigation();
   const [currentIndex, setCurrentIndex] = useState(0);
   const [slideImages, setSlideImages] = useState<{ [key: number]: string }>({});
+  const [isLoading, setIsLoading] = useState(true);
   const swiperRef = useRef<Swiper | null>(null);
   const fadeAnim = useRef(new Animated.Value(1)).current;
   const slideAnim = useRef(new Animated.Value(0)).current;
   const scaleAnim = useRef(new Animated.Value(1)).current;
   const rotateAnim = useRef(new Animated.Value(0)).current;
 
-  useEffect(() => {
-    const loadImages = async () => {
-      const imageUrls: { [key: number]: string } = {};
-      for (const slide of slides) {
-        try {
-          const imageRef = ref(storage, slide.imageUrl);
-          const url = await getDownloadURL(imageRef);
-          imageUrls[slide.id] = url;
-        } catch (error: any) {
-          console.error(`Error loading image for slide ${slide.id}:`, error);
-          imageUrls[slide.id] = '';
-        }
-      }
-      setSlideImages(imageUrls);
-    };
+  // Preload and cache images
+  const preloadImages = useCallback(async () => {
+    const imageUrls: { [key: number]: string } = {};
+    const cacheDir = `${FileSystem.cacheDirectory}onboarding_images/`;
+    
+    // Create cache directory if it doesn't exist
+    await FileSystem.makeDirectoryAsync(cacheDir, { intermediates: true });
 
-    loadImages();
+    for (const slide of slides) {
+      try {
+        const imageRef = ref(storage, slide.imageUrl);
+        const url = await getDownloadURL(imageRef);
+        
+        // Check if image is already cached
+        const cachedPath = `${cacheDir}${slide.id}.jpg`;
+        const fileInfo = await FileSystem.getInfoAsync(cachedPath);
+        
+        if (fileInfo.exists) {
+          imageUrls[slide.id] = cachedPath;
+        } else {
+          // Download and cache the image
+          const downloadResult = await FileSystem.downloadAsync(url, cachedPath);
+          imageUrls[slide.id] = downloadResult.uri;
+        }
+      } catch (error: any) {
+        console.error(`Error loading image for slide ${slide.id}:`, error);
+        imageUrls[slide.id] = '';
+      }
+    }
+    
+    setSlideImages(imageUrls);
+    setIsLoading(false);
   }, []);
 
-  const animateContent = (index: number) => {
+  useEffect(() => {
+    preloadImages();
+  }, [preloadImages]);
+
+  const animateContent = useCallback((index: number) => {
     slideAnim.setValue(50);
     scaleAnim.setValue(0.8);
     rotateAnim.setValue(0);
@@ -81,7 +103,7 @@ const OnboardingScreen = () => {
       Animated.sequence([
         Animated.timing(fadeAnim, {
           toValue: 1,
-          duration: 2000,
+          duration: 1000, // Reduced from 2000 to 1000
           useNativeDriver: true,
         }),
         Animated.spring(slideAnim, {
@@ -100,7 +122,7 @@ const OnboardingScreen = () => {
       Animated.sequence([
         Animated.timing(rotateAnim, {
           toValue: 1,
-          duration: 400,
+          duration: 200, // Reduced from 400 to 200
           useNativeDriver: true,
         }),
         Animated.spring(rotateAnim, {
@@ -111,12 +133,12 @@ const OnboardingScreen = () => {
         }),
       ]),
     ]).start();
-  };
+  }, [fadeAnim, slideAnim, scaleAnim, rotateAnim]);
 
   useEffect(() => {
     slideAnim.setValue(50);
     animateContent(currentIndex);
-  }, [currentIndex]);
+  }, [currentIndex, animateContent, slideAnim]);
 
   useEffect(() => {
     const autoSlide = setInterval(() => {
@@ -146,6 +168,9 @@ const OnboardingScreen = () => {
         setCurrentIndex(index);
         animateContent(index);
       }}
+      loadMinimal={true}
+      loadMinimalSize={1}
+      removeClippedSubviews={true}
     >
       {slides.map((slide, index) => (
         <View key={slide.id} style={styles.container}>
@@ -173,7 +198,9 @@ const OnboardingScreen = () => {
                   <Image 
                     source={{ uri: slideImages[slide.id] }} 
                     style={styles.image} 
-                    resizeMode="contain" 
+                    resizeMode="contain"
+                    onLoadStart={() => setIsLoading(true)}
+                    onLoadEnd={() => setIsLoading(false)}
                   />
                 ) : (
                   <View style={[styles.image, { backgroundColor: '#f0f0f0' }]} />
@@ -229,7 +256,7 @@ const OnboardingScreen = () => {
                         }}
                         disabled={index === 0}
                       >
-                        <MaterialIcons name="chevron-left" size={35} color="#F55100" />
+                        <MaterialIcons name="chevron-left" size={35} color="#7E7E7E" />
                       </TouchableOpacity>
                       <TouchableOpacity 
                         style={styles.navButton}
@@ -238,7 +265,7 @@ const OnboardingScreen = () => {
                           swiperRef.current?.scrollBy(1);
                         }}
                       >
-                        <MaterialIcons name="chevron-right" size={35} color="#F55100" />
+                        <MaterialIcons name="chevron-right" size={35} color="#7E7E7E" />
                       </TouchableOpacity>
                     </View>
                   </View>
@@ -358,7 +385,7 @@ const styles = StyleSheet.create({
   },
   activeDot: {
     width: 24,
-    backgroundColor: '#F55100',
+    backgroundColor: '#FF8447',
     borderRadius: 4,
   },
   skipButton: {
@@ -373,9 +400,9 @@ const styles = StyleSheet.create({
     zIndex: 3,
   },
   skipText: {
-    color: '#F55100',
+    color: '#FF8447',
     fontSize: 16,
-    fontFamily: 'Poppins_500Medium',
+    fontFamily: 'LexendDeca_500Medium',
     textDecorationLine: 'underline',
   },
   navigationButtons: {
@@ -391,6 +418,8 @@ const styles = StyleSheet.create({
     height: 48,
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: '#FADCDE',
+    borderRadius: 30,
   },
   getStartedButton: {
     width: width * 0.9,

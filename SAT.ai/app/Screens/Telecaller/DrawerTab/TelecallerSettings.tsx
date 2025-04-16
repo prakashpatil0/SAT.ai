@@ -17,7 +17,7 @@ import { auth, db } from "@/firebaseConfig";
 import TelecallerMainLayout from "@/app/components/TelecallerMainLayout";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import AppGradient from "@/app/components/AppGradient";
-
+import PDFViewer from '@/app/components/PDFViewer';
 interface SettingsData {
   notificationsEnabled: boolean;
   darkModeEnabled: boolean;
@@ -35,6 +35,7 @@ interface SettingsData {
 const TelecallerSettings = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [showPdfViewer, setShowPdfViewer] = useState(false);
   const [settings, setSettings] = useState<SettingsData>({
     notificationsEnabled: true,
     darkModeEnabled: false,
@@ -48,6 +49,19 @@ const TelecallerSettings = () => {
     fontSize: 'Medium'
   });
 
+
+  const handlePrivacyPolicy = () => {
+    setShowPdfViewer(true);
+  };
+
+  if (showPdfViewer) {
+    return (
+      <PDFViewer 
+        pdfPath="assets/privacy_policy.pdf"
+        onClose={() => setShowPdfViewer(false)}
+      />
+    );
+  }
   // Load settings from Firestore
   useEffect(() => {
     fetchSettings();
@@ -298,13 +312,11 @@ const TelecallerSettings = () => {
             {renderSwitchItem("location-on", "Location Services", "locationEnabled")}
             {/* {renderSwitchItem("fingerprint", "Biometric Login", "biometricsEnabled")} */}
             
-            {renderOptionItem("lock", "Change Password", "Secure your account", () => 
+            {/* {renderOptionItem("lock", "Change Password", "Secure your account", () => 
               Alert.alert("Change Password", "Password change feature coming soon!")
-            )}
+            )} */}
             
-            {renderOptionItem("fact-check", "Privacy Policy", "Read our privacy policy", () => 
-              Alert.alert("Privacy Policy", "Privacy policy details coming soon!")
-            )}
+            {renderOptionItem("fact-check", "Privacy Policy", "Read our privacy policy", handlePrivacyPolicy)}
           </View>
         </View>
         

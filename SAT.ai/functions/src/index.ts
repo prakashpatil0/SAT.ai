@@ -1,12 +1,12 @@
 import * as functions from 'firebase-functions';
 import * as admin from 'firebase-admin';
-import sgMail from '@sendgrid/mail';
+import * as sgMail from '@sendgrid/mail';
 import * as nodemailer from 'nodemailer';
 
 admin.initializeApp();
 
 // Initialize SendGrid with API key
-sgMail.setApiKey(functions.config().sendgrid.key);
+sgMail.setApiKey('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');
 
 interface OTPRequest {
   email: string;
@@ -19,9 +19,9 @@ interface OTPResponse {
   message?: string;
 }
 
-export const sendOTPEmail = functions.https.onCall(async (request: functions.https.CallableRequest<OTPRequest>) => {
+export const sendOTPEmail = functions.https.onCall(async (data: OTPRequest) => {
   try {
-    const { email, otp, type } = request.data;
+    const { email, otp, type } = data;
 
     // Validate email
     if (!email || !email.includes('@')) {
@@ -62,7 +62,7 @@ export const sendOTPEmail = functions.https.onCall(async (request: functions.htt
     // Send email using SendGrid
     const msg = {
       to: email,
-      from: functions.config().sendgrid.from_email, // Your verified sender email
+      from: 'it@policyplanner.com', // Replace with your verified sender email
       subject: subject,
       html: htmlContent,
     };

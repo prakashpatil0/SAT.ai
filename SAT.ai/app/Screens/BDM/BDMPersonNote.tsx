@@ -19,6 +19,12 @@ type RootStackParamList = {
     notes: string[];
     phoneNumber?: string;
     date?: string;
+    contactInfo: {
+      name: string;
+      phoneNumber?: string;
+      timestamp: Date;
+      duration: string;
+    };
   };
   BDMCreateFollowUp: {
     contactName?: string;
@@ -34,6 +40,7 @@ type RootStackParamList = {
       date?: string;
       type?: 'incoming' | 'outgoing' | 'missed';
       contactType?: 'person' | 'company';
+      timestamp?: Date | string;
     }
   };
 };
@@ -57,6 +64,7 @@ interface Note {
   userId: string;
   createdAt: number;
   userName?: string;
+  timestamp: Date;
 }
 
 // Define AsyncStorage key (same as in BDMCallNoteDetailsScreen)
@@ -64,7 +72,7 @@ const CALL_NOTES_STORAGE_KEY = 'bdm_call_notes';
 
 const BDMPersonNote: React.FC<PersonNoteScreenProps> = ({ route }) => {
   const navigation = useNavigation<NavigationProp>();
-  const { name, time, duration, type, notes: initialNotes, phoneNumber, date } = route.params;
+  const { name, time, duration, type, notes: initialNotes, phoneNumber, date, contactInfo } = route.params;
   const [savedNotes, setSavedNotes] = useState<Note[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -75,27 +83,28 @@ const BDMPersonNote: React.FC<PersonNoteScreenProps> = ({ route }) => {
   const fetchSavedNotes = async () => {
     try {
       setIsLoading(true);
-      const userId = auth.currentUser?.uid;
-      
-      if (!userId) {
-        setIsLoading(false);
-        return;
-      }
       
       // Get existing notes from AsyncStorage
-      const storedNotes = await AsyncStorage.getItem(CALL_NOTES_STORAGE_KEY + "_" + userId);
+      const storedNotes = await AsyncStorage.getItem(CALL_NOTES_STORAGE_KEY);
       
       if (storedNotes) {
         const allNotes: Note[] = JSON.parse(storedNotes);
         
-        // Filter notes by phone number or contact name
-        const contactNotes = allNotes.filter(note => 
-          (phoneNumber && note.phoneNumber === phoneNumber) || 
-          (note.contactName && note.contactName.toLowerCase() === name.toLowerCase())
-        );
+        // Filter notes by phone number or contact name with proper null checks
+        const contactNotes = allNotes.filter(note => {
+          const notePhoneNumber = note.phoneNumber || '';
+          const noteContactName = note.contactName || '';
+          const currentPhoneNumber = phoneNumber || '';
+          const currentName = name || '';
+
+          return (
+            (currentPhoneNumber && notePhoneNumber === currentPhoneNumber) || 
+            (noteContactName.toLowerCase() === currentName.toLowerCase())
+          );
+        });
         
         // Sort by creation date (newest first)
-        contactNotes.sort((a, b) => b.createdAt - a.createdAt);
+        contactNotes.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
         
         setSavedNotes(contactNotes);
       }
@@ -129,6 +138,36 @@ const BDMPersonNote: React.FC<PersonNoteScreenProps> = ({ route }) => {
       contactName: name,
       phoneNumber: phoneNumber,
       notes: savedNotes.length > 0 ? `Previous note: ${savedNotes[0].notes}` : ''
+    });
+  };
+
+  const handleAddNote = () => {
+    // Create a default contact info if none exists
+    const defaultContactInfo = {
+      name: name || 'Unknown Contact',
+      phoneNumber: phoneNumber || 'unknown',
+      timestamp: new Date(),
+      duration: duration || '0s'
+    };
+
+    // Use provided contactInfo or default
+    const validContactInfo = contactInfo || defaultContactInfo;
+
+    // Ensure we have a valid timestamp
+    const validTimestamp = validContactInfo.timestamp instanceof Date 
+      ? validContactInfo.timestamp 
+      : new Date(validContactInfo.timestamp);
+
+    navigation.navigate('BDMCallNoteDetailsScreen', {
+      meeting: {
+        name: validContactInfo.name,
+        time: format(validTimestamp, 'hh:mm a'),
+        duration: validContactInfo.duration,
+        phoneNumber: validContactInfo.phoneNumber,
+        type: 'outgoing',
+        contactType: 'person',
+        timestamp: validTimestamp
+      }
     });
   };
 
@@ -177,13 +216,26 @@ const BDMPersonNote: React.FC<PersonNoteScreenProps> = ({ route }) => {
                 </TouchableOpacity>
               </View>
               
-              {(savedNotes.length > 0 || (initialNotes && initialNotes.length > 0)) ? (
+              {savedNotes.length === 0 && (!initialNotes || initialNotes.length === 0) ? (
+                <View style={styles.emptyNotesContainer}>
+                  <MaterialIcons name="description" size={48} color="#CCCCCC" />
+                  <Text style={styles.emptyNotesText}>No notes for this call</Text>
+                  <TouchableOpacity 
+                    style={styles.createNoteButton}
+                    onPress={handleAddNote}
+                  >
+                    <Text style={styles.createNoteButtonText}>Add Note</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : (
                 <>
                   {/* Saved notes from AsyncStorage */}
                   {savedNotes.map((note, index) => (
                     <View key={`saved-${note.id}`} style={styles.noteCard}>
                       <View style={styles.noteHeader}>
-                        <Text style={styles.noteTimestamp}>{formatTimestamp(note.createdAt)}</Text>
+                        <Text style={styles.noteTimestamp}>
+                          {format(new Date(note.timestamp), 'MMM d, yyyy h:mm a')}
+                        </Text>
                         {note.followUp && (
                           <View style={styles.followUpTag}>
                             <MaterialIcons name="event" size={12} color="#FFF" />
@@ -207,29 +259,6 @@ const BDMPersonNote: React.FC<PersonNoteScreenProps> = ({ route }) => {
                     </View>
                   ))}
                 </>
-              ) : (
-                <View style={styles.emptyNotesContainer}>
-                  <MaterialIcons name="description" size={48} color="#CCCCCC" />
-                  <Text style={styles.emptyNotesText}>No notes for this call</Text>
-                  <TouchableOpacity 
-                    style={styles.createNoteButton}
-                    onPress={() => {
-                      navigation.navigate('BDMCallNoteDetailsScreen', {
-                        meeting: {
-                          name: name,
-                          time: time,
-                          duration: duration,
-                          phoneNumber: phoneNumber,
-                          date: date,
-                          type: 'outgoing',
-                          contactType: 'person'
-                        }
-                      });
-                    }}
-                  >
-                    <Text style={styles.createNoteButtonText}>Add Note</Text>
-                  </TouchableOpacity>
-                </View>
               )}
             </View>
           </ScrollView>

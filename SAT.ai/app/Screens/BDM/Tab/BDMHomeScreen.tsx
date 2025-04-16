@@ -1045,22 +1045,22 @@ const BDMHomeScreen = () => {
     // Calculate total duration for the day
     let totalSeconds = 0;
     
-    // Create a map to track unique calls by phone number and timestamp
-    const uniqueCalls = new Map();
-    
+    // Sum up all call durations for the day, including multiple calls to the same number
     dayLogs.forEach(log => {
-      // Create a unique key for each call based on phone number and timestamp
-      const key = `${log.phoneNumber}-${new Date(log.timestamp).getTime()}`;
-      
-      // Only add the call if we haven't seen it before
-      if (!uniqueCalls.has(key)) {
-        uniqueCalls.set(key, log);
-        totalSeconds += log.duration || 0;
-      }
+      totalSeconds += log.duration || 0;
     });
 
-    console.log(`Total duration for ${date}: ${totalSeconds} seconds`);
-    return formatDuration(totalSeconds);
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+
+    if (hours > 0) {
+      return `${hours}h ${minutes}m`;
+    } else if (minutes > 0) {
+      return `${minutes}m ${seconds}s`;
+    } else {
+      return `${seconds}s`;
+    }
   };
 
   const handleCardClick = (id: string) => {
@@ -1148,9 +1148,6 @@ const BDMHomeScreen = () => {
     const isNumberSaved = item.contactName && item.contactName !== item.phoneNumber;
     const displayName = isNumberSaved ? item.contactName : item.phoneNumber;
 
-    // Get the last call duration (not the total for the day)
-    const lastCallDuration = item.duration || 0;
-
     return (
       <>
         {isNewDate && (
@@ -1206,8 +1203,8 @@ const BDMHomeScreen = () => {
                   />
                   <Text style={styles.callTime}>
                     {new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    {lastCallDuration > 0 && 
-                      ` • ${formatDuration(lastCallDuration)}`}
+                    {item.duration > 0 && 
+                      ` • ${formatDuration(item.duration)}`}
                   </Text>
                 </View>
               </View>
@@ -1391,7 +1388,7 @@ const BDMHomeScreen = () => {
               onPress={handleRefresh}
               style={styles.refreshButton}
             >
-              {/* <MaterialIcons name="refresh" size={24} color="#FF8447" /> */}
+              <MaterialIcons name="refresh" size={24} color="#FF8447" />
             </TouchableOpacity>
           </View>
           

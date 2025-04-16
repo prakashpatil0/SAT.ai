@@ -1,10 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import { View, StyleSheet, KeyboardAvoidingView, Platform, Alert, TouchableOpacity, Modal, ViewStyle, TextStyle, StyleProp } from 'react-native';
 import { TextInput, Button, Text, HelperText } from 'react-native-paper';
 import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { createUserWithEmailAndPassword } from 'firebase/auth';
-import { doc, setDoc } from 'firebase/firestore';
+import { doc, setDoc, deleteDoc } from 'firebase/firestore';
 import { serverTimestamp } from 'firebase/firestore';
 import { auth, db } from '@/firebaseConfig';
 import AppGradient from './components/AppGradient';
@@ -100,16 +100,13 @@ const SignUpScreen = () => {
 
     try {
       setLoading(true);
-      console.log('Starting signup process for role:', formData.role);
       
       // Create user in Firebase Auth
       const userCredential = await createUserWithEmailAndPassword(auth, formData.email, formData.password);
       const user = userCredential.user;
-      console.log('Firebase Auth user created:', user.uid);
-
-      // Store additional user data in Firestore
-      const userRef = doc(db, 'users', user.uid);
-      const userData = {
+      
+      // Create user document in Firestore
+      await setDoc(doc(db, 'users', user.uid), {
         name: formData.name.trim(),
         email: formData.email.trim().toLowerCase(),
         phoneNumber: formData.phoneNumber.trim(),
@@ -118,31 +115,26 @@ const SignUpScreen = () => {
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
         isActive: true
-      };
-      
-      console.log('Saving user data to Firestore:', userData);
-      await setDoc(userRef, userData);
-      console.log('User data saved successfully');
+      });
 
       // Store user role in AsyncStorage
-      await AsyncStorage.setItem('userRole', formData.role.toLowerCase());
-      console.log('User role stored in AsyncStorage:', formData.role.toLowerCase());
+      await AsyncStorage.multiSet([
+        ['userRole', formData.role.toLowerCase()],
+        ['sessionToken', user.uid],
+        ['lastActiveTime', new Date().toISOString()]
+      ]);
 
       // Navigate based on role
       if (formData.role.toLowerCase() === 'bdm') {
-        console.log('Navigating to BDMStack');
         navigation.reset({
           index: 0,
           routes: [{ name: 'BDMStack' }],
         });
       } else if (formData.role.toLowerCase() === 'telecaller') {
-        console.log('Navigating to MainApp');
         navigation.reset({
           index: 0,
           routes: [{ name: 'MainApp' }],
         });
-      } else {
-        throw new Error('Invalid role selected');
       }
 
     } catch (error: any) {
@@ -155,6 +147,8 @@ const SignUpScreen = () => {
         errorMessage = 'Invalid email address';
       } else if (error.code === 'auth/weak-password') {
         errorMessage = 'Password should be at least 6 characters';
+      } else if (error.code === 'auth/network-request-failed') {
+        errorMessage = 'Network error. Please check your internet connection';
       }
       
       Alert.alert('Error', errorMessage);
@@ -268,7 +262,7 @@ const SignUpScreen = () => {
               colors: {
                 primary: "#FF8447",
                 text: "#333",
-                placeholder: "#999",
+                placeholder: "#969595",
               },
               fonts: {
                 regular: {
@@ -297,7 +291,7 @@ const SignUpScreen = () => {
                 colors: {
                   primary: "#FF8447",
                   text: "#333",
-                  placeholder: "#999",
+                  placeholder: "#969595",
                   error: "#DC3545",
                 },
               }}
@@ -322,7 +316,7 @@ const SignUpScreen = () => {
                 colors: {
                   primary: "#FF8447",
                   text: "#333",
-                  placeholder: "#999",
+                  placeholder: "#969595",
                 },
                 fonts: {
                   regular: {
@@ -348,7 +342,7 @@ const SignUpScreen = () => {
               left={<TextInput.Icon icon="lock" color="#B1B1B1"/>}
               right={
                 <TextInput.Icon
-                  icon={showPassword ? "eye-off" : "eye"}
+                  icon={showPassword ? "eye-off-outline" : "eye-outline"}
                   color="#FF8447"
                   onPress={() => setShowPassword(!showPassword)}
                 />
@@ -358,7 +352,7 @@ const SignUpScreen = () => {
                 colors: {
                   primary: "#FF8447",
                   text: "#333",
-                  placeholder: "#999",
+                  placeholder: "#969595",
                   error: "#DC3545",
                 },
                 fonts: {
@@ -389,7 +383,7 @@ const SignUpScreen = () => {
             left={<TextInput.Icon icon="lock" color="#B1B1B1"/>}
             right={
               <TextInput.Icon
-                icon={showConfirmPassword ? "eye-off" : "eye"}
+                icon={showConfirmPassword ? "eye-off-outline" : "eye-outline"}
                 color="#FF8447"
                 onPress={() => setShowConfirmPassword(!showConfirmPassword)}
               />
@@ -399,7 +393,7 @@ const SignUpScreen = () => {
               colors: {
                 primary: "#FF8447",
                 text: "#333",
-                placeholder: "#999",
+                placeholder: "#969595",
               },
               fonts: {
                 regular: {
@@ -517,7 +511,7 @@ const styles = StyleSheet.create<Styles>({
   },
   input: {
     marginBottom: 12,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#F8F8F8',
     fontSize: 16,
   },
   inputContent: {

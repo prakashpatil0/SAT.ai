@@ -33,6 +33,7 @@ type RootStackParamList = {
       phoneNumber: string;
       contactId?: string;
       contactName?: string;
+      timestamp: Date;
     };
     contactInfo: {
       name: string;
@@ -56,6 +57,7 @@ type TelecallerPersonNoteProps = {
         phoneNumber: string;
         contactId?: string;
         contactName?: string;
+        timestamp: Date;
       };
       contactInfo: {
         name: string;
@@ -81,6 +83,21 @@ interface CallNote {
 
 const CALL_NOTES_STORAGE_KEY = 'call_notes';
 
+const getStatusColor = (status: string) => {
+  switch (status) {
+    case 'Interested':
+      return '#4CAF50';
+    case 'Not Interested':
+      return '#F44336';
+    case 'Call Back':
+      return '#FFC107';
+    case 'Wrong Number':
+      return '#9E9E9E';
+    default:
+      return '#FF8447';
+  }
+};
+
 const TelecallerPersonNotes = ({ route }: TelecallerPersonNoteProps) => {
   const navigation = useNavigation<any>();
   const { meeting, contactInfo } = route.params || {};
@@ -90,67 +107,29 @@ const TelecallerPersonNotes = ({ route }: TelecallerPersonNoteProps) => {
 
   const fetchNotes = async () => {
     try {
-      if (!meeting.phoneNumber) {
-        setAllNotes([]);
+      if (!meeting?.phoneNumber) {
+        console.warn('No meeting or phone number found');
+        setLoading(false);
+        setRefreshing(false);
         return;
       }
 
-      let fetchedNotes: CallNote[] = [];
+      // Get notes from AsyncStorage
+      const storedNotesStr = await AsyncStorage.getItem(CALL_NOTES_STORAGE_KEY);
+      const storedNotes = storedNotesStr ? JSON.parse(storedNotesStr) : [];
 
-      // Try to fetch from Firestore
-      try {
-        const notesRef = collection(db, 'callNotes');
-        const q = query(
-          notesRef,
-          where('phoneNumber', '==', meeting.phoneNumber),
-          orderBy('timestamp', 'desc')
-        );
+      // Filter notes for this contact and specific call
+      const contactNotes = storedNotes.filter((note: any) => 
+        note.phoneNumber === meeting.phoneNumber &&
+        new Date(note.callTimestamp).getTime() === new Date(meeting.timestamp).getTime()
+      );
 
-        const querySnapshot = await getDocs(q);
-        fetchedNotes = querySnapshot.docs.map(doc => ({
-          ...doc.data(),
-          timestamp: doc.data().timestamp.toDate(),
-          callTimestamp: doc.data().callTimestamp.toDate()
-        })) as CallNote[];
-      } catch (firestoreError) {
-        console.error('Error fetching from Firestore:', firestoreError);
-      }
+      // Sort notes by timestamp in descending order
+      const sortedNotes = contactNotes.sort((a: any, b: any) => 
+        new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+      );
 
-      // Fetch from AsyncStorage
-      try {
-        const storedNotesStr = await AsyncStorage.getItem(CALL_NOTES_STORAGE_KEY);
-        if (storedNotesStr) {
-          const storedNotes = JSON.parse(storedNotesStr);
-          const phoneNotes = storedNotes
-            .filter((note: any) => note.phoneNumber === meeting.phoneNumber)
-            .map((note: any) => ({
-              ...note,
-              timestamp: new Date(note.timestamp),
-              callTimestamp: new Date(note.callTimestamp)
-            }));
-          
-          // Merge notes from both sources and remove duplicates
-          const allNotesCombined = [...fetchedNotes, ...phoneNotes];
-          const uniqueNotes = allNotesCombined.reduce((acc: CallNote[], current) => {
-            const isDuplicate = acc.find(note => 
-              note.timestamp.getTime() === current.timestamp.getTime() && 
-              note.notes === current.notes
-            );
-            if (!isDuplicate) {
-              acc.push(current);
-            }
-            return acc;
-          }, []);
-
-          // Sort by timestamp descending
-          uniqueNotes.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
-          fetchedNotes = uniqueNotes;
-        }
-      } catch (asyncError) {
-        console.error('Error fetching from AsyncStorage:', asyncError);
-      }
-
-      setAllNotes(fetchedNotes);
+      setAllNotes(sortedNotes);
     } catch (error) {
       console.error('Error fetching notes:', error);
     } finally {
@@ -160,10 +139,12 @@ const TelecallerPersonNotes = ({ route }: TelecallerPersonNoteProps) => {
   };
 
   useEffect(() => {
-    if (meeting.phoneNumber) {
+    if (meeting?.phoneNumber) {
       fetchNotes();
+    } else {
+      setLoading(false);
     }
-  }, [meeting.phoneNumber]);
+  }, [meeting?.phoneNumber]);
 
   const onRefresh = React.useCallback(() => {
     setRefreshing(true);
@@ -213,6 +194,34 @@ const TelecallerPersonNotes = ({ route }: TelecallerPersonNoteProps) => {
     });
   };
 
+  const renderNote = ({ item }: { item: any }) => (
+    <View style={styles.noteContainer}>
+      <View style={styles.noteHeader}>
+        <Text style={styles.noteTime}>
+          {format(new Date(item.callTimestamp), 'hh:mm a')}
+        </Text>
+        <Text style={styles.noteDuration}>
+          {formatDuration(item.callDuration)}
+        </Text>
+        {item.status && item.status !== 'No Status' && (
+          <View style={[
+            styles.statusBadge,
+            { backgroundColor: getStatusColor(item.status) }
+          ]}>
+            <Text style={styles.statusText}>{item.status}</Text>
+          </View>
+        )}
+      </View>
+      <Text style={styles.noteText}>{item.notes}</Text>
+      {item.followUp && (
+        <View style={styles.followUpContainer}>
+          <Text style={styles.followUpLabel}>Follow-up:</Text>
+          <Text style={styles.followUpText}>{item.followUp}</Text>
+        </View>
+      )}
+    </View>
+  );
+
   if (!contactInfo || !meeting.phoneNumber) {
     return (
       <LinearGradient colors={['#FFF8F0', '#FFF']} style={styles.container}>
@@ -254,7 +263,7 @@ const TelecallerPersonNotes = ({ route }: TelecallerPersonNoteProps) => {
           {/* Notes Section */}
           <View style={styles.notesSection}>
             <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>Call History</Text>
+              <Text style={styles.sectionTitle}>Call Notes</Text>
               <TouchableOpacity onPress={handleViewHistory} style={styles.viewAllButton}>
                 <Text style={styles.viewAllText}>View All</Text>
                 <MaterialIcons name="chevron-right" size={24} color="#FF8447" />
@@ -267,7 +276,7 @@ const TelecallerPersonNotes = ({ route }: TelecallerPersonNoteProps) => {
               </View>
             ) : allNotes.length === 0 ? (
               <View style={styles.emptyContainer}>
-                <Text style={styles.emptyText}>No call notes available</Text>
+                <Text style={styles.emptyText}>No notes for this call</Text>
               </View>
             ) : (
               <>
@@ -275,7 +284,7 @@ const TelecallerPersonNotes = ({ route }: TelecallerPersonNoteProps) => {
                   <View key={index} style={styles.noteCard}>
                     <View style={styles.noteHeader}>
                       <Text style={styles.noteDate}>
-                        {format(note.callTimestamp, 'MMM dd, yyyy • hh:mm a')}
+                        {format(new Date(note.callTimestamp), 'MMM dd, yyyy • hh:mm a')}
                       </Text>
                       <Text style={styles.noteDuration}>
                         {formatDuration(note.callDuration)}
@@ -298,6 +307,36 @@ const TelecallerPersonNotes = ({ route }: TelecallerPersonNoteProps) => {
                 ))}
               </>
             )}
+
+            {/* Add Note Button - Always visible */}
+            <TouchableOpacity 
+              style={styles.addNoteButton}
+              onPress={() => {
+                if (!meeting || !contactInfo) return;
+                
+                // Ensure we have a valid timestamp
+                const validTimestamp = meeting.timestamp instanceof Date 
+                  ? meeting.timestamp 
+                  : new Date(meeting.timestamp);
+                
+                navigation.navigate('TelecallerCallNoteDetails', {
+                  meeting: {
+                    id: meeting.id || Date.now().toString(),
+                    name: meeting.name || contactInfo.name,
+                    time: format(validTimestamp, 'hh:mm a'),
+                    duration: meeting.duration.toString(),
+                    type: meeting.type || 'outgoing',
+                    status: meeting.status || 'completed',
+                    phoneNumber: meeting.phoneNumber,
+                    contactId: meeting.contactId,
+                    contactName: meeting.contactName || contactInfo.name,
+                    timestamp: validTimestamp.toISOString() // Convert to ISO string for safe transport
+                  }
+                });
+              }}
+            >
+              <Text style={styles.addNoteButtonText}>Add Note</Text>
+            </TouchableOpacity>
           </View>
         </ScrollView>
       </TelecallerMainLayout>
@@ -308,6 +347,22 @@ const TelecallerPersonNotes = ({ route }: TelecallerPersonNoteProps) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: '#F5F5F5',
+  },
+  header: {
+    backgroundColor: '#FF8447',
+    padding: 16,
+    paddingTop: 50,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  backButton: {
+    marginRight: 16,
+  },
+  headerTitle: {
+    fontSize: 20,
+    fontFamily: 'LexendDeca_600SemiBold',
+    color: '#FFF',
   },
   content: {
     flex: 1,
@@ -454,6 +509,57 @@ const styles = StyleSheet.create({
     fontFamily: 'LexendDeca_500Medium',
     color: '#FF8447',
     marginRight: 4,
+  },
+  noteContainer: {
+    backgroundColor: '#FFF',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+  },
+  noteTime: {
+    fontSize: 14,
+    fontFamily: 'LexendDeca_400Regular',
+    color: '#666',
+  },
+  statusBadge: {
+    borderRadius: 8,
+    padding: 4,
+  },
+  statusText: {
+    fontSize: 12,
+    fontFamily: 'LexendDeca_500Medium',
+    color: '#FFF',
+  },
+  followUpContainer: {
+    marginTop: 8,
+  },
+  followUpLabel: {
+    fontSize: 14,
+    fontFamily: 'LexendDeca_500Medium',
+    color: '#666',
+  },
+  followUpText: {
+    fontSize: 14,
+    fontFamily: 'LexendDeca_400Regular',
+    color: '#333',
+    lineHeight: 20,
+  },
+  addNoteButton: {
+    backgroundColor: '#FF8447',
+    borderRadius: 8,
+    padding: 12,
+    alignItems: 'center',
+    marginTop: 16,
+  },
+  addNoteButtonText: {
+    color: '#FFF',
+    fontSize: 16,
+    fontFamily: 'LexendDeca_600SemiBold',
   },
 });
 

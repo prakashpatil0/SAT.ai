@@ -1472,7 +1472,7 @@ const HomeScreen = () => {
           <TouchableOpacity
             onPress={openDialer}
           >
-            <MaterialIcons name="dialpad" size={24} color="#FFF" />
+            <MaterialIcons name="dialpad" size={30} color="#FFF" />
           </TouchableOpacity>
         </Animated.View>
 
@@ -1489,7 +1489,7 @@ const HomeScreen = () => {
           visible={addContactModalVisible}
           onClose={() => setAddContactModalVisible(false)}
           phoneNumber={selectedNumber}
-          onContactSaved={handleContactSaved}
+          onContactSaved={(contact: Contact) => handleContactSaved(contact as Contact & {favorite: boolean})}
         />
       </TelecallerMainLayout>
     </AppGradient>
@@ -1749,7 +1749,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     right: 20,
     bottom: 90,
-    backgroundColor: '#FF8447',
+    backgroundColor: '#4CAF50',
     width: 60,
     height: 60,
     borderRadius: 30,

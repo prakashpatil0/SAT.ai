@@ -5,9 +5,10 @@ import { useNavigation, RouteProp } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { LinearGradient } from 'expo-linear-gradient';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { auth } from '@/firebaseConfig';
 import BDMMainLayout from '@/app/components/BDMMainLayout';
 import AppGradient from '@/app/components/AppGradient';
+import * as Haptics from 'expo-haptics';
+import { format } from 'date-fns';
 
 // Define types
 type RootStackParamList = {
@@ -26,7 +27,22 @@ type RootStackParamList = {
       date?: string;
       type?: 'incoming' | 'outgoing' | 'missed';
       contactType?: 'person' | 'company';
+      timestamp?: Date | string;
     }
+  };
+  BDMPersonNote: {
+    name: string;
+    time: string;
+    duration: string;
+    status: string;
+    notes: string[];
+    phoneNumber?: string;
+    contactInfo: {
+      name: string;
+      phoneNumber?: string;
+      timestamp: Date;
+      duration: string;
+    };
   };
 };
 
@@ -79,61 +95,89 @@ const CallNoteDetailsScreen: React.FC<CallNoteDetailsScreenProps> = ({ route }) 
   };
   
 
-  const saveNote = async () => {
-    if (!notes.trim()) {
-      Alert.alert('Missing Notes', 'Please enter notes for this call');
+  const handleSubmit = async () => {
+    if (notes.trim().length === 0) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       return;
     }
-
+    
     try {
       setIsSaving(true);
-      
-      const userId = auth.currentUser?.uid;
-      if (!userId) {
-        Alert.alert('Error', 'You must be signed in to save notes');
-        setIsSaving(false);
-        return;
+
+      if (!meeting) {
+        throw new Error('Meeting information is missing');
       }
-      
-      // Create new note object
-      const newNote: Note = {
-        id: Date.now().toString(), // Generate unique ID using timestamp
-        contactName: meeting.name,
-        phoneNumber: meeting.phoneNumber,
-        date: meeting.date || new Date().toLocaleDateString(),
-        time: meeting.time,
-        duration: meeting.duration,
-        notes: notes.trim(),
-        status: status === 'Mark Status' ? 'Prospect' : status,
+
+      // Ensure we have a valid timestamp
+      const validTimestamp = meeting.timestamp 
+        ? (meeting.timestamp instanceof Date 
+          ? meeting.timestamp 
+          : new Date(meeting.timestamp))
+        : new Date();
+
+      // Create a unique call ID using timestamp and phone number
+      const callId = `${meeting.phoneNumber || 'unknown'}_${validTimestamp.getTime()}`;
+
+      const noteData = {
+        callId,
+        phoneNumber: meeting.phoneNumber || 'unknown',
+        contactName: meeting.name || 'Unknown Contact',
+        notes,
+        status,
+        timestamp: new Date().toISOString(),
         followUp,
-        userId,
-        createdAt: Date.now()
+        callTimestamp: validTimestamp.toISOString(),
+        callDuration: meeting.duration || 0,
+        type: meeting.type || 'outgoing'
+      };
+
+      // Save to AsyncStorage
+      try {
+        const existingNotesStr = await AsyncStorage.getItem(CALL_NOTES_STORAGE_KEY);
+        const existingNotes = existingNotesStr ? JSON.parse(existingNotesStr) : [];
+        
+        // Remove any existing note for this call
+        const filteredNotes = existingNotes.filter((note: any) => 
+          note.callId !== callId && 
+          new Date(note.callTimestamp).getTime() !== validTimestamp.getTime()
+        );
+        
+        // Add the new note
+        filteredNotes.push({
+          ...noteData,
+          id: Date.now().toString()
+        });
+
+        await AsyncStorage.setItem(CALL_NOTES_STORAGE_KEY, JSON.stringify(filteredNotes));
+      } catch (asyncError) {
+        console.error('AsyncStorage save failed:', asyncError);
+        throw new Error('Failed to save note to AsyncStorage');
+      }
+
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      
+      // Create contact info object with fallback values
+      const contactInfo = {
+        name: meeting.name || 'Unknown Contact',
+        phoneNumber: meeting.phoneNumber || 'unknown',
+        timestamp: validTimestamp,
+        duration: meeting.duration?.toString() || '0s'
       };
       
-      // Get existing notes from AsyncStorage
-      const storedNotes = await AsyncStorage.getItem(CALL_NOTES_STORAGE_KEY + "_" + userId);
-      let allNotes: Note[] = [];
-      
-      if (storedNotes) {
-        allNotes = JSON.parse(storedNotes);
-      }
-      
-      // Add new note to array
-      allNotes.push(newNote);
-      
-      // Sort notes by creation date (newest first)
-      allNotes.sort((a, b) => b.createdAt - a.createdAt);
-      
-      // Save back to AsyncStorage
-      await AsyncStorage.setItem(CALL_NOTES_STORAGE_KEY + "_" + userId, JSON.stringify(allNotes));
-      
-      Alert.alert('Success', 'Call notes saved successfully');
-      
-      // Navigate back
-      navigation.goBack();
+      // Navigate to BDMPersonNote with properly formatted timestamp
+      navigation.navigate('BDMPersonNote', {
+        name: meeting.name || 'Unknown Contact',
+        time: format(validTimestamp, 'hh:mm a'),
+        duration: meeting.duration?.toString() || '0s',
+        status: status !== 'Mark Status' ? status : 'No Status',
+        notes: [notes],
+        phoneNumber: meeting.phoneNumber,
+        contactInfo
+      });
     } catch (error) {
-      console.error('Error saving note:', error);
-      Alert.alert('Error', 'Failed to save note. Please try again.');
+      console.error('Error saving call notes:', error);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      Alert.alert('Error', 'Failed to save the note. Please try again.');
     } finally {
       setIsSaving(false);
     }
@@ -206,7 +250,7 @@ const CallNoteDetailsScreen: React.FC<CallNoteDetailsScreenProps> = ({ route }) 
           <TouchableOpacity 
             style={[styles.submitButton, (notes.length === 0 || isSaving) && styles.submitButtonDisabled]}
             disabled={notes.length === 0 || isSaving}
-            onPress={saveNote}
+            onPress={handleSubmit}
           >
             <Text style={styles.submitButtonText}>
               {isSaving ? 'Saving...' : 'Submit'}
@@ -331,14 +375,7 @@ const styles = StyleSheet.create({
   followUpContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FFF',
     padding: 16,
-    borderRadius: 12,
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
   },
   checkbox: {
     width: 24,

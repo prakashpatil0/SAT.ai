@@ -198,7 +198,7 @@ const CustomDrawer = (props: DrawerContentComponentProps) => {
             style={styles.drawerItem}
             onPress={() => handleNavigate("Leaderboard")}
           />
-          <View style={styles.sectionContainer}>
+          {/* <View style={styles.sectionContainer}>
         <Text style={styles.sectionTitle}>EMPLOYEE SERVICES</Text>
         <DrawerItem
           label="Leave Application"
@@ -207,7 +207,7 @@ const CustomDrawer = (props: DrawerContentComponentProps) => {
           style={styles.drawerItem}
           onPress={() => handleNavigate("ApplyLeaveScreen")}
           />
-        </View>
+        </View> */}
         </View>
         <View style={styles.sectionContainer}>
         <Text style={styles.sectionTitle}>EMPLOYEE SERVICES</Text>

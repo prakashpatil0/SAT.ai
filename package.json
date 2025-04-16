@@ -1,0 +1,23 @@
+{
+  "dependencies": {
+    "@emailjs/browser": "^4.4.1",
+    "@react-native-async-storage/async-storage": "^2.1.2",
+    "@react-native-community/netinfo": "^11.4.1",
+    "date-fns": "^4.1.0",
+    "emailjs-com": "^3.2.0",
+    "expo-av": "^15.0.2",
+    "expo-crypto": "^14.0.2",
+    "expo-device": "^7.0.3",
+    "geolib": "^3.3.4",
+    "react-native-linear-gradient": "^2.8.3",
+    "react-native-pdf": "^6.7.7",
+    "react-native-svg": "^15.11.2",
+    "react-native-webview": "^13.13.5"
+  },
+  "devDependencies": {
+    "@babel/plugin-proposal-export-namespace-from": "^7.18.9",
+    "babel-plugin-module-resolver": "^5.0.2",
+    "react-native-reanimated": "^3.17.2",
+    "react-native-svg-transformer": "^1.5.0"
+  }
+}

@@ -24,6 +24,7 @@ type AddContactModalProps = {
     phoneNumber: string;
     onContactSaved?: (contact: Contact) => void;
     editingContact?: Contact | null;
+    
   };
   
 interface Contact {
@@ -253,8 +254,13 @@ const ContactBook = () => {
           text: 'Edit',
           onPress: () => {
             setEditingContact(contact);
+            setFirstName(contact.firstName || '');
+            setLastName(contact.lastName || '');
+            setPhoneNumber(contact.phoneNumber || '');
+            setEmail(contact.email || '');
             setModalVisible(true);
           }
+          
         },
         {
           text: 'Delete',
@@ -290,6 +296,9 @@ const ContactBook = () => {
                 const updatedContacts = contacts.filter((c: Contact) => c.id !== contact.id);
                 await AsyncStorage.setItem('telecaller_contacts', JSON.stringify(updatedContacts));
                 loadContacts(); // Reload contacts to reflect changes
+                filterContacts(); // Immediately update UI with filtered results
+                
+                
               }
             } catch (error) {
               console.error('Error deleting contact:', error);
@@ -390,7 +399,19 @@ const ContactBook = () => {
       }
   
       await AsyncStorage.setItem('telecaller_contacts', JSON.stringify(updatedContacts));
-      loadContacts();
+  
+      // 🔄 Refresh data from localStorage → state → UI
+      organizeContactsByAlphabet(updatedContacts);
+      const lettersWithContacts = updatedContacts.reduce((letters: string[], contact: Contact) => {
+        const firstLetter = contact.firstName[0].toUpperCase();
+        if (!letters.includes(firstLetter)) {
+          letters.push(firstLetter);
+        }
+        return letters;
+      }, []);
+      setActiveLetters(lettersWithContacts.sort());
+      setSearchQuery(''); // Reset search to show full updated list
+      filterContacts();
   
       Alert.alert('Success', `Contact ${editingContact ? 'updated' : 'saved'} successfully!`, [
         {
@@ -401,16 +422,19 @@ const ContactBook = () => {
             setPhoneNumber('');
             setEmail('');
             setErrors({ firstName: '', phoneNumber: '' });
-            Keyboard.dismiss();
+            setEditingContact(null);
             setModalVisible(false);
+            Keyboard.dismiss();
           }
         }
       ]);
+  
     } catch (error) {
       console.error('Error saving contact:', error);
       Alert.alert('Error', `Failed to ${editingContact ? 'update' : 'save'} contact. Please try again.`);
     }
   };
+  
   
 
   return (

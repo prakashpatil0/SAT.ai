@@ -239,86 +239,42 @@ const BDMContactBook = () => {
   };
 
   const handleContactOptions = (contact: Contact) => {
-    if (Platform.OS === 'ios') {
-      ActionSheetIOS.showActionSheetWithOptions(
+    Alert.alert(
+      `${contact.firstName} ${contact.lastName}`,
+      'Choose an action',
+      [
         {
-          options: ['Cancel', 'Call', 'Edit', 'Toggle Favorite', 'Delete'],
-          destructiveButtonIndex: 4,
-          cancelButtonIndex: 0,
-          title: `${contact.firstName} ${contact.lastName}`,
+          text: 'Call',
+          onPress: () => handleCall(contact.phoneNumber)
         },
-        (buttonIndex) => {
-          switch (buttonIndex) {
-            case 1:
-              handleCall(contact.phoneNumber);
-              break;
-            case 2:
-              setEditingContact(contact);
-              setModalVisible(true);
-              break;
-            case 3:
-              toggleFavorite(contact);
-              break;
-            case 4:
-              handleDelete(contact);
-              break;
+        {
+          text: 'Edit',
+          onPress: () => {
+            setEditingContact(contact);
+            setFirstName(contact.firstName || '');
+            setLastName(contact.lastName || '');
+            setPhoneNumber(contact.phoneNumber || '');
+            setEmail(contact.email || '');
+            setModalVisible(true);
           }
+          
+        },
+        {
+          text: 'Delete',
+          onPress: () => handleDelete(contact),
+          style: 'destructive'
+        },
+        {
+          text: 'Cancel',
+          style: 'cancel'
         }
-      );
-    } else {
-      Alert.alert(
-        `${contact.firstName} ${contact.lastName}`,
-        'Choose an action',
-        [
-          {
-            text: 'Call',
-            onPress: () => handleCall(contact.phoneNumber)
-          },
-          {
-            text: 'Edit',
-            onPress: () => {
-              setEditingContact(contact);
-              setModalVisible(true);
-            }
-          },
-          {
-            text: contact.favorite ? 'Remove from Favorites' : 'Add to Favorites',
-            onPress: () => toggleFavorite(contact)
-          },
-          {
-            text: 'Delete',
-            onPress: () => handleDelete(contact),
-            style: 'destructive'
-          },
-          {
-            text: 'Cancel',
-            style: 'cancel'
-          }
-        ],
-        { cancelable: true }
-      );
-    }
+      ],
+      { cancelable: true }
+    );
   };
+  
 
-  const toggleFavorite = async (contact: Contact) => {
-    try {
-      const storedContacts = await AsyncStorage.getItem('contacts');
-      if (storedContacts) {
-        const contacts = JSON.parse(storedContacts);
-        const updatedContacts = contacts.map((c: Contact) => {
-          if (c.id === contact.id) {
-            return { ...c, favorite: !c.favorite };
-          }
-          return c;
-        });
-        await AsyncStorage.setItem('contacts', JSON.stringify(updatedContacts));
-        loadContacts(); // Reload contacts to reflect changes
-      }
-    } catch (error) {
-      console.error('Error toggling favorite:', error);
-      Alert.alert('Error', 'Failed to update favorite status');
-    }
-  };
+
 
   const handleDelete = (contact: Contact) => {
     Alert.alert(
@@ -355,27 +311,19 @@ const BDMContactBook = () => {
       onLongPress={() => handleContactOptions(contact)}
       delayLongPress={500}
     >
-      <View style={[styles.avatarContainer, contact.favorite && styles.favoriteAvatarContainer]}>
+      <View style={styles.avatarContainer}>
         <Text style={styles.avatarText}>
           {contact.firstName[0].toUpperCase()}
         </Text>
       </View>
+  
       <View style={styles.contactInfo}>
-        <View style={styles.nameContainer}>
-          <Text style={styles.contactName}>
-            {`${contact.firstName} ${contact.lastName}`.trim()}
-          </Text>
-          {contact.favorite && (
-            <MaterialIcons
-              name="star"
-              size={16}
-              color="#FFB347"
-              style={styles.favoriteIcon}
-            />
-          )}
-        </View>
+        <Text style={styles.contactName}>
+          {`${contact.firstName} ${contact.lastName}`.trim()}
+        </Text>
         <Text style={styles.contactPhone}>{contact.phoneNumber}</Text>
       </View>
+  
       <View style={styles.actionButtons}>
         <TouchableOpacity
           style={styles.quickActionButton}
@@ -383,15 +331,17 @@ const BDMContactBook = () => {
         >
           <MaterialIcons name="phone" size={24} color="#FF8447" />
         </TouchableOpacity>
+  
         <TouchableOpacity
           style={styles.quickActionButton}
           onPress={() => handleContactOptions(contact)}
         >
-          <MaterialIcons name="more-vert" size={24} color="#666" />
+          <Text style={{ fontSize: 22, fontWeight: 'bold', color: '#333' }}>⋮</Text>
         </TouchableOpacity>
       </View>
     </TouchableOpacity>
   );
+  
   const validateForm = () => {
     let isValid = true;
     const newErrors = {
@@ -524,21 +474,7 @@ loadContacts();
         </View>
       )}
 
-      <View style={styles.filterContainer}>
-        <TouchableOpacity
-          style={[styles.filterButton, showFavoritesOnly && styles.filterButtonActive]}
-          onPress={() => setShowFavoritesOnly(!showFavoritesOnly)}
-        >
-          <MaterialIcons 
-            name="star" 
-            size={20} 
-            color={showFavoritesOnly ? "#FFD700" : "#666"} 
-          />
-          <Text style={[styles.filterButtonText, showFavoritesOnly && styles.filterButtonTextActive]}>
-            Favorites
-          </Text>
-        </TouchableOpacity>
-      </View>
+      
 
       <TouchableOpacity
   style={styles.createContactButton}

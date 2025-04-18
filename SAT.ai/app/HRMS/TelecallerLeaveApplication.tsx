@@ -1,4 +1,4 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import {
   View,
   Text,
@@ -19,9 +19,13 @@ import {
 import { Dropdown } from "react-native-element-dropdown";
 import { useNavigation } from "@react-navigation/native";
 
+import { auth, db, storage } from "@/firebaseConfig";
+import { collection, getDocs, query, where,onSnapshot} from "firebase/firestore"; // Importing necessary Firestore functions
+
 const { width } = Dimensions.get("window");
 
 const TelecallerLeaveApplication: React.FC = () => {
+  const [earnedLeaveData, setEarnedLeaveData] = useState([]);
   const [selectedLeaveType, setSelectedLeaveType] = useState("leaves");
   const [selectedTimeFrame, setSelectedTimeFrame] = useState("this_quarter");
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -130,6 +134,22 @@ const TelecallerLeaveApplication: React.FC = () => {
       setCurrentIndex(newIndex);
     }
   };
+   // Fetching Earned Leave data in real-time
+   useEffect(() => {
+    const q = query(
+      collection(db, "leave_applications"), // Replace 'leaveRequests' with your actual Firestore collection name
+      where("leaveType", "==", "Earned Leave")
+    );
+
+    // Using onSnapshot() to listen to real-time updates
+    const unsubscribe = onSnapshot(q, (querySnapshot) => {
+      const data = querySnapshot.docs.map((doc) => doc.data());
+      setEarnedLeaveData(data); // Set the fetched earned leave data to the state
+    });
+
+    // Cleanup listener on component unmount
+    return () => unsubscribe();
+  }, []);
 
   return (
     <AppGradient>
@@ -178,10 +198,10 @@ const TelecallerLeaveApplication: React.FC = () => {
             </TouchableOpacity>
           </View>
 
-          {/* Earned Leave Section */}
-          <View style={styles.leaveCountBox}>
+           {/* Earned Leave Section */}
+           <View style={styles.leaveCountBox}>
             <Text style={styles.earnedTitle}>Earned Leave</Text>
-            <Text>20 days</Text>
+            <Text>{earnedLeaveData.length > 0 ? `${earnedLeaveData.length} days` : "No data found"}</Text>
           </View>
 
           <View style={styles.leaveBox}>

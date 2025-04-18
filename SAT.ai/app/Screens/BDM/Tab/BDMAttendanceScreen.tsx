@@ -210,6 +210,11 @@ const BDMAttendanceScreen = () => {
   const [cachedLocation, setCachedLocation] = useState<Location.LocationObject | null>(null);
   const [cachedAttendance, setCachedAttendance] = useState<AttendanceRecord[]>([]);
 
+  // Update time constants
+  const PUNCH_IN_START = 1 * 60; // 1:00 AM in minutes
+  const PUNCH_OUT_DEADLINE = 23 * 60; // 11:00 PM in minutes
+  const REQUIRED_HOURS = 8; // 8 hours required for full day
+
   // Add checkAndRequestPermissions function
   const checkAndRequestPermissions = async () => {
     try {
@@ -541,106 +546,51 @@ const BDMAttendanceScreen = () => {
       }
 
       const currentYear = new Date().getFullYear();
-      const monthYearKey = `${currentYear}_${selectedMonth.toString().padStart(2, '0')}`;
+      const monthStr = (selectedMonth + 1).toString().padStart(2, '0');
+      const monthYearKey = `${currentYear}_${monthStr}`;
 
-      // First try to get from monthly attendance collection
-      const monthlyAttendanceRef = doc(db, 'bdm_monthly_attendance', `${userId}_${monthYearKey}`);
-      const monthlyDoc = await getDoc(monthlyAttendanceRef);
+      // Try to get from monthly attendance first
+      const monthlyRef = doc(db, 'bdm_monthly_attendance', `${userId}_${monthYearKey}`);
+      const monthlyDoc = await getDoc(monthlyRef);
+
+      let records: AttendanceRecord[] = [];
 
       if (monthlyDoc.exists()) {
         const monthlyData = monthlyDoc.data();
-        const records = monthlyData.records || [];
-        
-        const history: AttendanceRecord[] = records.map((record: any) => ({
-          date: record.date,
-          day: record.day,
-          punchIn: record.punchIn,
-          punchOut: record.punchOut,
-          status: record.status,
-          userId,
-          timestamp: new Date(currentYear, selectedMonth, parseInt(record.date)),
-          photoUri: record.photoUri,
-          location: record.location,
-          synced: false
-        }));
-
-        const sortedHistory = history.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
-        setAttendanceHistory(sortedHistory);
-        calculateStatusCounts(sortedHistory);
-        updateWeekDaysStatus(sortedHistory);
-
-        // Update today's punch in/out status if today's record exists and it's the current month
-        if (selectedMonth === new Date().getMonth()) {
-          const today = format(new Date(), 'dd');
-          const todayRecord = history.find(record => record.date === today);
-          if (todayRecord) {
-            setTodayRecord(todayRecord);
-            setPunchInTime(todayRecord.punchIn ? format(new Date(`2000-01-01T${todayRecord.punchIn}`), 'hh:mm a') : '');
-            setPunchOutTime(todayRecord.punchOut ? format(new Date(`2000-01-01T${todayRecord.punchOut}`), 'hh:mm a') : '');
-            setIsPunchedIn(!!todayRecord.punchIn && !todayRecord.punchOut);
-          }
-        }
+        records = monthlyData.records || [];
       } else {
-        // Fallback to individual attendance records if monthly data not found
+        // Fallback to individual records
         const attendanceRef = collection(db, 'users', userId, 'attendance');
-        const startDate = new Date(currentYear, selectedMonth, 1);
-        const endDate = new Date(currentYear, selectedMonth + 1, 0);
-        
-        const monthQuery = query(
+        const monthStart = new Date(currentYear, selectedMonth, 1);
+        const monthEnd = new Date(currentYear, selectedMonth + 1, 0);
+
+        const q = query(
           attendanceRef,
-          where('timestamp', '>=', Timestamp.fromDate(startDate)),
-          where('timestamp', '<=', Timestamp.fromDate(endDate)),
+          where('timestamp', '>=', Timestamp.fromDate(monthStart)),
+          where('timestamp', '<=', Timestamp.fromDate(monthEnd)),
           orderBy('timestamp', 'desc')
         );
 
-        const querySnapshot = await getDocs(monthQuery);
-        
-        const history: AttendanceRecord[] = [];
-        const today = format(new Date(), 'dd');
-        
-        querySnapshot.forEach((doc) => {
-          const data = doc.data();
-          const recordDate = data.timestamp.toDate();
-          
-          history.push({
-            date: data.date,
-            day: data.day,
-            punchIn: data.punchIn,
-            punchOut: data.punchOut,
-            status: data.status,
-            userId: data.userId,
-            timestamp: recordDate,
-            photoUri: data.photoUri,
-            location: data.location,
-            synced: false
-          });
+        const querySnapshot = await getDocs(q);
+        records = querySnapshot.docs.map(doc => ({
+          ...doc.data(),
+          timestamp: doc.data().timestamp.toDate(),
+          synced: true
+        })) as AttendanceRecord[];
 
-          // Update today's punch in/out status if it's the current month
-          if (selectedMonth === new Date().getMonth() && data.date === today) {
-            setTodayRecord({
-              date: data.date,
-              day: data.day,
-              punchIn: data.punchIn,
-              punchOut: data.punchOut,
-              status: data.status,
-              userId: data.userId,
-              timestamp: recordDate,
-              photoUri: data.photoUri,
-              location: data.location,
-              synced: false
-            });
-            
-            setPunchInTime(data.punchIn ? format(new Date(`2000-01-01T${data.punchIn}`), 'hh:mm a') : '');
-            setPunchOutTime(data.punchOut ? format(new Date(`2000-01-01T${data.punchOut}`), 'hh:mm a') : '');
-            setIsPunchedIn(!!data.punchIn && !data.punchOut);
-          }
+        // Save to monthly attendance for future quick access
+        await setDoc(monthlyRef, {
+          userId,
+          month: selectedMonth + 1,
+          year: currentYear,
+          records,
+          lastUpdated: Timestamp.fromDate(new Date())
         });
-
-        const sortedHistory = history.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
-        setAttendanceHistory(sortedHistory);
-        calculateStatusCounts(sortedHistory);
-        updateWeekDaysStatus(sortedHistory);
       }
+
+      setAttendanceHistory(records);
+      updateWeekDaysStatus(records);
+      calculateStatusCounts(records);
     } catch (error) {
       console.error('Error fetching attendance history:', error);
       Alert.alert('Error', 'Failed to fetch attendance history');
@@ -736,53 +686,66 @@ const BDMAttendanceScreen = () => {
     setStatusCounts(counts);
   };
 
+  // Update calculateAttendanceStatus function
   const calculateAttendanceStatus = (punchIn: string, punchOut: string): 'Present' | 'Half Day' | 'On Leave' => {
-    if (!punchIn) return 'On Leave';
+    if (!punchIn || !punchOut) return 'On Leave';
 
     const punchInTime = new Date(`2000-01-01T${punchIn}`);
-    const punchOutTime = punchOut ? new Date(`2000-01-01T${punchOut}`) : null;
+    const punchOutTime = new Date(`2000-01-01T${punchOut}`);
 
-    // Convert times to minutes for easier comparison
-    const punchInMinutes = punchInTime.getHours() * 60 + punchInTime.getMinutes();
-    const punchOutMinutes = punchOutTime ? punchOutTime.getHours() * 60 + punchOutTime.getMinutes() : null;
+    // Calculate duration in hours
+    const durationInMinutes = (punchOutTime.getTime() - punchInTime.getTime()) / (1000 * 60);
+    const durationInHours = durationInMinutes / 60;
 
-    // Define time thresholds
-    const PRESENT_PUNCH_IN_THRESHOLD = 9 * 60 + 45; // 9:45 AM
-    const HALF_DAY_PUNCH_IN_THRESHOLD = 14 * 60; // 2:00 PM
-    const MIN_PUNCH_OUT_TIME = 18 * 60 + 30; // 6:30 PM
-
-    if (punchInMinutes <= PRESENT_PUNCH_IN_THRESHOLD && punchOutMinutes && punchOutMinutes >= MIN_PUNCH_OUT_TIME) {
+    // Return status based on duration
+    if (durationInHours >= REQUIRED_HOURS) {
       return 'Present';
-    } else if (punchInMinutes <= HALF_DAY_PUNCH_IN_THRESHOLD && punchOutMinutes && punchOutMinutes >= MIN_PUNCH_OUT_TIME) {
-      return 'Half Day';
     } else {
-      return 'On Leave';
+      return 'Half Day';
     }
   };
 
   const handlePunch = async () => {
-    if (isPunchButtonDisabled) {
-      Alert.alert(
-        "Punch Disabled",
-        "You've already completed today's attendance. Punch will be available at 8 AM tomorrow."
-      );
-      return;
-    }
-
     try {
-      // First check if it's too late to punch in
       const currentTime = new Date();
       const currentHours = currentTime.getHours();
       const currentMinutes = currentTime.getMinutes();
       const currentTimeInMinutes = currentHours * 60 + currentMinutes;
-      const PUNCH_IN_DEADLINE = 14 * 60; // 2:00 PM
 
-      if (!isPunchedIn && currentTimeInMinutes >= PUNCH_IN_DEADLINE) {
-        Alert.alert(
-          "Punch In Not Allowed",
-          "You cannot punch in after 2:00 PM. You will be marked as On Leave for today."
-        );
-        return;
+      // If there's a punch-out record, check if enough time has passed for next punch-in
+      if (todayRecord?.punchOut) {
+        const nextPunchInTime = new Date();
+        nextPunchInTime.setDate(nextPunchInTime.getDate() + 1);
+        nextPunchInTime.setHours(1, 0, 0, 0); // 1 AM next day
+        
+        if (currentTime < nextPunchInTime) {
+          Alert.alert(
+            "Punch-in Not Allowed",
+            "You can only punch-in after 1:00 AM tomorrow."
+          );
+          return;
+        }
+      }
+
+      // Check punch in/out time restrictions
+      if (!isPunchedIn) {
+        // Punch In restrictions
+        if (currentTimeInMinutes < PUNCH_IN_START) {
+          Alert.alert(
+            "Punch In Not Allowed",
+            "You can only punch in after 1:00 AM."
+          );
+          return;
+        }
+      } else {
+        // Punch Out restrictions
+        if (currentTimeInMinutes >= PUNCH_OUT_DEADLINE) {
+          Alert.alert(
+            "Punch Out Not Allowed",
+            "You cannot punch out after 11:00 PM."
+          );
+          return;
+        }
       }
 
       // Check location permission
@@ -808,7 +771,6 @@ const BDMAttendanceScreen = () => {
       const location = await Promise.race([locationPromise, timeoutPromise])
         .catch(error => {
           console.error('Location error:', error);
-          // Use last known location if available
           return defaultLocation;
         });
 
@@ -824,11 +786,8 @@ const BDMAttendanceScreen = () => {
         );
       }
     } catch (error) {
-      console.error('Error getting location:', error);
-      Alert.alert(
-        "Location Error",
-        "Failed to get your location. Please try again."
-      );
+      console.error('Error in handlePunch:', error);
+      Alert.alert('Error', 'Failed to process punch request');
     }
   };
 
@@ -882,6 +841,7 @@ const BDMAttendanceScreen = () => {
       case 'Half Day':
         return <MaterialIcons name="remove" size={20} color="#FFF" />;
       case 'On Leave':
+      case 'inactive':
         return <MaterialIcons name="close" size={20} color="#FFF" />;
       default:
         return null;
@@ -1207,23 +1167,126 @@ const BDMAttendanceScreen = () => {
 
   const loadLocalRecords = async () => {
     try {
-      const storedRecords = await AsyncStorage.getItem(STORAGE_KEY);
-      if (storedRecords) {
-        const parsedRecords = JSON.parse(storedRecords);
-        setLocalRecords(parsedRecords);
-        updateWeekDaysStatus(parsedRecords);
-        calculateStatusCounts(parsedRecords);
+      const userId = auth.currentUser?.uid;
+      if (!userId) return;
+
+      const today = new Date();
+      const currentMonth = today.getMonth();
+      const currentYear = today.getFullYear();
+      const monthYearKey = `${currentYear}_${(currentMonth + 1).toString().padStart(2, '0')}`;
+      
+      // Load from Firebase first
+      const monthlyRef = doc(db, 'bdm_monthly_attendance', `${userId}_${monthYearKey}`);
+      const monthlyDoc = await getDoc(monthlyRef);
+      
+      let records: AttendanceRecord[] = [];
+      
+      if (monthlyDoc.exists()) {
+        const monthlyData = monthlyDoc.data();
+        records = monthlyData.records.map((record: any) => ({
+          ...record,
+          timestamp: record.timestamp instanceof Timestamp ? record.timestamp.toDate() : new Date(record.timestamp)
+        }));
+      } else {
+        // Fallback to individual records
+        const attendanceRef = collection(db, 'users', userId, 'attendance');
+        const monthStart = new Date(currentYear, currentMonth, 1);
+        const monthEnd = new Date(currentYear, currentMonth + 1, 0);
+        
+        const q = query(
+          attendanceRef,
+          where('timestamp', '>=', Timestamp.fromDate(monthStart)),
+          where('timestamp', '<=', Timestamp.fromDate(monthEnd)),
+          orderBy('timestamp', 'desc')
+        );
+        
+        const querySnapshot = await getDocs(q);
+        records = querySnapshot.docs.map(doc => {
+          const data = doc.data();
+          return {
+            ...data,
+            timestamp: data.timestamp instanceof Timestamp ? data.timestamp.toDate() : new Date(data.timestamp),
+            synced: true
+          } as AttendanceRecord;
+        });
       }
+
+      // Get today's record
+      const todayStr = format(today, 'dd');
+      const todayRecord = records.find(r => r.date === todayStr);
+      
+      if (todayRecord) {
+        setTodayRecord(todayRecord);
+        setPunchInTime(todayRecord.punchIn ? format(new Date(`2000-01-01T${todayRecord.punchIn}`), 'hh:mm a') : '');
+        setPunchOutTime(todayRecord.punchOut ? format(new Date(`2000-01-01T${todayRecord.punchOut}`), 'hh:mm a') : '');
+        setIsPunchedIn(!!todayRecord.punchIn && !todayRecord.punchOut);
+        
+        // Check if punch-in should be disabled until tomorrow 1 AM
+        if (todayRecord.punchOut) {
+          const nextPunchInTime = new Date();
+          nextPunchInTime.setDate(nextPunchInTime.getDate() + 1);
+          nextPunchInTime.setHours(1, 0, 0, 0); // Set to 1 AM next day
+          setIsPunchButtonDisabled(new Date() < nextPunchInTime);
+        }
+      }
+
+      setLocalRecords(records);
+      setAttendanceHistory(records);
+      updateWeekDaysStatus(records);
+      calculateStatusCounts(records);
+      
+      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(records));
     } catch (error) {
-      console.error('Error loading local records:', error);
+      console.error('Error loading records:', error);
+      Alert.alert('Error', 'Failed to load attendance records');
     }
   };
 
   const saveLocalRecord = async (record: AttendanceRecord) => {
     try {
-      const updatedRecords = [...localRecords, record];
-      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updatedRecords));
-      setLocalRecords(updatedRecords);
+      // Initialize as empty array if no records exist
+      let existingRecords: AttendanceRecord[] = [];
+      
+      try {
+        const storedData = await AsyncStorage.getItem(STORAGE_KEY);
+        if (storedData) {
+          const parsed = JSON.parse(storedData);
+          existingRecords = Array.isArray(parsed) ? parsed : [];
+        }
+      } catch (e) {
+        console.error('Error reading from storage:', e);
+        existingRecords = [];
+      }
+
+      // Find index of existing record for today
+      const todayIndex = existingRecords.findIndex(r => r && r.date === record.date);
+
+      if (todayIndex !== -1) {
+        // Update existing record
+        existingRecords[todayIndex] = {
+          ...existingRecords[todayIndex],
+          ...record,
+          synced: false
+        };
+      } else {
+        // Add new record
+        existingRecords.push(record);
+      }
+
+      // Sort records by date (newest first)
+      existingRecords.sort((a, b) => 
+        new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+      );
+
+      // Save to AsyncStorage
+      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(existingRecords));
+      
+      // Update states
+      setLocalRecords(existingRecords);
+      setAttendanceHistory(existingRecords);
+      updateWeekDaysStatus(existingRecords);
+      calculateStatusCounts(existingRecords);
+      
       return true;
     } catch (error) {
       console.error('Error saving local record:', error);
@@ -1231,6 +1294,181 @@ const BDMAttendanceScreen = () => {
     }
   };
 
+  // Add new function for direct Firebase save
+  const saveToFirebase = async (record: AttendanceRecord) => {
+    try {
+      const userId = auth.currentUser?.uid;
+      const userName = auth.currentUser?.displayName || 'Unknown User';
+      if (!userId) return false;
+
+      const currentDate = new Date(record.timestamp);
+      const currentYear = currentDate.getFullYear();
+      const currentMonth = (currentDate.getMonth() + 1).toString().padStart(2, '0');
+      const monthYearKey = `${currentYear}_${currentMonth}`;
+      
+      // Format the record with proper timestamps
+      const recordToSave = {
+        ...record,
+        userName,
+        timestamp: record.timestamp,
+        lastUpdated: new Date(),
+        date: format(new Date(record.timestamp), 'dd'),
+        month: parseInt(currentMonth),
+        year: currentYear,
+        workingHours: record.punchIn && record.punchOut ? 
+          calculateWorkingHours(record.punchIn, record.punchOut) : 0,
+        synced: true
+      };
+
+      // Save to individual attendance collection
+      const attendanceRef = collection(db, 'users', userId, 'attendance');
+      const todayQuery = query(
+        attendanceRef,
+        where('date', '==', record.date),
+        where('userId', '==', userId)
+      );
+
+      const querySnapshot = await getDocs(todayQuery);
+      if (querySnapshot.empty) {
+        await addDoc(attendanceRef, {
+          ...recordToSave,
+          timestamp: Timestamp.fromDate(new Date(record.timestamp)),
+          lastUpdated: Timestamp.fromDate(new Date())
+        });
+      } else {
+        const docRef = querySnapshot.docs[0].ref;
+        await updateDoc(docRef, {
+          ...recordToSave,
+          timestamp: Timestamp.fromDate(new Date(record.timestamp)),
+          lastUpdated: Timestamp.fromDate(new Date())
+        });
+      }
+
+      // Update monthly attendance collection
+      const monthlyRef = doc(db, 'bdm_monthly_attendance', `${userId}_${monthYearKey}`);
+      const monthlyDoc = await getDoc(monthlyRef);
+
+      if (monthlyDoc.exists()) {
+        const monthlyData = monthlyDoc.data();
+        const records = monthlyData.records || [];
+        const recordIndex = records.findIndex((r: any) => r.date === record.date);
+
+        if (recordIndex !== -1) {
+          records[recordIndex] = {
+            ...recordToSave,
+            timestamp: Timestamp.fromDate(new Date(record.timestamp)),
+            lastUpdated: Timestamp.fromDate(new Date())
+          };
+        } else {
+          records.push({
+            ...recordToSave,
+            timestamp: Timestamp.fromDate(new Date(record.timestamp)),
+            lastUpdated: Timestamp.fromDate(new Date())
+          });
+        }
+
+        // Calculate monthly statistics
+        const statistics = calculateMonthlyStatistics(records);
+
+        await updateDoc(monthlyRef, {
+          records: records.sort((a: any, b: any) => parseInt(b.date) - parseInt(a.date)),
+          statistics,
+          lastUpdated: Timestamp.fromDate(new Date())
+        });
+      } else {
+        await setDoc(monthlyRef, {
+          userId,
+          userName,
+          month: parseInt(currentMonth),
+          year: currentYear,
+          records: [{
+            ...recordToSave,
+            timestamp: Timestamp.fromDate(new Date(record.timestamp)),
+            lastUpdated: Timestamp.fromDate(new Date())
+          }],
+          statistics: calculateMonthlyStatistics([recordToSave]),
+          lastUpdated: Timestamp.fromDate(new Date())
+        });
+      }
+
+      return true;
+    } catch (error) {
+      console.error('Error saving to Firebase:', error);
+      return false;
+    }
+  };
+
+  // Add helper function to format timestamp
+  const formatTimestamp = (date: Date): Date => {
+    try {
+      return new Date(date.getTime());
+    } catch (error) {
+      console.error('Error formatting timestamp:', error);
+      return new Date();
+    }
+  };
+
+  // Add helper function to calculate working hours
+  const calculateWorkingHours = (punchIn: string, punchOut: string): number => {
+    const inTime = new Date(`2000-01-01T${punchIn}`);
+    const outTime = new Date(`2000-01-01T${punchOut}`);
+    const diffMs = outTime.getTime() - inTime.getTime();
+    return Math.round((diffMs / (1000 * 60 * 60)) * 100) / 100;
+  };
+
+  // Add helper function to calculate monthly statistics
+  const calculateMonthlyStatistics = (records: AttendanceRecord[]) => {
+    const statistics = {
+      totalDays: records.length,
+      presentDays: 0,
+      halfDays: 0,
+      absentDays: 0,
+      totalWorkingHours: 0,
+      averageWorkingHours: 0,
+      lateArrivals: 0,
+      earlyDepartures: 0
+    };
+
+    records.forEach(record => {
+      switch (record.status) {
+        case 'Present':
+          statistics.presentDays++;
+          break;
+        case 'Half Day':
+          statistics.halfDays++;
+          break;
+        case 'On Leave':
+          statistics.absentDays++;
+          break;
+      }
+
+      if (record.punchIn && record.punchOut) {
+        const workingHours = calculateWorkingHours(record.punchIn, record.punchOut);
+        statistics.totalWorkingHours += workingHours;
+
+        // Check for late arrival (after 9:30 AM)
+        const punchInTime = new Date(`2000-01-01T${record.punchIn}`);
+        const lateThreshold = new Date(`2000-01-01T09:30`);
+        if (punchInTime > lateThreshold) {
+          statistics.lateArrivals++;
+        }
+
+        // Check for early departure (before 6:00 PM)
+        const punchOutTime = new Date(`2000-01-01T${record.punchOut}`);
+        const earlyThreshold = new Date(`2000-01-01T18:00`);
+        if (punchOutTime < earlyThreshold) {
+          statistics.earlyDepartures++;
+        }
+      }
+    });
+
+    statistics.averageWorkingHours = statistics.totalWorkingHours / (statistics.presentDays + statistics.halfDays || 1);
+    statistics.averageWorkingHours = Math.round(statistics.averageWorkingHours * 100) / 100;
+
+    return statistics;
+  };
+
+  // Update syncWithFirebase function for better performance
   const syncWithFirebase = async () => {
     if (isSyncing) return;
     setIsSyncing(true);
@@ -1239,45 +1477,29 @@ const BDMAttendanceScreen = () => {
       const userId = auth.currentUser?.uid;
       if (!userId) return;
 
-      // Get records that haven't been synced
-      const unsyncedRecords = localRecords.filter(record => !record.synced);
+      const records = Array.isArray(localRecords) ? localRecords : [];
+      const unsyncedRecords = records.filter(record => !record.synced);
       
-      for (const record of unsyncedRecords) {
-        const attendanceRef = collection(db, 'users', userId, 'attendance');
-        const todayQuery = query(
-          attendanceRef,
-          where('date', '==', record.date),
-          where('userId', '==', userId)
-        );
+      if (unsyncedRecords.length === 0) return;
 
-        const querySnapshot = await getDocs(todayQuery);
-        
-        if (querySnapshot.empty) {
-          await addDoc(attendanceRef, {
-            ...record,
-            timestamp: Timestamp.fromDate(record.timestamp),
-            synced: true
-          });
-        } else {
-          const docRef = querySnapshot.docs[0].ref;
-          await updateDoc(docRef, {
-            ...record,
-            timestamp: Timestamp.fromDate(record.timestamp),
-            synced: true
-          });
-        }
-      }
+      // Use Promise.all for parallel processing
+      await Promise.all(
+        unsyncedRecords.map(record => saveToFirebase(record))
+      );
 
-      // Update local records to mark as synced
-      const updatedRecords = localRecords.map(record => ({
+      // Update local records as synced
+      const updatedRecords = records.map(record => ({
         ...record,
         synced: true
       }));
+
       await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updatedRecords));
       setLocalRecords(updatedRecords);
+      setAttendanceHistory(updatedRecords);
       setLastSyncTime(new Date());
+
     } catch (error) {
-      console.error('Error syncing with Firebase:', error);
+      console.error('Error during sync:', error);
     } finally {
       setIsSyncing(false);
     }
@@ -1319,12 +1541,26 @@ const BDMAttendanceScreen = () => {
       const dayStr = format(currentTime, 'EEE').toUpperCase();
       const timeStr = format(currentTime, 'HH:mm');
 
+      // Get current record if exists
+      let currentRecord: AttendanceRecord | undefined;
+      try {
+        const storedData = await AsyncStorage.getItem(STORAGE_KEY);
+        if (storedData) {
+          const records = JSON.parse(storedData);
+          if (Array.isArray(records)) {
+            currentRecord = records.find(r => r && r.date === dateStr);
+          }
+        }
+      } catch (e) {
+        console.error('Error reading current record:', e);
+      }
+
       const newRecord: AttendanceRecord = {
         date: dateStr,
         day: dayStr,
-        punchIn: isPunchIn ? timeStr : '',
-        punchOut: !isPunchIn ? timeStr : '',
-        status: calculateAttendanceStatus(isPunchIn ? timeStr : '', !isPunchIn ? timeStr : ''),
+        punchIn: isPunchIn ? timeStr : (currentRecord?.punchIn || ''),
+        punchOut: !isPunchIn ? timeStr : (currentRecord?.punchOut || ''),
+        status: 'Present', // Will be updated after saving
         userId,
         timestamp: currentTime,
         photoUri,
@@ -1332,10 +1568,20 @@ const BDMAttendanceScreen = () => {
         synced: false
       };
 
-      // Save to local storage first
-      const saved = await saveLocalRecord(newRecord);
-      if (!saved) {
-        Alert.alert('Error', 'Failed to save attendance locally');
+      // Calculate status based on punch times
+      newRecord.status = calculateAttendanceStatus(
+        newRecord.punchIn,
+        newRecord.punchOut
+      );
+
+      // Save to local storage and Firebase simultaneously
+      const [localSaved] = await Promise.all([
+        saveLocalRecord(newRecord),
+        saveToFirebase(newRecord)
+      ]);
+
+      if (!localSaved) {
+        Alert.alert('Error', 'Failed to save attendance');
         return;
       }
 
@@ -1348,15 +1594,34 @@ const BDMAttendanceScreen = () => {
         setIsPunchedIn(false);
       }
 
-      // Start sync process
-      syncWithFirebase();
+      // Set today's record
+      setTodayRecord(newRecord);
 
-      // Update absent history
-      calculateAbsentHistory([...localRecords, newRecord]);
+      // Show success message
+      Alert.alert(
+        'Success',
+        `Successfully ${isPunchIn ? 'punched in' : 'punched out'} at ${format(currentTime, 'hh:mm a')}`
+      );
+
     } catch (error) {
       console.error('Error saving attendance:', error);
       Alert.alert('Error', 'Failed to save attendance');
     }
+  };
+
+  // Add function to check if punch in is allowed
+  const isPunchInAllowed = (lastPunchOutTime: string | null) => {
+    const currentTime = new Date();
+    const currentMinutes = currentTime.getHours() * 60 + currentTime.getMinutes();
+    
+    if (!lastPunchOutTime) return true;
+    
+    const lastPunchOutDate = new Date(lastPunchOutTime);
+    const nextAllowedTime = new Date(lastPunchOutDate);
+    nextAllowedTime.setDate(nextAllowedTime.getDate() + 1);
+    nextAllowedTime.setHours(1, 0, 0, 0); // 1 AM next day
+    
+    return currentTime >= nextAllowedTime;
   };
 
   return (

@@ -88,7 +88,8 @@ const AddContactModal = ({ visible, onClose = () => {}, phoneNumber: initialPhon
 
     try {
       // Get existing contacts from device storage
-      const storedContacts = await AsyncStorage.getItem('contacts');
+      const storedContacts = await AsyncStorage.getItem('telecaller_contacts');
+
       const currentContacts: Contact[] = storedContacts ? JSON.parse(storedContacts) : [];
 
       // Create new contact
@@ -118,7 +119,8 @@ const AddContactModal = ({ visible, onClose = () => {}, phoneNumber: initialPhon
       }
 
       // Save to device storage
-      await AsyncStorage.setItem('contacts', JSON.stringify(updatedContacts));
+      await AsyncStorage.setItem('telecaller_contacts', JSON.stringify(updatedContacts));
+
 
       // Notify parent component
       if (onContactSaved) {

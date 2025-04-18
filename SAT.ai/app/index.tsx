@@ -152,6 +152,8 @@ type ScreenComponentType<T extends ParamListBase, K extends keyof T> = FC<{
 export type BDMStackParamList = {
   BDMHomeScreen: undefined;
   TelecallerLeaveApplication: undefined;
+  ApplyLeaveScreen: undefined;
+  CalendarViewScreen: undefined;
   BDMCallHistory: {
     customerName: string;
     meetings: {
@@ -516,6 +518,14 @@ function BDMStackNavigator() {
       <BDMStack.Screen 
       name="TelecallerLeaveApplication" 
       component={TelecallerLeaveApplication} 
+      options={{ headerShown: false }}/>
+      <BDMStack.Screen
+        name="CalendarViewScreen"
+        component={CalendarViewScreen}
+        options={{ headerShown: false }}/>  
+      <BDMStack.Screen
+      name="ApplyLeaveScreen" 
+      component={ApplyLeaveScreen}
       options={{ headerShown: false }}/>
     </BDMStack.Navigator>
   );

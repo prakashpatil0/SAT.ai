@@ -160,12 +160,13 @@ const TelecallerCallNoteDetails = () => {
       
       // Navigate to TelecallerPersonNotes with properly formatted timestamp
       navigation.navigate('TelecallerPersonNotes', {
+        phoneNumber: meeting.phoneNumber,
         name: meeting.contactName || meeting.phoneNumber,
         time: format(callTimestamp, 'hh:mm a'),
         duration: formatDuration(meeting.duration),
         status: status !== 'Mark Status' ? status : 'No Status',
         notes: [notes],
-        phoneNumber: meeting.phoneNumber,
+        // phoneNumber: meeting.phoneNumber,
         contactInfo: {
           name: meeting.contactName || meeting.phoneNumber,
           phoneNumber: meeting.phoneNumber,
@@ -216,7 +217,7 @@ const TelecallerCallNoteDetails = () => {
           <View style={styles.notesContainer}>
             <TextInput
               style={styles.notesInput}
-              placeholder="Add Call Notes"
+              placeholder="Add notes here..."
               placeholderTextColor="#A4A4A4"
               multiline
               value={notes}

@@ -21,14 +21,14 @@ import MyScript from "@/app/Screens/Telecaller/DrawerTab/TelecallerMyScript";
 import DetailsScreen from '@/app/Screens/Telecaller/TelecallerDetailsScreen';
 import ReportScreen from "@/app/Screens/Telecaller/Tab/DailyReportScreen";
 import Leaderboard from "@/app/Screens/Telecaller/DrawerTab/TelecallerLeaderBoard";
-import TelecallerCallNoteDetails from "@/app/Screens/Telecaller/TelecallerCallNoteDetails";
+import TelecallerCallNoteDetails from "@/app/Screens/Telecaller/TelecallerAddCallNoteDetails";
 import TelecallerCreateFollowUp from "@/app/Screens/Telecaller/TelecallerCreateFollowUpScreen";
 import MyScheduleScreen from "@/app/Screens/Telecaller/DrawerTab/TelecallerMyScheduleScreen";
 import ViewFullReport from "@/app/Screens/Telecaller/TelecallerViewFullReport";
 import VirtualBusinessCard from "@/app/Screens/Telecaller/DrawerTab/TelecallerVirtualBusinessCard";
 import Profile from "@/app/Screens/Telecaller/DrawerTab/TelecallerProfile";
 import TelecallerSettings from "@/app/Screens/Telecaller/DrawerTab/TelecallerSettings";
-import ConfirmationScreen from "@/app/Screens/Telecaller/TelecallerConfirmationScreen";
+// import ConfirmationScreen from "@/app/Screens/Telecaller/TelecallerConfirmationScreen";
 import CameraScreen from "@/app/Screens/Telecaller/TelecallerCameraScreen";
 import LoginScreen from "@/app/LoginScreen";
 import ContactInfo from "@/app/Screens/Telecaller/TelecallerContactInfo";
@@ -307,7 +307,7 @@ const DrawerNavigator = () => {
       <Drawer.Screen name="VirtualBusinessCard" component={VirtualBusinessCard} />
       <Drawer.Screen name="Profile" component={Profile} />
       <Drawer.Screen name="TelecallerSettings" component={TelecallerSettings} />
-      <Drawer.Screen name="Confirmation" component={ConfirmationScreen} />
+      {/* <Drawer.Screen name="Confirmation" component={ConfirmationScreen} /> */}
       <Drawer.Screen name="CallHistory" component={CallHistory} />
       <Drawer.Screen name="ContactInfo" component={ContactInfo} />
       <Drawer.Screen name="AddContactModal" component={AddContactModal} />

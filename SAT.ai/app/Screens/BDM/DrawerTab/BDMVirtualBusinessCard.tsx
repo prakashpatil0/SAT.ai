@@ -595,10 +595,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   cancelButton: {
-    backgroundColor: '#f2f2f2',
+    backgroundColor: '#F44336',
   },
   saveButton: {
-    backgroundColor: '#ff7b42',
+    backgroundColor: '#4CAF50',
   },
   buttonText: {
     fontSize: 16,

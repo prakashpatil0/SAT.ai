@@ -701,20 +701,56 @@ const BDMAttendanceScreen = () => {
           timestamp: doc.data().timestamp.toDate(),
           synced: true
         })) as AttendanceRecord[];
-
-        // Save to monthly attendance for future quick access
-        await setDoc(monthlyRef, {
-          userId,
-          month: selectedMonth + 1,
-          year: currentYear,
-          records,
-          lastUpdated: Timestamp.fromDate(new Date())
-        });
       }
 
+      // Sort records in descending order by date
+      records.sort((a, b) => {
+        const dateA = parseInt(a.date);
+        const dateB = parseInt(b.date);
+        return dateB - dateA;
+      });
+
+      // Calculate absent records for the selected month
+      const monthStart = new Date(currentYear, selectedMonth, 1);
+      const monthEnd = new Date(currentYear, selectedMonth + 1, 0);
+      const daysInMonth = monthEnd.getDate();
+      
+      const absentDays: { date: string; day: string; status: string }[] = [];
+      const today = new Date();
+      
+      for (let i = 1; i <= daysInMonth; i++) {
+        const currentDate = new Date(currentYear, selectedMonth, i);
+        // Only check dates up to today
+        if (currentDate > today) continue;
+        
+        // Skip Sundays
+        if (currentDate.getDay() === 0) continue;
+        
+        const dateStr = i.toString().padStart(2, '0');
+        const record = records.find(r => r.date === dateStr);
+        
+        if (!record || record.status === 'On Leave') {
+          absentDays.push({
+            date: format(currentDate, 'dd MMM yyyy'),
+            day: format(currentDate, 'EEEE'),
+            status: 'On Leave'
+          });
+        }
+      }
+
+      setAbsentHistory(absentDays);
       setAttendanceHistory(records);
       updateWeekDaysStatus(records);
       calculateStatusCounts(records);
+
+      // Show message if no records found
+      if (records.length === 0) {
+        Alert.alert(
+          'No Records',
+          `No attendance records found for ${MONTHS[selectedMonth].label} ${currentYear}`
+        );
+      }
+
     } catch (error) {
       console.error('Error fetching attendance history:', error);
       Alert.alert('Error', 'Failed to fetch attendance history');
@@ -1015,11 +1051,11 @@ const BDMAttendanceScreen = () => {
   const getStatusIcon = (status: string) => {
   switch (status) {
     case 'Present':
-      return <MaterialIcons name="check" size={16} color="#FFF" />;
+      return <MaterialIcons name="check" size={20} color="#FFF" />;
     case 'Half Day':
-      return <MaterialIcons name="remove" size={16} color="#FFF" />;
+      return <MaterialIcons name="remove" size={20} color="#FFF" />;
     case 'On Leave':
-      return <MaterialIcons name="close" size={16} color="#FFF" />;
+      return <MaterialIcons name="close" size={20} color="#FFF" />;
     case 'active': // Today's date (no punch yet)
       return null;
     case 'inactive': // Future date
@@ -1077,11 +1113,14 @@ const BDMAttendanceScreen = () => {
   };
 
   const handleSummaryItemPress = (status: 'Present' | 'Half Day' | 'On Leave') => {
-    if (activeFilter === status) {
-      // If clicking the same filter again, clear it
-      setActiveFilter(null);
-    } else {
-      setActiveFilter(status);
+    setActiveFilter(status);
+    
+    // If clicking on absent/leave, scroll to absent history section
+    if (status === 'On Leave' && absentHistory.length > 0) {
+      // Add a slight delay to ensure the section is rendered
+      setTimeout(() => {
+        scrollViewRef.current?.scrollToEnd({ animated: true });
+      }, 100);
     }
   };
 
@@ -1334,7 +1373,15 @@ const BDMAttendanceScreen = () => {
     );
   };
 
-  const [absentHistory, setAbsentHistory] = useState<{date: string; message: string}[]>([]);
+  // Update the type definition near the top of the file with other types
+  type AbsentHistoryItem = {
+    date: string;
+    day: string;
+    status: string;
+  };
+
+  // Update the state declaration
+  const [absentHistory, setAbsentHistory] = useState<AbsentHistoryItem[]>([]);
   const [localRecords, setLocalRecords] = useState<AttendanceRecord[]>([]);
   const [isSyncing, setIsSyncing] = useState(false);
   const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
@@ -1913,20 +1960,20 @@ const BDMAttendanceScreen = () => {
     const endDate = endOfMonth(new Date());
     const allDates = eachDayOfInterval({ start: startDate, end: endDate });
     
-    const absentDates = allDates.filter(date => {
-      const dateStr = format(date, 'dd');
-      const day = format(date, 'EEE').toUpperCase();
-      const record = history.find(r => r.date === dateStr);
+    const absentDays = allDates.filter(date => {
+      // Skip future dates and Sundays
+      if (date > new Date() || date.getDay() === 0) return false;
       
+      const dateStr = format(date, 'dd');
+      const record = history.find(r => r.date === dateStr);
       return !record || record.status === 'On Leave';
-    });
-
-    const absentHistory = absentDates.map(date => ({
+    }).map(date => ({
       date: format(date, 'dd MMM yyyy'),
-      message: professionalMessages.absent[Math.floor(Math.random() * professionalMessages.absent.length)]
+      day: format(date, 'EEEE'),
+      status: 'On Leave'
     }));
 
-    setAbsentHistory(absentHistory);
+    setAbsentHistory(absentDays);
   };
 
   // Update saveAttendance function to ensure valid timestamps
@@ -2186,6 +2233,9 @@ const BDMAttendanceScreen = () => {
     </View>
   );
 
+  // Add scrollViewRef at the top of component with other refs
+  const scrollViewRef = useRef<ScrollView>(null);
+
   return (
     <AppGradient>
       <BDMMainLayout 
@@ -2196,7 +2246,10 @@ const BDMAttendanceScreen = () => {
         {!isInitialLoadComplete ? (
           <AttendanceSkeleton />
         ) : (
-          <ScrollView style={styles.scrollView}>
+          <ScrollView 
+            ref={scrollViewRef}
+            style={styles.scrollView}
+          >
             {/* Punch Card with Map */}
             <View style={styles.punchCard}>
               {/* Map View */}
@@ -2360,13 +2413,14 @@ const BDMAttendanceScreen = () => {
             </View>
 
             {/* Absent History Section */}
-            {absentHistory.length > 0 && (
+            {absentHistory.length > 0 && (activeFilter === 'On Leave' || !activeFilter) && (
               <View style={styles.absentHistoryContainer}>
                 <Text style={styles.absentHistoryTitle}>Absent History</Text>
                 {absentHistory.map((item, index) => (
                   <View key={index} style={styles.absentHistoryItem}>
                     <Text style={styles.absentDate}>{item.date}</Text>
-                    <Text style={styles.absentMessage}>{item.message}</Text>
+                    <Text style={styles.absentDay}>{item.day}</Text>
+                    <Text style={styles.absentStatus}>{item.status}</Text>
                   </View>
                 ))}
               </View>
@@ -2820,11 +2874,16 @@ const styles = StyleSheet.create({
     color: '#666',
     marginBottom: 4,
   },
-  absentMessage: {
+  absentDay: {
     fontSize: 14,
     fontFamily: 'LexendDeca_400Regular',
-    color: '#333',
-    lineHeight: 20,
+    color: '#666',
+    marginBottom: 4,
+  },
+  absentStatus: {
+    fontSize: 14,
+    fontFamily: 'LexendDeca_500Medium',
+    color: '#FF5252',
   },
   syncStatusContainer: {
     padding: 16,

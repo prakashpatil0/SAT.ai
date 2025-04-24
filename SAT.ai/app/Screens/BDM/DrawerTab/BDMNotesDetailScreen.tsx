@@ -36,6 +36,7 @@ const BDMNotesDetailScreen = () => {
   const navigation = useNavigation<BDMNotesDetailScreenNavigationProp>();
   const route = useRoute<BDMNotesDetailScreenRouteProp>();
   const { note } = route.params;
+  
 
   const [editMode, setEditMode] = useState(false);
   const [title, setTitle] = useState(note.title);
@@ -43,6 +44,7 @@ const BDMNotesDetailScreen = () => {
   const [isPinned, setIsPinned] = useState(note.isPinned);
   const [isSaving, setIsSaving] = useState(false);
 
+  
   // Format date for display
   const formatDate = (date: Date) => {
     if (!date) return 'Unknown date';

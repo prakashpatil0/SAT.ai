@@ -39,6 +39,7 @@ interface Note {
   createdAt: Date;
   isPinned: boolean;
   userId: string;
+  isDefault?: boolean; // 👈 add this optional flag
 }
 
 // Function to truncate content
@@ -64,6 +65,63 @@ const BDMMyNotesScreen = () => {
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   
+  const DEFAULT_SCRIPTS: Note[] = [
+    {
+      id: 'term-001',
+      title: 'Term Insurance',
+      content: `Hello, I'm calling from Policy Planner Insurance Brokers Pvt Ltd. We've got an exciting offer on our term insurance plans that can secure your family's future. Our plans offer high coverage at affordable premiums, with options starting from ₹500 per month. You can choose from various plans, including those with critical illness cover and accidental death benefit.
+  
+  Benefits:
+  
+  - High coverage at affordable premiums
+  - Option to choose from various plans
+  - Critical illness cover and accidental death benefit available
+  - Tax benefits under Section 80C and 10(10D)
+  
+  Attractive Offer: Get 10% discount on your first-year premium if you purchase a plan within the next 48 hours.
+  
+  Claim Support: Our claims process is hassle-free and transparent. We ensure that your claims are settled quickly and efficiently.
+  
+  Immediate Closing Request: If you're interested, I can guide you through the application process and help you purchase a plan immediately.
+  
+  Would you like to know more about our term insurance plans?`,
+      date: formatDate(new Date()),
+      createdAt: new Date(),
+      isPinned: true,
+      userId: 'default',
+    },
+    {
+      id: 'health-001',
+      title: 'Health Insurance',
+      content: `Hello, I'm calling from Policy Planner Insurance Brokers Pvt Ltd... [full content]`,
+      date: formatDate(new Date()),
+      createdAt: new Date(),
+      isPinned: false,
+      userId: 'default',
+      isDefault: true,
+    },
+    {
+      id: 'motor-001',
+      title: 'Motor Insurance',
+      content: `Hello, I'm calling from Policy Planner Insurance Brokers Pvt Ltd... [full content]`,
+      date: formatDate(new Date()),
+      createdAt: new Date(),
+      isPinned: false,
+      userId: 'default',
+      isDefault: true,
+    },
+    {
+      id: 'sme-001',
+      title: 'SME Insurance',
+      content: `Hello, I'm calling from Policy Planner Insurance Brokers Pvt Ltd... [full content]`,
+      date: formatDate(new Date()),
+      createdAt: new Date(),
+      isPinned: false,
+      userId: 'default',
+      isDefault: true,
+    }
+  ];
+  
   // Animation for FAB
   const scaleAnim = useRef(new Animated.Value(1)).current;
   const { width } = Dimensions.get('window');
@@ -73,34 +131,32 @@ const BDMMyNotesScreen = () => {
     try {
       setLoading(true);
       setError(null);
-      
+  
       const userId = auth.currentUser?.uid;
       if (!userId) {
         setError("User not authenticated");
         setLoading(false);
         return;
       }
-      
-      // Get notes from AsyncStorage
+  
+      // Fetch stored notes from AsyncStorage
       const storedNotes = await AsyncStorage.getItem(NOTES_STORAGE_KEY + "_" + userId);
+      const parsedNotes: Note[] = storedNotes ? JSON.parse(storedNotes) : [];
+      const userNoteIds = parsedNotes.map(note => note.id);
       
-      if (storedNotes) {
-        const parsedNotes: Note[] = JSON.parse(storedNotes);
-        
-        // Sort notes: pinned first, then by creation date
-        const sortedNotes = parsedNotes.sort((a, b) => {
-          // First sort by pin status
-          if (a.isPinned && !b.isPinned) return -1;
-          if (!a.isPinned && b.isPinned) return 1;
-          
-          // Then sort by date (newest first)
-          return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-        });
-        
-        setNotes(sortedNotes);
-      } else {
-        setNotes([]);
-      }
+      // Only add default notes that aren't already in the saved notes
+      const filteredDefaults = DEFAULT_SCRIPTS.filter(defaultNote => !userNoteIds.includes(defaultNote.id));
+      const combinedNotes = [...filteredDefaults, ...parsedNotes];
+      
+      const sortedNotes = combinedNotes.sort((a, b) => {
+        if (a.isPinned && !b.isPinned) return -1;
+        if (!a.isPinned && b.isPinned) return 1;
+        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      });
+      
+      setNotes(sortedNotes);
+      
+  
     } catch (err) {
       console.error("Error fetching notes:", err);
       setError("Failed to load notes. Please try again.");
@@ -109,6 +165,7 @@ const BDMMyNotesScreen = () => {
       setRefreshing(false);
     }
   };
+  
   
   // Save notes to AsyncStorage
   const saveNotesToStorage = async (updatedNotes: Note[]) => {
@@ -278,7 +335,7 @@ const BDMMyNotesScreen = () => {
   
   // Navigate to note details
   const navigateToNoteDetails = (note: Note) => {
-    navigation.navigate('BDMNotesDetailScreen', { note });
+    navigation.navigate('BDMNotesDetailScreen', { note: note });
   };
   
   if (loading && !refreshing) {
@@ -317,15 +374,15 @@ const BDMMyNotesScreen = () => {
             style={styles.scrollContainer}
             showsVerticalScrollIndicator={false}
           >
-            {notes.map((item) => (
-              <TouchableOpacity 
-                key={item.id} 
-                onPress={() => navigateToNoteDetails(item)}
-                style={styles.cardContainer}
-              >
-                <View style={[styles.card, item.isPinned && styles.pinnedCard]}>
-                  <View style={styles.cardHeader}>
-                    <Text style={styles.title}>{item.title}</Text>
+           {notes.map((item) => (
+  <TouchableOpacity 
+    key={item.id} 
+    onPress={() => navigateToNoteDetails(item)}  // ✅ correct item passed
+    style={styles.cardContainer}
+  >
+               <View style={[styles.card, item.isPinned && styles.pinnedCard]}>
+      <View style={styles.cardHeader}>
+        <Text style={styles.title}>{item.title}</Text>
                     <View style={styles.cardActions}>
                       <TouchableOpacity 
                         onPress={() => togglePinStatus(item.id, item.isPinned)}
@@ -347,6 +404,18 @@ const BDMMyNotesScreen = () => {
                   </View>
                   <Text style={styles.content}>{truncateContent(item.content)}</Text>
                   <Text style={styles.date}>{item.date}</Text>
+                </View>
+                <View style={styles.cardActions}>
+{!item.isDefault && (
+  <>
+    <TouchableOpacity onPress={() => togglePinStatus(item.id, item.isPinned)}>
+      <MaterialCommunityIcons name={item.isPinned ? 'pin' : 'pin-outline'} size={22} />
+    </TouchableOpacity>
+    <TouchableOpacity onPress={() => handleDeleteNote(item.id)}>
+      <MaterialIcons name="delete-outline" size={22} />
+    </TouchableOpacity>
+  </>
+)}
                   {item.isPinned && (
                     <View style={styles.pinnedBadge}>
                       <MaterialCommunityIcons name="pin" size={14} color="#FFF" />

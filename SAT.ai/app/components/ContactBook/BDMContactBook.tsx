@@ -7,18 +7,25 @@ import {
   ScrollView, 
   Alert,
   Linking,
-  Animated, 
-  Modal, 
-  KeyboardAvoidingView, 
-  Keyboard 
+  Platform,
+  ActionSheetIOS,
+  Share,
+  Animated,Modal, KeyboardAvoidingView,     // add this
+  Keyboard  
 } from 'react-native';
 import { Text } from 'react-native-paper';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { MaterialIcons } from '@expo/vector-icons';
-import * as Contacts from 'expo-contacts';
 import BDMMainLayout from "@/app/components/BDMMainLayout";
 import AppGradient from '../AppGradient';
-
+type AddContactModalProps = {
+    visible: boolean;
+    onClose?: () => void;
+    phoneNumber: string;
+    onContactSaved?: (contact: Contact) => void;
+    editingContact?: Contact | null;
+  };
+  
 interface Contact {
   id: string;
   firstName: string;
@@ -31,69 +38,110 @@ interface Contact {
 const ALPHABETS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
 
 const BDMContactBook = () => {
-  const [firstName, setFirstName] = useState('');
-  const [lastName, setLastName] = useState('');
-  const [phoneNumber, setPhoneNumber] = useState('');
-  const [email, setEmail] = useState('');
-  const [errors, setErrors] = useState({ firstName: '', phoneNumber: '' });
+    
+    const [firstName, setFirstName] = useState('');
+    const [lastName, setLastName] = useState('');
+    const [phoneNumber, setPhoneNumber] = useState('');
+    const [email, setEmail] = useState('');
+    const [errors, setErrors] = useState({
+      firstName: '',
+      phoneNumber: ''
+    });
   const [contacts, setContacts] = useState<{ [key: string]: Contact[] }>({});
   const [searchQuery, setSearchQuery] = useState('');
   const [searchHistory, setSearchHistory] = useState<string[]>([]);
   const [showSearchHistory, setShowSearchHistory] = useState(false);
+  const [showScrollToTop, setShowScrollToTop] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
+  const [selectedLetter, setSelectedLetter] = useState('');
+  const [filteredContacts, setFilteredContacts] = useState<{ [key: string]: Contact[] }>({});
   const [editingContact, setEditingContact] = useState<Contact | null>(null);
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
-  const [activeLetters, setActiveLetters] = useState<string[]>([]);
-  const fadeAnim = useRef(new Animated.Value(0)).current;
   const scrollViewRef = useRef<ScrollView>(null);
   const sectionRefs = useRef<{ [key: string]: number }>({});
+  const [activeLetters, setActiveLetters] = useState<string[]>([]);
+  const fadeAnim = useRef(new Animated.Value(0)).current;
 
-  // Step 1: Request permission and load contacts from the device
   useEffect(() => {
-    const requestPermission = async () => {
-      const { status } = await Contacts.requestPermissionsAsync();
-      if (status === 'granted') {
-        loadContactsFromDevice();
-      } else {
-        Alert.alert('Permission Denied', 'You need to grant permission to access contacts.');
-      }
-    };
-    requestPermission();
+    loadContacts();
+    loadSearchHistory();
   }, []);
 
-  // Step 2: Filter contacts based on the search query and favorites
   useEffect(() => {
     filterContacts();
   }, [searchQuery, contacts, showFavoritesOnly]);
 
-  // Step 3: Load contacts from AsyncStorage
-  const loadContactsFromDevice = async () => {
+  const loadContacts = async () => {
     try {
-      const { data } = await Contacts.getContactsAsync({
-        fields: [Contacts.Fields.Emails, Contacts.Fields.PhoneNumbers],
-      });
-
-      const formattedContacts = data
-        .map((item, index) => ({
-          id: item.id || index.toString(),
-          firstName: item.firstName || '',
-          lastName: item.lastName || '',
-          phoneNumber: item.phoneNumbers?.[0]?.number || '',
-          email: item.emails?.[0]?.email || '',
-        }))
-        .filter(contact => contact.phoneNumber); // Filter out contacts without phone numbers
-
-      // Save contacts to AsyncStorage
-      await AsyncStorage.setItem('contacts', JSON.stringify(formattedContacts));
-
-      organizeContactsByAlphabet(formattedContacts);
+      const storedContacts = await AsyncStorage.getItem('contacts');
+      if (storedContacts) {
+        const parsedContacts = JSON.parse(storedContacts);
+        organizeContactsByAlphabet(parsedContacts);
+        
+        // Find which letters have contacts
+        const lettersWithContacts = parsedContacts.reduce((letters: string[], contact: Contact) => {
+          const firstLetter = contact.firstName[0].toUpperCase();
+          if (!letters.includes(firstLetter)) {
+            letters.push(firstLetter);
+          }
+          return letters;
+        }, []);
+        
+        setActiveLetters(lettersWithContacts.sort());
+      }
     } catch (error) {
-      console.error('Error fetching contacts:', error);
+      console.error('Error loading contacts:', error);
       Alert.alert('Error', 'Failed to load contacts');
     }
   };
 
-  // Step 4: Organize contacts by the first letter of their name
+  const loadSearchHistory = async () => {
+    try {
+      const storedHistory = await AsyncStorage.getItem('contactSearchHistory');
+      if (storedHistory) {
+        setSearchHistory(JSON.parse(storedHistory));
+      }
+    } catch (error) {
+      console.error('Error loading search history:', error);
+    }
+  };
+
+  const saveSearchToHistory = async (query: string) => {
+    if (!query.trim() || query.length < 3) return;
+    
+    try {
+      const newHistory = [query, ...searchHistory.filter(item => item !== query)].slice(0, 5);
+      setSearchHistory(newHistory);
+      await AsyncStorage.setItem('contactSearchHistory', JSON.stringify(newHistory));
+    } catch (error) {
+      console.error('Error saving search history:', error);
+    }
+  };
+
+  const handleSearch = (query: string) => {
+    setSearchQuery(query);
+    saveSearchToHistory(query);
+    setShowSearchHistory(false);
+  };
+
+  const clearSearchHistory = async () => {
+    try {
+      setSearchHistory([]);
+      await AsyncStorage.removeItem('contactSearchHistory');
+    } catch (error) {
+      console.error('Error clearing search history:', error);
+    }
+  };
+
+  const handleScroll = (event: any) => {
+    const yOffset = event.nativeEvent.contentOffset.y;
+    setShowScrollToTop(yOffset > 300);
+  };
+
+  const scrollToTop = () => {
+    scrollViewRef.current?.scrollTo({ y: 0, animated: true });
+  };
+
   const organizeContactsByAlphabet = (contactsList: Contact[]) => {
     const organized = contactsList.reduce((acc: { [key: string]: Contact[] }, contact) => {
       const firstLetter = contact.firstName[0].toUpperCase();
@@ -104,44 +152,20 @@ const BDMContactBook = () => {
       return acc;
     }, {});
 
+    Object.keys(organized).forEach(letter => {
+      organized[letter].sort((a, b) => {
+        if (a.favorite && !b.favorite) return -1;
+        if (!a.favorite && b.favorite) return 1;
+        return a.firstName.localeCompare(b.firstName);
+      });
+    });
+
     setContacts(organized);
-
-    // Find which letters have contacts
-    const lettersWithContacts = contactsList.reduce((letters: string[], contact: Contact) => {
-      const firstLetter = contact.firstName[0].toUpperCase();
-      if (!letters.includes(firstLetter)) {
-        letters.push(firstLetter);
-      }
-      return letters;
-    }, []);
-
-    setActiveLetters(lettersWithContacts.sort());
   };
 
-  // Step 5: Save search query history to AsyncStorage
-  const saveSearchToHistory = async (query: string) => {
-    if (!query.trim() || query.length < 3) return;
-
-    try {
-      const newHistory = [query, ...searchHistory.filter(item => item !== query)].slice(0, 5);
-      setSearchHistory(newHistory);
-      await AsyncStorage.setItem('contactSearchHistory', JSON.stringify(newHistory));
-    } catch (error) {
-      console.error('Error saving search history:', error);
-    }
-  };
-
-  // Step 6: Handle contact search
-  const handleSearch = (query: string) => {
-    setSearchQuery(query);
-    saveSearchToHistory(query);
-    setShowSearchHistory(false);
-  };
-
-  // Step 7: Filter contacts based on search query
   const filterContacts = useCallback(() => {
     if (!searchQuery.trim() && !showFavoritesOnly) {
-      setContacts(contacts);
+      setFilteredContacts(contacts);
       return;
     }
 
@@ -149,11 +173,11 @@ const BDMContactBook = () => {
     const filtered: { [key: string]: Contact[] } = {};
 
     Object.keys(contacts).forEach(letter => {
-      let matchingContacts = contacts[letter].filter(contact =>
+      let matchingContacts = contacts[letter].filter(contact => 
         (contact.firstName.toLowerCase().includes(query) ||
-          contact.lastName.toLowerCase().includes(query) ||
-          contact.phoneNumber.includes(query) ||
-          (contact.email && contact.email.toLowerCase().includes(query))) &&
+        contact.lastName.toLowerCase().includes(query) ||
+        contact.phoneNumber.includes(query) ||
+        (contact.email && contact.email.toLowerCase().includes(query))) &&
         (!showFavoritesOnly || contact.favorite)
       );
 
@@ -162,18 +186,104 @@ const BDMContactBook = () => {
       }
     });
 
-    setContacts(filtered);
+    setFilteredContacts(filtered);
   }, [searchQuery, contacts, showFavoritesOnly]);
 
-  // Step 8: Handle deleting contact
+  const handleContactSaved = (newContact: Contact) => {
+    loadContacts();
+  };
+
+  const scrollToLetter = (letter: string) => {
+    if (!activeLetters.includes(letter)) return;
+    
+    setSelectedLetter(letter);
+    
+    // Fade in animation
+    Animated.sequence([
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 150,
+        useNativeDriver: true,
+      }),
+      Animated.delay(800),
+      Animated.timing(fadeAnim, {
+        toValue: 0,
+        duration: 300,
+        useNativeDriver: true,
+      })
+    ]).start();
+    
+    const yOffset = sectionRefs.current[letter] || 0;
+    scrollViewRef.current?.scrollTo({ y: yOffset, animated: true });
+  };
+
+  const handleCall = (phoneNumber: string) => {
+    const telUrl = `tel:${phoneNumber}`;
+    Linking.canOpenURL(telUrl)
+      .then(supported => {
+        if (supported) {
+          return Linking.openURL(telUrl);
+        }
+        Alert.alert('Error', 'Phone calls are not supported on this device');
+      })
+      .catch(err => Alert.alert('Error', 'Failed to make phone call'));
+  };
+
+  const handleShare = async (contact: Contact) => {
+    try {
+      const message = `Contact Details:\nName: ${contact.firstName} ${contact.lastName}\nPhone: ${contact.phoneNumber}${contact.email ? `\nEmail: ${contact.email}` : ''}`;
+      await Share.share({ message });
+    } catch (error) {
+      console.error('Error sharing contact:', error);
+    }
+  };
+
+  const handleContactOptions = (contact: Contact) => {
+    Alert.alert(
+      `${contact.firstName} ${contact.lastName}`,
+      'Choose an action',
+      [
+        {
+          text: 'Call',
+          onPress: () => handleCall(contact.phoneNumber)
+        },
+        {
+          text: 'Edit',
+          onPress: () => {
+            setEditingContact(contact);
+            setFirstName(contact.firstName || '');
+            setLastName(contact.lastName || '');
+            setPhoneNumber(contact.phoneNumber || '');
+            setEmail(contact.email || '');
+            setModalVisible(true);
+          }
+          
+        },
+        {
+          text: 'Delete',
+          onPress: () => handleDelete(contact),
+          style: 'destructive'
+        },
+        {
+          text: 'Cancel',
+          style: 'cancel'
+        }
+      ],
+      { cancelable: true }
+    );
+  };
+  
+
+
+
   const handleDelete = (contact: Contact) => {
     Alert.alert(
       'Delete Contact',
       `Are you sure you want to delete ${contact.firstName} ${contact.lastName}?`,
       [
         { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
+        { 
+          text: 'Delete', 
           style: 'destructive',
           onPress: async () => {
             try {
@@ -182,7 +292,7 @@ const BDMContactBook = () => {
                 const contacts = JSON.parse(storedContacts);
                 const updatedContacts = contacts.filter((c: Contact) => c.id !== contact.id);
                 await AsyncStorage.setItem('contacts', JSON.stringify(updatedContacts));
-                loadContactsFromDevice(); // Reload contacts to reflect changes
+                loadContacts(); // Reload contacts to reflect changes
               }
             } catch (error) {
               console.error('Error deleting contact:', error);
@@ -194,30 +304,34 @@ const BDMContactBook = () => {
     );
   };
 
-  // Step 9: Render contact items
   const renderContact = (contact: Contact) => (
-    <TouchableOpacity key={contact.id} style={styles.contactItem}>
+    <TouchableOpacity
+      key={contact.id}
+      style={styles.contactItem}
+      onLongPress={() => handleContactOptions(contact)}
+      delayLongPress={500}
+    >
       <View style={styles.avatarContainer}>
         <Text style={styles.avatarText}>
           {contact.firstName[0].toUpperCase()}
         </Text>
       </View>
-
+  
       <View style={styles.contactInfo}>
         <Text style={styles.contactName}>
-          {`${contact.firstName} ${contact.lastName}`}
+          {`${contact.firstName} ${contact.lastName}`.trim()}
         </Text>
         <Text style={styles.contactPhone}>{contact.phoneNumber}</Text>
       </View>
-
+  
       <View style={styles.actionButtons}>
         <TouchableOpacity
           style={styles.quickActionButton}
-          onPress={() => handleCall(contact.phoneNumber)} // Calling handleCall function
+          onPress={() => handleCall(contact.phoneNumber)}
         >
           <MaterialIcons name="phone" size={24} color="#FF8447" />
         </TouchableOpacity>
-
+  
         <TouchableOpacity
           style={styles.quickActionButton}
           onPress={() => handleContactOptions(contact)}
@@ -227,146 +341,336 @@ const BDMContactBook = () => {
       </View>
     </TouchableOpacity>
   );
+  
+  const validateForm = () => {
+    let isValid = true;
+    const newErrors = {
+      firstName: '',
+      phoneNumber: ''
+    };
 
-  // Step 10: Handle saving contacts
-  const handleSave = async () => {
-    // Form validation before save
-    if (!validateForm()) {
-      return;
+    if (!firstName.trim()) {
+      newErrors.firstName = 'First name is required';
+      isValid = false;
     }
 
-    try {
-      // Get existing contacts
-      const storedContacts = await AsyncStorage.getItem('contacts');
-      const currentContacts: Contact[] = storedContacts ? JSON.parse(storedContacts) : [];
-
-      // Create or update contact
-      const updatedContact: Contact = {
-        id: editingContact?.id || Date.now().toString(),
-        firstName: firstName.trim(),
-        lastName: lastName.trim(),
-        phoneNumber: phoneNumber.trim(),
-        email: email.trim(),
-        favorite: editingContact?.favorite || false
-      };
-
-      let updatedContacts: Contact[] = [];
-      if (editingContact) {
-        // Update existing contact
-        updatedContacts = currentContacts.map(contact =>
-          contact.id === editingContact.id ? updatedContact : contact
-        );
-      } else {
-        // Add new contact
-        updatedContacts = [...currentContacts, updatedContact];
-      }
-
-      // Save to AsyncStorage
-      await AsyncStorage.setItem('contacts', JSON.stringify(updatedContacts));
-      loadContactsFromDevice(); // Reload contacts
-      Alert.alert('Success', 'Contact saved successfully!');
-      setModalVisible(false);
-    } catch (error) {
-      console.error('Error saving contact:', error);
-      Alert.alert('Error', 'Failed to save contact. Please try again.');
+    if (!phoneNumber.trim()) {
+      newErrors.phoneNumber = 'Phone number is required';
+      isValid = false;
     }
+
+    setErrors(newErrors);
+    return isValid;
   };
+
+   const handleSave = async () => {
+      if (!validateForm()) {
+        return;
+      }
+  
+      try {
+        // Get existing contacts
+        const storedContacts = await AsyncStorage.getItem('contacts');
+        const currentContacts: Contact[] = storedContacts ? JSON.parse(storedContacts) : [];
+  
+        // Create or update contact
+        const updatedContact: Contact = {
+          id: editingContact?.id || Date.now().toString(),
+          firstName: firstName.trim(),
+          lastName: lastName.trim(),
+          phoneNumber: phoneNumber.trim(),
+          email: email.trim(),
+          favorite: editingContact?.favorite || false
+        };
+  
+        let updatedContacts: Contact[];
+        if (editingContact) {
+          // Update existing contact
+          updatedContacts = currentContacts.map(contact =>
+            contact.id === editingContact.id ? updatedContact : contact
+          );
+        } else {
+          // Add new contact
+          updatedContacts = [...currentContacts, updatedContact];
+        }
+  
+        // Save to AsyncStorage
+        await AsyncStorage.setItem('contacts', JSON.stringify(updatedContacts));
+  // Reload latest contacts in main list
+loadContacts(); 
+       
+  
+        // Show success message and close modal
+        Alert.alert(
+          'Success',
+          `Contact ${editingContact ? 'updated' : 'saved'} successfully!`,
+          [
+            {
+              text: 'OK',
+              onPress: () => {
+                // Reset form and close modal
+                setFirstName('');
+                setLastName('');
+                setPhoneNumber('');
+                setEmail('');
+                setErrors({ firstName: '', phoneNumber: '' });
+                Keyboard.dismiss();
+                setModalVisible(false);  // Close Modal
+              }
+            }
+          ]
+        );
+      } catch (error) {
+        console.error('Error saving contact:', error);
+        Alert.alert('Error', `Failed to ${editingContact ? 'update' : 'save'} contact. Please try again.`);
+      }
+    };
 
   return (
     <AppGradient>
-      <BDMMainLayout showBackButton={true} title="Contact Book">
-        <View style={styles.searchContainer}>
-          <MaterialIcons name="search" size={24} color="#999" style={styles.searchIcon} />
-          <TextInput
-            style={styles.searchInput}
-            placeholder="Search by name, phone, or email"
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-            placeholderTextColor="#999"
-            onFocus={() => setShowSearchHistory(true)}
-            onSubmitEditing={() => {
-              saveSearchToHistory(searchQuery);
-              setShowSearchHistory(false);
-            }}
-          />
-          {searchQuery ? (
-            <TouchableOpacity onPress={() => setSearchQuery('')}>
-              <MaterialIcons name="close" size={24} color="#999" />
-            </TouchableOpacity>
-          ) : null}
-        </View>
+    <BDMMainLayout showBackButton={true} title="Contact Book">
+      <View style={styles.searchContainer}>
+        <MaterialIcons name="search" size={24} color="#999" style={styles.searchIcon} />
+        <TextInput
+          style={styles.searchInput}
+          placeholder="Search by name, phone, or email"
+          value={searchQuery}
+          onChangeText={setSearchQuery}
+          placeholderTextColor="#999"
+          onFocus={() => setShowSearchHistory(true)}
+          onSubmitEditing={() => {
+            saveSearchToHistory(searchQuery);
+            setShowSearchHistory(false);
+          }}
+        />
+        {searchQuery ? (
+          <TouchableOpacity onPress={() => {
+            setSearchQuery('');
+            setShowSearchHistory(true);
+          }}>
+            <MaterialIcons name="close" size={24} color="#999" />
+          </TouchableOpacity>
+        ) : null}
+      </View>
 
-        <ScrollView ref={scrollViewRef} style={styles.contactsList}>
-          {Object.keys(filteredContacts).map(letter => (
-            <View key={letter}>
+      {showSearchHistory && searchHistory.length > 0 && (
+        <View style={styles.searchHistoryContainer}>
+          <View style={styles.searchHistoryHeader}>
+            <Text style={styles.searchHistoryTitle}>Recent Searches</Text>
+            <TouchableOpacity onPress={clearSearchHistory}>
+              <Text style={styles.clearHistoryText}>Clear</Text>
+            </TouchableOpacity>
+          </View>
+          {searchHistory.map((item, index) => (
+            <TouchableOpacity 
+              key={index} 
+              style={styles.searchHistoryItem}
+              onPress={() => handleSearch(item)}
+            >
+              <MaterialIcons name="history" size={18} color="#999" />
+              <Text style={styles.searchHistoryItemText}>{item}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      )}
+
+      
+
+      <TouchableOpacity
+  style={styles.createContactButton}
+  onPress={() => {
+    setEditingContact(null); // For Add New Contact
+    setModalVisible(true);   // Open Modal
+  }}
+>
+  <MaterialIcons name="person-add" size={24} color="#0099ff" />
+  <Text style={styles.createContactText}>Create New Contact</Text>
+</TouchableOpacity>
+
+      <View style={styles.contactsContainer}>
+        <ScrollView 
+          ref={scrollViewRef}
+          style={styles.contactsList}
+          showsVerticalScrollIndicator={false}
+          onScroll={handleScroll}
+          scrollEventThrottle={16}
+        >
+          {Object.keys(filteredContacts).sort().map(letter => (
+            <View 
+              key={letter} 
+              onLayout={(event) => {
+                const layout = event.nativeEvent.layout;
+                sectionRefs.current[letter] = layout.y;
+              }}
+            >
               <Text style={styles.sectionHeader}>{letter}</Text>
               {filteredContacts[letter].map(contact => renderContact(contact))}
             </View>
           ))}
+          
+          {/* Add some padding at the bottom for better scrolling */}
+          <View style={{height: 100}} />
         </ScrollView>
-      </BDMMainLayout>
 
-      {modalVisible && (
-        <Modal visible={modalVisible} animationType="slide" transparent={true} onRequestClose={() => setModalVisible(false)}>
-          <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalContainer}>
-            <View style={styles.modalContent}>
-              <View style={styles.modalHeader}>
-                <TouchableOpacity onPress={() => setModalVisible(false)} style={styles.closeButton}>
-                  <MaterialIcons name="close" size={24} color="#333" />
-                </TouchableOpacity>
-                <Text style={styles.modalTitle}>{editingContact ? 'Edit Contact' : 'Add New Contact'}</Text>
-              </View>
-              <ScrollView style={styles.form}>
-                <View style={styles.inputGroup}>
-                  <Text style={styles.label}>First Name <Text style={styles.required}>*</Text></Text>
-                  <TextInput
-                    style={[styles.input, errors.firstName ? styles.inputError : null]}
-                    placeholder="Enter First Name"
-                    value={firstName}
-                    onChangeText={setFirstName}
-                    returnKeyType="next"
-                  />
-                  {errors.firstName && <Text style={styles.errorText}>{errors.firstName}</Text>}
-                </View>
-                <View style={styles.inputGroup}>
-                  <Text style={styles.label}>Last Name</Text>
-                  <TextInput
-                    style={styles.input}
-                    placeholder="Enter Last Name"
-                    value={lastName}
-                    onChangeText={setLastName}
-                    returnKeyType="next"
-                  />
-                </View>
-                <View style={styles.inputGroup}>
-                  <Text style={styles.label}>Phone Number <Text style={styles.required}>*</Text></Text>
-                  <TextInput
-                    style={[styles.input, errors.phoneNumber ? styles.inputError : null]}
-                    placeholder="Enter Phone Number"
-                    value={phoneNumber}
-                    onChangeText={setPhoneNumber}
-                    keyboardType="phone-pad"
-                  />
-                  {errors.phoneNumber && <Text style={styles.errorText}>{errors.phoneNumber}</Text>}
-                </View>
-                <View style={styles.inputGroup}>
-                  <Text style={styles.label}>Email ID</Text>
-                  <TextInput
-                    style={styles.input}
-                    placeholder="Enter Email ID"
-                    value={email}
-                    onChangeText={setEmail}
-                    keyboardType="email-address"
-                  />
-                </View>
-              </ScrollView>
-              <TouchableOpacity style={styles.saveButton} onPress={handleSave}>
-                <Text style={styles.saveButtonText}>{editingContact ? 'Update Contact' : 'Save Contact'}</Text>
+        <View style={styles.alphabetList}>
+          <ScrollView 
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={{paddingVertical: 4}}
+          >
+            {ALPHABETS.map((letter) => (
+              <TouchableOpacity
+                key={letter}
+                onPress={() => scrollToLetter(letter)}
+                style={[
+                  styles.alphabetItem,
+                  activeLetters.includes(letter) ? {opacity: 1} : {opacity: 0.3},
+                  selectedLetter === letter && styles.alphabetItemSelected
+                ]}
+                disabled={!activeLetters.includes(letter)}
+                activeOpacity={0.7}
+              >
+                <Text style={[
+                  styles.alphabetText,
+                  activeLetters.includes(letter) ? {color: '#666', fontFamily: 'LexendDeca_500Medium'} : {},
+                  selectedLetter === letter && styles.alphabetTextSelected
+                ]}>
+                  {letter}
+                </Text>
               </TouchableOpacity>
-            </View>
-          </KeyboardAvoidingView>
-        </Modal>
+            ))}
+          </ScrollView>
+        </View>
+      </View>
+
+      {/* Scroll to top button */}
+      {showScrollToTop && (
+        <TouchableOpacity 
+          style={styles.scrollToTopButton}
+          onPress={scrollToTop}
+        >
+          <MaterialIcons name="arrow-upward" size={24} color="#FFF" />
+        </TouchableOpacity>
       )}
+
+      {/* Quick Alphabet Navigation Indicator */}
+      {selectedLetter ? (
+        <Animated.View 
+          style={[
+            styles.letterIndicator,
+            { opacity: fadeAnim }
+          ]}
+        >
+          <Text style={styles.letterIndicatorText}>{selectedLetter}</Text>
+        </Animated.View>
+      ) : null}
+
+     
+    </BDMMainLayout>
+    {modalVisible && (
+  <Modal
+  visible={modalVisible} // your existing state
+  animationType="slide"
+  transparent={true}
+  onRequestClose={() => setModalVisible(false)}
+>
+  <KeyboardAvoidingView
+    behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+    style={styles.modalContainer}
+  >
+    <View style={styles.modalContent}>
+
+      <View style={styles.modalHeader}>
+        <TouchableOpacity
+          onPress={() => {
+            Keyboard.dismiss();
+            setModalVisible(false); // Close Modal
+          }}
+          style={styles.closeButton}
+        >
+          <MaterialIcons name="close" size={24} color="#333" />
+        </TouchableOpacity>
+
+        <Text style={styles.modalTitle}>
+          {editingContact ? 'Edit Contact' : 'Add New Contact'}
+        </Text>
+        <View style={styles.placeholder} />
+      </View>
+
+      <ScrollView
+        style={styles.form}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      >
+        <View style={styles.inputGroup}>
+          <Text style={styles.label}>First Name <Text style={styles.required}>*</Text></Text>
+          <TextInput
+            style={[styles.input, errors.firstName ? styles.inputError : null]}
+            placeholder="Enter First Name"
+            value={firstName}
+            onChangeText={setFirstName}
+            returnKeyType="next"
+          />
+          {errors.firstName ? (
+            <Text style={styles.errorText}>{errors.firstName}</Text>
+          ) : null}
+        </View>
+
+        <View style={styles.inputGroup}>
+          <Text style={styles.label}>Last Name</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="Enter Last Name"
+            value={lastName}
+            onChangeText={setLastName}
+            returnKeyType="next"
+          />
+        </View>
+
+        <View style={styles.inputGroup}>
+          <Text style={styles.label}>Phone Number <Text style={styles.required}>*</Text></Text>
+          <TextInput
+            style={[styles.input, errors.phoneNumber ? styles.inputError : null]}
+            placeholder="Enter Phone Number"
+            value={phoneNumber}
+            onChangeText={setPhoneNumber}
+            keyboardType="phone-pad"
+            editable={editingContact ? false : true}
+            selectTextOnFocus={false}
+            returnKeyType="next"
+          />
+          {errors.phoneNumber ? (
+            <Text style={styles.errorText}>{errors.phoneNumber}</Text>
+          ) : null}
+        </View>
+
+        <View style={styles.inputGroup}>
+          <Text style={styles.label}>Email ID</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="Enter Email ID"
+            value={email}
+            onChangeText={setEmail}
+            keyboardType="email-address"
+            autoCapitalize="none"
+            returnKeyType="done"
+          />
+        </View>
+      </ScrollView>
+
+      <TouchableOpacity
+        style={styles.saveButton}
+        onPress={handleSave}
+      >
+        <Text style={styles.saveButtonText}>
+          {editingContact ? 'Update Contact' : 'Save Contact'}
+        </Text>
+      </TouchableOpacity>
+
+    </View>
+  </KeyboardAvoidingView>
+</Modal>
+)}
+
     </AppGradient>
   );
 };

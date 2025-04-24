@@ -43,6 +43,7 @@ type RootStackParamList = {
       timestamp: Date;
       duration: string;
     };
+    contactIdentifier: string;
   };
 };
 
@@ -95,94 +96,217 @@ const CallNoteDetailsScreen: React.FC<CallNoteDetailsScreenProps> = ({ route }) 
   };
   
 
-  const handleSubmit = async () => {
-    if (notes.trim().length === 0) {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      return;
+  // Update your handleSubmit function
+// Updated handleSubmit function with complete error handling
+const handleSubmit = async () => {
+  if (notes.trim().length === 0) {
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    return;
+  }
+
+  try {
+    setIsSaving(true);
+
+    // Create a unique identifier for the contact
+    const contactIdentifier = meeting.phoneNumber 
+      ? `phone_${meeting.phoneNumber.replace(/[^0-9]/g, '')}`
+      : `name_${meeting.name.toLowerCase().replace(/\s+/g, '_')}`;
+
+    // Create note data
+    const noteData = {
+      id: `${contactIdentifier}_${Date.now()}`,
+      contactIdentifier,
+      phoneNumber: meeting.phoneNumber,
+      contactName: meeting.name,
+      notes,
+      status: status !== 'Mark Status' ? status : 'No Status',
+      timestamp: new Date().toISOString(),
+      followUp,
+      callTimestamp: meeting.timestamp,
+      callDuration: meeting.duration,
+      type: meeting.type
+    };
+
+    // Get existing notes
+    const existingNotesStr = await AsyncStorage.getItem(CALL_NOTES_STORAGE_KEY);
+    const allNotes = existingNotesStr ? JSON.parse(existingNotesStr) : {};
+
+    // Initialize if doesn't exist
+    if (!allNotes[contactIdentifier]) {
+      allNotes[contactIdentifier] = [];
     }
-    
-    try {
-      setIsSaving(true);
 
-      if (!meeting) {
-        throw new Error('Meeting information is missing');
-      }
+    // Add new note
+    allNotes[contactIdentifier].push(noteData);
 
-      // Ensure we have a valid timestamp
-      const validTimestamp = meeting.timestamp 
-        ? (meeting.timestamp instanceof Date 
-          ? meeting.timestamp 
-          : new Date(meeting.timestamp))
-        : new Date();
+    // Save back to storage
+    await AsyncStorage.setItem(CALL_NOTES_STORAGE_KEY, JSON.stringify(allNotes));
 
-      // Create a unique call ID using timestamp and phone number
-      const callId = `${meeting.phoneNumber || 'unknown'}_${validTimestamp.getTime()}`;
+    // Success feedback
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
-      const noteData = {
-        callId,
-        phoneNumber: meeting.phoneNumber || 'unknown',
-        contactName: meeting.name || 'Unknown Contact',
-        notes,
-        status,
-        timestamp: new Date().toISOString(),
-        followUp,
-        callTimestamp: validTimestamp.toISOString(),
-        callDuration: meeting.duration || 0,
-        type: meeting.type || 'outgoing'
-      };
-
-      // Save to AsyncStorage
-      try {
-        const existingNotesStr = await AsyncStorage.getItem(CALL_NOTES_STORAGE_KEY);
-        const existingNotes = existingNotesStr ? JSON.parse(existingNotesStr) : [];
-        
-        // Remove any existing note for this call
-        const filteredNotes = existingNotes.filter((note: any) => 
-          note.callId !== callId && 
-          new Date(note.callTimestamp).getTime() !== validTimestamp.getTime()
-        );
-        
-        // Add the new note
-        filteredNotes.push({
-          ...noteData,
-          id: Date.now().toString()
-        });
-
-        await AsyncStorage.setItem(CALL_NOTES_STORAGE_KEY, JSON.stringify(filteredNotes));
-      } catch (asyncError) {
-        console.error('AsyncStorage save failed:', asyncError);
-        throw new Error('Failed to save note to AsyncStorage');
-      }
-
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      
-      // Create contact info object with fallback values
-      const contactInfo = {
-        name: meeting.name || 'Unknown Contact',
-        phoneNumber: meeting.phoneNumber || 'unknown',
-        timestamp: validTimestamp,
-        duration: meeting.duration?.toString() || '0s'
-      };
-      
-      // Navigate to BDMPersonNote with properly formatted timestamp
-      navigation.navigate('BDMPersonNote', {
-        name: meeting.name || 'Unknown Contact',
-        time: format(validTimestamp, 'hh:mm a'),
-        duration: meeting.duration?.toString() || '0s',
-        status: status !== 'Mark Status' ? status : 'No Status',
-        notes: [notes],
+    // Navigate to person note screen
+    navigation.navigate('BDMPersonNote', {
+      name: meeting.name,
+      time: meeting.time,
+      duration: meeting.duration,
+      status: status !== 'Mark Status' ? status : 'No Status',
+      notes: [notes],
+      phoneNumber: meeting.phoneNumber,
+      contactInfo: {
+        name: meeting.name,
         phoneNumber: meeting.phoneNumber,
-        contactInfo
-      });
-    } catch (error) {
-      console.error('Error saving call notes:', error);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      Alert.alert('Error', 'Failed to save the note. Please try again.');
-    } finally {
-      setIsSaving(false);
-    }
-  };
+        timestamp: meeting.timestamp ? new Date(meeting.timestamp) : new Date(),
+        duration: meeting.duration
+      },
+      contactIdentifier
+    });
 
+  } catch (error) {
+    console.error('Error saving call notes:', error);
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    Alert.alert('Error', 'Failed to save the note. Please try again.');
+  } finally {
+    setIsSaving(false);
+  }
+};
+
+// Helper functions:
+
+const createSafeContactIdentifier = (meeting: any): string => {
+  try {
+    // Return empty string if meeting is invalid
+    if (!meeting || typeof meeting !== 'object') return 'unknown_contact';
+
+    // Use phone number if available and valid
+    if (meeting.phoneNumber && typeof meeting.phoneNumber === 'string') {
+      const cleanPhone = meeting.phoneNumber.replace(/[^0-9]/g, '');
+      if (cleanPhone.length > 3) {
+        return `phone_${cleanPhone}`;
+      }
+    }
+
+    // Use name if available and valid
+    if (meeting.name && typeof meeting.name === 'string') {
+      const cleanName = meeting.name
+        .trim()
+        .toLowerCase()
+        .replace(/\s+/g, '_')
+        .replace(/[^a-z0-9_]/g, '');
+      if (cleanName.length > 1) {
+        return `name_${cleanName}`;
+      }
+    }
+
+    // Fallback to random ID
+    return `unknown_${Date.now()}`;
+  } catch (error) {
+    console.error('Error creating contact identifier:', error);
+    return 'unknown_contact';
+  }
+};
+
+const getSafeTimestamp = (timestamp: any): Date => {
+  try {
+    if (timestamp instanceof Date) return timestamp;
+    if (typeof timestamp === 'string') return new Date(timestamp);
+    return new Date();
+  } catch (error) {
+    console.error('Error parsing timestamp:', error);
+    return new Date();
+  }
+};
+
+const createNoteData = ({
+  meeting,
+  notes,
+  status,
+  followUp,
+  contactIdentifier,
+  validTimestamp
+}: {
+  meeting: any;
+  notes: string;
+  status: string;
+  followUp: boolean;
+  contactIdentifier: string;
+  validTimestamp: Date;
+}) => {
+  return {
+    id: `${contactIdentifier}_${validTimestamp.getTime()}`,
+    contactIdentifier,
+    phoneNumber: meeting?.phoneNumber || null,
+    contactName: meeting?.name || 'Unknown Contact',
+    notes,
+    status: status || 'No Status',
+    timestamp: new Date().toISOString(),
+    followUp,
+    callTimestamp: validTimestamp.toISOString(),
+    callDuration: meeting?.duration || '0s',
+    type: meeting?.type || 'outgoing'
+  };
+};
+
+const saveNoteToStorage = async (noteData: any) => {
+  try {
+    const existingNotesStr = await AsyncStorage.getItem(CALL_NOTES_STORAGE_KEY);
+    const allNotes = existingNotesStr ? JSON.parse(existingNotesStr) : {};
+
+    // Initialize if doesn't exist
+    if (!allNotes[noteData.contactIdentifier]) {
+      allNotes[noteData.contactIdentifier] = [];
+    }
+
+    // Remove duplicate if exists
+    allNotes[noteData.contactIdentifier] = allNotes[noteData.contactIdentifier]
+      .filter((note: any) => note.id !== noteData.id);
+
+    // Add new note
+    allNotes[noteData.contactIdentifier].push(noteData);
+
+    await AsyncStorage.setItem(CALL_NOTES_STORAGE_KEY, JSON.stringify(allNotes));
+  } catch (error) {
+    console.error('AsyncStorage error:', error);
+    throw new Error('Failed to save note');
+  }
+};
+
+const navigateToPersonNote = ({
+  meeting,
+  notes,
+  status,
+  contactIdentifier,
+  validTimestamp
+}: {
+  meeting: any;
+  notes: string;
+  status: string;
+  contactIdentifier: string;
+  validTimestamp: Date;
+}) => {
+  navigation.navigate('BDMPersonNote', {
+    name: meeting?.name || 'Unknown Contact',
+    time: format(validTimestamp, 'hh:mm a'),
+    duration: meeting?.duration || '0s',
+    status: status !== 'Mark Status' ? status : 'No Status',
+    notes: [notes],
+    phoneNumber: meeting?.phoneNumber,
+    contactInfo: {
+      name: meeting?.name || 'Unknown Contact',
+      phoneNumber: meeting?.phoneNumber || null,
+      timestamp: validTimestamp,
+      duration: meeting?.duration || '0s'
+    },
+    contactIdentifier
+  });
+};
+
+const getErrorMessage = (error: any): string => {
+  if (error instanceof Error) {
+    return error.message || 'Failed to save the note. Please try again.';
+  }
+  return 'An unexpected error occurred. Please try again.';
+};
   return (
     <AppGradient>
     <BDMMainLayout title="Call Notes" showBackButton={true} showDrawer={true} showBottomTabs={true}>

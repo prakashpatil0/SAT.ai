@@ -70,7 +70,6 @@ import { IdleTimerProvider } from '@/context/IdleTimerContext';
 import ForgotPassword from '@/app/components/ForgotPassword/ForgotPassword';
 import VerifyEmail from '@/app/components/ForgotPassword/VerifyEmail';
 import SetNewPassword from '@/app/components/ForgotPassword/SetNewPassword';
-import { BackendProvider } from './contexts/BackendContext';
 import BDMMyCallsScreen from '@/app/Screens/BDM/BDMMyCallsScreen';
 import BDMSettings from "@/app/Screens/BDM/BDMSettings";
 import BDMMeetingReports from "./Screens/BDM/DrawerTab/BDMMeetingReports";
@@ -124,7 +123,21 @@ export type RootStackParamList = {
   BDMNotesDetailScreen: undefined;
   BDMVirtualBusinessCard: undefined;
   BDMCallHistory: undefined;
-  BDMPersonNote: undefined;
+  BDMPersonNote: {
+    name: string;
+    time: string;
+    duration: string;
+    type: string;
+    notes: string[];
+    phoneNumber?: string;
+    contactInfo: {
+      name: string;
+      phoneNumber?: string;
+      timestamp: Date;
+      duration: string;
+    };
+    contactIdentifier: string;
+  };
   BDMCameraScreen: undefined;
   BDMContactBook: undefined;
   BDMCallModal: undefined;
@@ -300,7 +313,7 @@ const DrawerNavigator = () => {
       <Drawer.Screen name="My Script" component={MyScript} />
       <Drawer.Screen name="DetailsScreen" component={DetailsScreen} />
       <Drawer.Screen name="Leaderboard" component={Leaderboard} />
-      <Drawer.Screen name="CameraScreen" component={CameraScreen} options={{ unmountOnBlur: true }} />
+      <Drawer.Screen name="CameraScreen" component={CameraScreen} options={{ headerShown: false }} />
       <Drawer.Screen name="TelecallerCreateFollowUp" component={TelecallerCreateFollowUp} />
       <Drawer.Screen name="My Schedule" component={MyScheduleScreen} />
       <Drawer.Screen name="ViewFullReport" component={ViewFullReport} />
@@ -316,9 +329,6 @@ const DrawerNavigator = () => {
       <Drawer.Screen name="TelecallerCallNoteDetails" component={TelecallerCallNoteDetails} />
       <Drawer.Screen name="TelecallerIdleTimer" component={TelecallerIdleTimer} />
       <Drawer.Screen name="AlertScreen" component={AlertScreen} />
-     
-
-    
       <Drawer.Screen name="TelecallerLeaveApplication" component={TelecallerLeaveApplication} />
       <Drawer.Screen name="ApplyLeaveScreen" component={ApplyLeaveScreen} />
       <Drawer.Screen name="CalendarViewScreen" component={CalendarViewScreen} />
@@ -532,9 +542,29 @@ function BDMStackNavigator() {
 }
 
 const RootStack = () => {
+  const [initialRoute, setInitialRoute] = useState<string | null>(null);
+
+  useEffect(() => {
+    checkFirstTimeUser();
+  }, []);
+
+  const checkFirstTimeUser = async () => {
+    try {
+      const hasSeenOnboarding = await AsyncStorage.getItem('hasSeenOnboarding');
+      setInitialRoute(hasSeenOnboarding ? 'Login' : 'Slide1');
+    } catch (error) {
+      console.error('Error checking first time user:', error);
+      setInitialRoute('Slide1'); // Default to onboarding if error
+    }
+  };
+
+  if (!initialRoute) {
+    return null; // Show loading state while checking
+  }
+
   return (
     <Stack.Navigator
-      initialRouteName="Slide1"
+      initialRouteName={initialRoute}
       screenOptions={{
         headerShown: false
       }}
@@ -546,7 +576,6 @@ const RootStack = () => {
       <Stack.Screen name="VerifyEmail" component={VerifyEmail} />
       <Stack.Screen name="SetNewPassword" component={SetNewPassword} />
       <Stack.Screen name="MainApp" component={DrawerNavigator} />
-      
       
       <Stack.Screen 
         name="BDMStack" 

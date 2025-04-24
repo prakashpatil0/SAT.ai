@@ -39,6 +39,7 @@ type RootStackParamList = {
       timestamp: Date;
       duration: number;
     };
+    contactIdentifier: string;
   };
 };
 
@@ -102,6 +103,36 @@ const TelecallerCallNoteDetails = () => {
 
   const CALL_NOTES_STORAGE_KEY = 'call_notes';
 
+  // Helper function to create a safe contact identifier
+  const createSafeContactIdentifier = (meeting: any): string => {
+    try {
+      if (!meeting || typeof meeting !== 'object') return 'unknown_contact';
+
+      if (meeting.phoneNumber && typeof meeting.phoneNumber === 'string') {
+        const cleanPhone = meeting.phoneNumber.replace(/[^0-9]/g, '');
+        if (cleanPhone.length > 3) {
+          return `phone_${cleanPhone}`;
+        }
+      }
+
+      if (meeting.contactName && typeof meeting.contactName === 'string') {
+        const cleanName = meeting.contactName
+          .trim()
+          .toLowerCase()
+          .replace(/\s+/g, '_')
+          .replace(/[^a-z0-9_]/g, '');
+        if (cleanName.length > 1) {
+          return `name_${cleanName}`;
+        }
+      }
+
+      return `unknown_${Date.now()}`;
+    } catch (error) {
+      console.error('Error creating contact identifier:', error);
+      return 'unknown_contact';
+    }
+  };
+
   const handleSubmit = async () => {
     if (notes.trim().length === 0) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
@@ -116,12 +147,19 @@ const TelecallerCallNoteDetails = () => {
         throw new Error('User not authenticated');
       }
 
+      // Create a unique contact identifier
+      const contactIdentifier = createSafeContactIdentifier({
+        phoneNumber: meeting.phoneNumber,
+        contactName: meeting.contactName
+      });
+
       // Create a unique call ID using timestamp and phone number
       const callId = `${meeting.phoneNumber}_${callTimestamp.getTime()}`;
 
       const noteData = {
+        id: callId,
         userId,
-        callId,
+        contactIdentifier,
         phoneNumber: meeting.phoneNumber,
         contactName: meeting.contactName || meeting.phoneNumber,
         notes,
@@ -133,24 +171,24 @@ const TelecallerCallNoteDetails = () => {
         type: meeting.type || 'outgoing'
       };
 
-      // Save to AsyncStorage
+      // Save to AsyncStorage with contact identifier grouping
       try {
         const existingNotesStr = await AsyncStorage.getItem(CALL_NOTES_STORAGE_KEY);
-        const existingNotes = existingNotesStr ? JSON.parse(existingNotesStr) : [];
-        
-        // Remove any existing note for this call
-        const filteredNotes = existingNotes.filter((note: any) => 
-          note.callId !== callId && 
-          new Date(note.callTimestamp).getTime() !== callTimestamp.getTime()
-        );
-        
-        // Add the new note
-        filteredNotes.push({
-          ...noteData,
-          id: Date.now().toString()
-        });
+        const allNotes = existingNotesStr ? JSON.parse(existingNotesStr) : {};
 
-        await AsyncStorage.setItem(CALL_NOTES_STORAGE_KEY, JSON.stringify(filteredNotes));
+        // Initialize contact's notes array if it doesn't exist
+        if (!allNotes[contactIdentifier]) {
+          allNotes[contactIdentifier] = [];
+        }
+
+        // Remove any existing note for this call
+        allNotes[contactIdentifier] = allNotes[contactIdentifier]
+          .filter((note: any) => note.id !== callId);
+
+        // Add the new note
+        allNotes[contactIdentifier].push(noteData);
+
+        await AsyncStorage.setItem(CALL_NOTES_STORAGE_KEY, JSON.stringify(allNotes));
       } catch (asyncError) {
         console.error('AsyncStorage save failed:', asyncError);
         throw new Error('Failed to save note to AsyncStorage');
@@ -158,7 +196,7 @@ const TelecallerCallNoteDetails = () => {
 
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       
-      // Navigate to TelecallerPersonNotes with properly formatted timestamp
+      // Navigate to TelecallerPersonNotes with all required parameters
       navigation.navigate('TelecallerPersonNotes', {
         phoneNumber: meeting.phoneNumber,
         name: meeting.contactName || meeting.phoneNumber,
@@ -166,13 +204,13 @@ const TelecallerCallNoteDetails = () => {
         duration: formatDuration(meeting.duration),
         status: status !== 'Mark Status' ? status : 'No Status',
         notes: [notes],
-        // phoneNumber: meeting.phoneNumber,
         contactInfo: {
           name: meeting.contactName || meeting.phoneNumber,
           phoneNumber: meeting.phoneNumber,
           timestamp: callTimestamp,
           duration: meeting.duration
-        }
+        },
+        contactIdentifier
       });
     } catch (error) {
       console.error('Error saving call notes:', error);

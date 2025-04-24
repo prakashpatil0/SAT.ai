@@ -23,48 +23,38 @@ type RootStackParamList = {
     };
   };
   TelecallerPersonNotes: {
-    meeting: {
-      id: string;
-      name: string;
-      time: string;
-      duration: string;
-      type: string;
-      status: string;
-      phoneNumber: string;
-      contactId?: string;
-      contactName?: string;
-      timestamp: Date;
-    };
+    name: string;
+    time: string;
+    duration: string;
+    status: string;
+    notes: string[];
+    phoneNumber: string;
     contactInfo: {
       name: string;
       phoneNumber: string;
       timestamp: Date;
       duration: number;
     };
+    contactIdentifier: string;
   };
 };
 
 type TelecallerPersonNoteProps = {
   route: {
     params: {
-      meeting: {
-        id: string;
-        name: string;
-        time: string;
-        duration: string;
-        type: string;
-        status: string;
-        phoneNumber: string;
-        contactId?: string;
-        contactName?: string;
-        timestamp: Date;
-      };
+      name: string;
+      time: string;
+      duration: string;
+      status: string;
+      notes: string[];
+      phoneNumber: string;
       contactInfo: {
         name: string;
         phoneNumber: string;
         timestamp: Date;
         duration: number;
       };
+      contactIdentifier: string;
     };
   };
 };
@@ -100,15 +90,15 @@ const getStatusColor = (status: string) => {
 
 const TelecallerPersonNotes = ({ route }: TelecallerPersonNoteProps) => {
   const navigation = useNavigation<any>();
-  const { meeting, contactInfo } = route.params || {};
+  const { name, time, duration, status, notes: initialNotes, phoneNumber, contactInfo, contactIdentifier } = route.params;
   const [allNotes, setAllNotes] = useState<CallNote[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
   const fetchNotes = async () => {
     try {
-      if (!meeting?.phoneNumber) {
-        console.warn('No meeting or phone number found');
+      if (!contactIdentifier) {
+        console.warn('No contact identifier found');
         setLoading(false);
         setRefreshing(false);
         return;
@@ -116,16 +106,13 @@ const TelecallerPersonNotes = ({ route }: TelecallerPersonNoteProps) => {
 
       // Get notes from AsyncStorage
       const storedNotesStr = await AsyncStorage.getItem(CALL_NOTES_STORAGE_KEY);
-      const storedNotes = storedNotesStr ? JSON.parse(storedNotesStr) : [];
+      const allStoredNotes = storedNotesStr ? JSON.parse(storedNotesStr) : {};
 
-      // Filter notes for this contact and specific call
-      const contactNotes = storedNotes.filter((note: any) => 
-        note.phoneNumber === meeting.phoneNumber &&
-        new Date(note.callTimestamp).getTime() === new Date(meeting.timestamp).getTime()
-      );
+      // Get notes for this specific contact
+      const contactNotes = allStoredNotes[contactIdentifier] || [];
 
       // Sort notes by timestamp in descending order
-      const sortedNotes = contactNotes.sort((a: any, b: any) => 
+      const sortedNotes = contactNotes.sort((a: CallNote, b: CallNote) => 
         new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
       );
 
@@ -139,12 +126,12 @@ const TelecallerPersonNotes = ({ route }: TelecallerPersonNoteProps) => {
   };
 
   useEffect(() => {
-    if (meeting?.phoneNumber) {
+    if (contactIdentifier) {
       fetchNotes();
     } else {
       setLoading(false);
     }
-  }, [meeting?.phoneNumber]);
+  }, [contactIdentifier]);
 
   const onRefresh = React.useCallback(() => {
     setRefreshing(true);
@@ -171,7 +158,7 @@ const TelecallerPersonNotes = ({ route }: TelecallerPersonNoteProps) => {
     // Create a properly formatted call object with all necessary data
     const callData = allNotes.map(note => ({
       id: note.id || Date.now().toString(),
-      phoneNumber: meeting.phoneNumber,
+      phoneNumber: phoneNumber,
       timestamp: note.callTimestamp,
       duration: note.callDuration,
       type: note.type || 'outgoing',
@@ -182,12 +169,12 @@ const TelecallerPersonNotes = ({ route }: TelecallerPersonNoteProps) => {
 
     navigation.navigate('CallHistory', {
       call: callData,
-      phoneNumber: meeting.phoneNumber,
+      phoneNumber: phoneNumber,
       contactName: contactInfo.name,
       notes: allNotes,
       contactInfo: {
         name: contactInfo.name,
-        phoneNumber: meeting.phoneNumber,
+        phoneNumber: phoneNumber,
         timestamp: contactInfo.timestamp,
         duration: contactInfo.duration
       }
@@ -222,7 +209,7 @@ const TelecallerPersonNotes = ({ route }: TelecallerPersonNoteProps) => {
     </View>
   );
 
-  if (!contactInfo || !meeting.phoneNumber) {
+  if (!contactInfo || !phoneNumber) {
     return (
       <LinearGradient colors={['#FFF8F0', '#FFF']} style={styles.container}>
         <TelecallerMainLayout showDrawer showBackButton={true} showBottomTabs={true}>
@@ -236,7 +223,7 @@ const TelecallerPersonNotes = ({ route }: TelecallerPersonNoteProps) => {
 
   return (
     <LinearGradient colors={['#FFF8F0', '#FFF']} style={styles.container}>
-      <TelecallerMainLayout showDrawer showBackButton={true} showBottomTabs={true} title={meeting.name}>
+      <TelecallerMainLayout showDrawer showBackButton={true} showBottomTabs={true} title={name}>
         <ScrollView 
           style={styles.content} 
           showsVerticalScrollIndicator={false}
@@ -312,25 +299,20 @@ const TelecallerPersonNotes = ({ route }: TelecallerPersonNoteProps) => {
             <TouchableOpacity 
               style={styles.addNoteButton}
               onPress={() => {
-                if (!meeting || !contactInfo) return;
-                
-                // Ensure we have a valid timestamp
-                const validTimestamp = meeting.timestamp instanceof Date 
-                  ? meeting.timestamp 
-                  : new Date(meeting.timestamp);
+                if (!contactInfo || !phoneNumber) return;
                 
                 navigation.navigate('TelecallerCallNoteDetails', {
                   meeting: {
-                    id: meeting.id || Date.now().toString(),
-                    name: meeting.name || contactInfo.name,
-                    time: format(validTimestamp, 'hh:mm a'),
-                    duration: meeting.duration.toString(),
-                    type: meeting.type || 'outgoing',
-                    status: meeting.status || 'completed',
-                    phoneNumber: meeting.phoneNumber,
-                    contactId: meeting.contactId,
-                    contactName: meeting.contactName || contactInfo.name,
-                    timestamp: validTimestamp.toISOString() // Convert to ISO string for safe transport
+                    id: Date.now().toString(),
+                    name: name,
+                    time: time,
+                    duration: duration,
+                    type: 'outgoing',
+                    status: status,
+                    phoneNumber: phoneNumber,
+                    contactId: contactIdentifier,
+                    contactName: contactInfo.name,
+                    timestamp: new Date().toISOString()
                   }
                 });
               }}

@@ -38,12 +38,12 @@ const ApplyLeaveScreen = () => {
   const [leaveTypeDropdownOpen, setLeaveTypeDropdownOpen] = useState(false);
   const [leaveType, setLeaveType] = useState<string | null>(null);
   const [leaveTypeOptions, setLeaveTypeOptions] = useState([
-    { label: "Earned Leave (20)", value: "Earned Leave" },
-    { label: "Sick Leave (13)", value: "Sick Leave" },
-    { label: "Casual Leave (08)", value: "Casual Leave" },
-    { label: "Emergency Leave (10)", value: "Emergency Leave" },
-    { label: "Maternity Leave (60)", value: "Maternity Leave" },
-    { label: "Other", value: "Other" },
+    { label: "Earned Leave (20)", value: "Earned Leave", fontFamily: 'LexendDeca_400Regular' },
+    { label: "Sick Leave (13)", value: "Sick Leave", fontFamily: 'LexendDeca_400Regular' },
+    { label: "Casual Leave (08)", value: "Casual Leave", fontFamily: 'LexendDeca_400Regular' },
+    { label: "Emergency Leave (10)", value: "Emergency Leave", fontFamily: 'LexendDeca_400Regular' },
+    { label: "Maternity Leave (60)", value: "Maternity Leave", fontFamily: 'LexendDeca_400Regular' },
+    { label: "Other", value: "Other", fontFamily: 'LexendDeca_400Regular' },
   ]);
 
   const [fromDate, setFromDate] = useState(new Date());
@@ -118,110 +118,7 @@ const ApplyLeaveScreen = () => {
     return diffDays <= 1 ? "1 day" : `${diffDays} days`;
   };
 
-  // const handleSubmit = async () => {
-  //   Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-
-  //   try {
-  //     const userId = auth.currentUser?.uid;
-  //     if (!userId) {
-  //       Alert.alert("Authentication Error", "You must be logged in to submit leave.");
-  //       return;
-  //     }
-
-  //     const userDocRef = doc(db, "users", userId);
-  //     const userDocSnap = await getDoc(userDocRef);
-  //     if (!userDocSnap.exists()) {
-  //       Alert.alert("Error", "User not found.");
-  //       return;
-  //     }
-
-  //     const userData = userDocSnap.data();
-  //     const employeeName = userData?.name || "Unknown";
-
-  //     let fileUrl = "";
-  //     if (uploadedFile) {
-  //       const response = await fetch(uploadedFile.uri);
-  //       const blob = await response.blob();
-  //       const cleanFileName = uploadedFile.name.replace(/[^\w.-]/g, "_");
-  //       const storageRef = ref(storage, `leave_documents/${Date.now()}_${cleanFileName}`);
-  //       await uploadBytes(storageRef, blob, {
-  //         contentType: uploadedFile.mimeType || "application/pdf",
-  //       });
-  //       fileUrl = await getDownloadURL(storageRef);
-  //     }
-
-  //     const duration = calculateLeaveDuration(fromDate, toDate);
-
-  //     const dataToSend = {
-  //       userId,
-  //       name: employeeName,
-  //       leaveType: leaveType || "Not Selected",
-  //       fromDate: Timestamp.fromDate(fromDate),
-  //       toDate: Timestamp.fromDate(toDate),
-  //       duration,
-  //       reason,
-  //       lineManager: selectedLineManager,
-  //       hrManager: selectedHrManager,
-  //       uploadedFileName: uploadedFile?.name || "",
-  //       uploadedFileURL: fileUrl,
-  //       status: "pending",
-  //       createdAt: Timestamp.now(),
-  //     };
-
-  //     await addDoc(collection(db, "leave_applications"), dataToSend);
-  //     console.log("✅ Leave application saved");
-
-  //     // ✅ Fetch HR Manager Email using UID (document ID)
-  //     console.log("🔍 Selected HR Manager UID:", selectedHrManager);
-  //     const hrDocRef = doc(db, "users", selectedHrManager);
-  //     const hrDocSnap = await getDoc(hrDocRef);
-
-  //     if (!hrDocSnap.exists()) {
-  //       console.warn("⚠️ HR manager document not found");
-  //       return;
-  //     }
-
-  //     const hrEmail = hrDocSnap.data().email;
-  //     console.log("📧 HR Email:", hrEmail);
-
-  //     // ✅ Send Email to HR Manager
-  //     const response = await fetch("https://us-central1-sat1-f51fd.cloudfunctions.net/sendLeaveEmail", {
-  //       method: "POST",
-  //       headers: {
-  //         "Content-Type": "application/json"
-  //       },
-  //       body: JSON.stringify({
-  //         to: hrEmail,
-  //         subject: `New Leave Request from ${employeeName}`,
-  //         html: `
-  //           <div style="font-family: Arial;">
-  //             <h2>Leave Application Submitted</h2>
-  //             <p><strong>Employee:</strong> ${employeeName}</p>
-  //             <p><strong>Leave Type:</strong> ${leaveType}</p>
-  //             <p><strong>From:</strong> ${fromDate.toDateString()}</p>
-  //             <p><strong>To:</strong> ${toDate.toDateString()}</p>
-  //             <p><strong>Duration:</strong> ${duration}</p>
-  //             <p><strong>Reason:</strong> ${reason}</p>
-  //           </div>
-  //         `
-  //       })
-  //     });
-
-  //     if (response.ok) {
-  //       console.log("✅ Email sent successfully to HR manager");
-  //     } else {
-  //       console.error("❌ Failed to send email:", await response.text());
-  //     }
-
-  //     Alert.alert("Success", "Leave submitted and email sent to HR Manager!");
-  //     navigation.goBack();
-
-  //   } catch (error) {
-  //     console.error("❌ Error submitting leave application:", error);
-  //     Alert.alert("Error", "Something went wrong. Please try again.");
-  //   }
-  // };
-
+ 
   const handleSubmit = async () => {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
@@ -468,6 +365,7 @@ const ApplyLeaveScreen = () => {
                   style={styles.dropdownHalf}
                   dropDownContainerStyle={{ borderColor: "#ddd" }}
                 />
+                
               </View>
             </View>
 
@@ -505,7 +403,7 @@ const ApplyLeaveScreen = () => {
             </View>
 
             <TouchableOpacity style={styles.submitBtn} onPress={handleSubmit}>
-              <Text style={{ color: "white", fontWeight: "bold" }}>Submit</Text>
+              <Text style={{ color: "white", fontFamily: 'LexendDeca_600SemiBold', fontSize: 16 }}>Submit</Text>
             </TouchableOpacity>
           </ScrollView>
         </KeyboardAvoidingView>
@@ -518,7 +416,7 @@ const ApplyLeaveScreen = () => {
 
 const styles = StyleSheet.create({
   container: { padding: 16 },
-  label: { fontSize: 16, marginBottom: 10, fontWeight: "500" },
+  label: { fontSize: 16, marginBottom: 10, fontFamily: 'LexendDeca_500Medium' },
   fromToRow: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -543,7 +441,7 @@ const styles = StyleSheet.create({
     marginBottom: 20,
     gap: 12,
   },
-  dropdownLabel: { fontSize: 16, fontWeight: "500", width: "30%" },
+  dropdownLabel: { fontSize: 16, fontFamily: 'LexendDeca_500Medium', width: "30%" },
   dropdownHalf: { borderColor: "#ddd", backgroundColor: "#fff", width: "68%" },
   dropdownFull: { borderColor: "#ddd", backgroundColor: "#fff" },
   notesContainer: {
@@ -556,6 +454,7 @@ const styles = StyleSheet.create({
   },
   textarea: {
     fontSize: 16,
+    fontFamily: 'LexendDeca_500Medium',
     color: "#333",
     minHeight: 120,
     textAlignVertical: "top",
@@ -570,13 +469,13 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#eee",
   },
-  fileName: { flex: 1, marginHorizontal: 8, fontSize: 14, color: "#333" },
+  fileName: { flex: 1, marginHorizontal: 8, fontSize: 14, color: "#333", fontFamily: 'LexendDeca_400Regular' },
   bottomArea: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
   },
-  charCount: { fontSize: 12, color: "#999" },
+  charCount: { fontSize: 12, color: "#999", fontFamily: 'LexendDeca_400Regular' },
   submitBtn: {
     flexDirection: "row",
     backgroundColor: "#ff914d",

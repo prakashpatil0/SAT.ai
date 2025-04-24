@@ -605,7 +605,7 @@ const AttendanceScreen = () => {
             </View>
 
             {/* Calendar Card */}
-            {!isNewUser && (
+            {/* {!isNewUser && (
               <View style={styles.calendarCard}>
                 <Text style={styles.dateHeader}>
                   {format(currentDate, 'dd MMMM (EEEE)')}
@@ -636,7 +636,7 @@ const AttendanceScreen = () => {
                   ))}
                 </View>
               </View>
-            )}
+            )} */}
 
             {/* Month Selector */}
             {!isNewUser && (

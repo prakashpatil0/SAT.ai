@@ -16,6 +16,7 @@ import WaveSkeleton from '@/app/components/WaveSkeleton';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system';
 
+
 const STORAGE_KEY = '@attendance_records';
 const SYNC_INTERVAL = 60 * 1000; // Sync every minute
 const LOCATION_CACHE_TIMEOUT = 5 * 60 * 1000; // 5 minutes
@@ -613,20 +614,19 @@ const BDMAttendanceScreen = () => {
     const startOfWeek = new Date(today);
     startOfWeek.setDate(today.getDate() - adjustedDay); // Go back to Monday
     
-    const updatedWeekDays = weekDaysStatus.map((day, index) => {
-      // Calculate the date for this weekday
-      const currentDate = new Date(startOfWeek);
-      currentDate.setDate(startOfWeek.getDate() + index);
-      const dateStr = format(currentDate, 'dd');
-      
-      return { 
-        day: day.day,
-        date: dateStr,
-        status: (index <= adjustedDay ? 'active' : 'inactive') as 'active' | 'inactive' | 'Present' | 'Half Day' | 'On Leave'
-      };
-    });
+    {weekDaysStatus.map((day, index) => (
+      <View key={index} style={styles.dayContainer}>
+        <View style={[styles.dayCircle, {
+          backgroundColor: getStatusCircleColor(day.status),
+          borderColor: getStatusBorderColor(day.status)
+        }]}>
+          {getStatusIcon(day.status)}
+        </View>
+        ...
+      </View>
+    ))}
+     
     
-    setWeekDaysStatus(updatedWeekDays);
   };
 
   // Cache location for faster loading
@@ -858,26 +858,22 @@ const BDMAttendanceScreen = () => {
   const calculateAttendanceStatus = (punchIn: string, punchOut: string): 'Present' | 'Half Day' | 'On Leave' => {
     try {
       if (!punchIn || !punchOut) return 'On Leave';
-
+  
       const punchInTime = parse(punchIn, 'HH:mm', new Date());
-      const punchOutTime = parse(punchOut, 'HH:mm', new Date());
-
-      if (isNaN(punchInTime.getTime()) || isNaN(punchOutTime.getTime())) {
-        console.warn('Invalid punch times:', { punchIn, punchOut });
+      if (isNaN(punchInTime.getTime())) {
         return 'On Leave';
       }
-
-      // Calculate duration in hours
-      const durationInMinutes = (punchOutTime.getTime() - punchInTime.getTime()) / (1000 * 60);
-      const durationInHours = durationInMinutes / 60;
-
-      // Return status based on duration
-      return durationInHours >= REQUIRED_HOURS ? 'Present' : 'Half Day';
+  
+      const threshold = new Date();
+      threshold.setHours(9, 45, 0, 0); // 9:45 AM threshold
+  
+      return punchInTime <= threshold ? 'Present' : 'Half Day';
     } catch (error) {
-      console.error('Error calculating attendance status:', error);
+      console.error('Error calculating status:', error);
       return 'On Leave';
     }
   };
+  
 
   const handlePunch = async () => {
     try {
@@ -1013,22 +1009,17 @@ const BDMAttendanceScreen = () => {
   };
 
   const getStatusIcon = (status: string) => {
-  switch (status) {
-    case 'Present':
-      return <MaterialIcons name="check" size={16} color="#FFF" />;
-    case 'Half Day':
-      return <MaterialIcons name="remove" size={16} color="#FFF" />;
-    case 'On Leave':
-      return <MaterialIcons name="close" size={16} color="#FFF" />;
-    case 'active': // Today's date (no punch yet)
-      return null;
-    case 'inactive': // Future date
-      return null;
-    default:
-      return null;
-  }
-};
-
+    switch (status) {
+      case 'Present':
+        return <MaterialIcons name="check" size={16} color="#FFF" />;
+      case 'Half Day':
+        return <MaterialIcons name="remove" size={16} color="#FFF" />;
+      case 'On Leave':
+      default:
+        return <MaterialIcons name="close" size={16} color="#FFF" />;
+    }
+  };
+  
   const handleMapReady = () => {
     setMapReady(true);
     console.log('Map is ready');
@@ -1976,29 +1967,31 @@ const BDMAttendanceScreen = () => {
       }
 
       // Calculate status with validated times
-      newRecord.status = calculateAttendanceStatus(
-        newRecord.punchIn,
-        newRecord.punchOut
-      );
+     // Calculate status with validated times
+newRecord.status = calculateAttendanceStatus(
+  newRecord.punchIn,
+  newRecord.punchOut
+);
+
 
       // Save to local storage
       await saveToLocalStorage(newRecord);
 
       // Update UI
-      if (isPunchIn) {
-        setPunchInTime(format(currentTime, 'hh:mm a'));
-        setIsPunchedIn(true);
-      } else {
-        setPunchOutTime(format(currentTime, 'hh:mm a'));
-        setIsPunchedIn(false);
-      }
+     // Update UI
+if (isPunchIn) {
+  setPunchInTime(format(currentTime, 'hh:mm a'));
+  setIsPunchedIn(true);
+} else {
+  setPunchOutTime(format(currentTime, 'hh:mm a'));
+  setIsPunchedIn(false);
+}
 
-      setTodayRecord(newRecord);
-
-      // Try to sync if online
-      if (await checkNetworkStatus()) {
-        syncWithFirebase();
-      }
+// Update today record with updated status
+setTodayRecord({
+  ...newRecord,
+  status: newRecord.status, // force update
+});
 
       Alert.alert(
         'Success',
@@ -2352,7 +2345,9 @@ const BDMAttendanceScreen = () => {
                       </View>
                     </View>
                     <View style={[styles.statusBadge, getStatusStyle(record.status)]}>
-                      <Text style={[styles.statusText, getStatusTextStyle(record.status)]}>{record.status}</Text>
+                    <Text style={[styles.statusText, getStatusTextStyle(record.status)]}>
+  {record.status}
+</Text>
                     </View>
                   </View>
                 ))

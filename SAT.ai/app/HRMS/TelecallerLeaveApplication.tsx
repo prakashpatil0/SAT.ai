@@ -1,4 +1,6 @@
 import React, { useState, useRef, useEffect } from "react";
+import { format } from "date-fns";
+
 import {
   View,
   Text,
@@ -20,15 +22,25 @@ import { Dropdown } from "react-native-element-dropdown";
 import { useNavigation } from "@react-navigation/native";
 
 import { auth, db, storage } from "@/firebaseConfig";
-import { collection, getDocs, query, where,onSnapshot} from "firebase/firestore"; // Importing necessary Firestore functions
+import {
+  collection,
+  getDocs,
+  query,
+  where,
+  onSnapshot,
+} from "firebase/firestore"; // Importing necessary Firestore functions
 
 const { width } = Dimensions.get("window");
 
 const TelecallerLeaveApplication: React.FC = () => {
   const [earnedLeaveData, setEarnedLeaveData] = useState([]);
-  const [selectedLeaveType, setSelectedLeaveType] = useState("leaves");
-  const [selectedTimeFrame, setSelectedTimeFrame] = useState("this_quarter");
+  const [selectedLeaveType, setSelectedLeaveType] = useState("");
+  const [selectedTimeFrame, setSelectedTimeFrame] = useState("");
+  const [selectedPastLeaveType, setSelectedPastLeaveType] = useState("");
+  const [selectedPastTimeFrame, setSelectedPastTimeFrame] = useState("");
+
   const [currentIndex, setCurrentIndex] = useState(0);
+  const [pastLeaves, setPastLeaves] = useState([]);
 
   const flatListRef = useRef(null);
 
@@ -44,40 +56,220 @@ const TelecallerLeaveApplication: React.FC = () => {
     { label: "This Year", value: "this_year" },
     { label: "Past Year", value: "past_year" },
   ];
-  const leaveTypes = [
-    {
-      id: "1",
-      title: "Sick Leave",
-      granted: 25,
-      taken: 12,
-      available: 13,
+
+  useEffect(() => {
+    const userId = auth.currentUser?.uid;
+    if (!userId) return;
+
+    const today = new Date();
+    let startDate = null;
+    let endDate = today;
+
+    if (selectedPastTimeFrame === "this_quarter") {
+      const currentMonth = today.getMonth();
+      const currentYear = today.getFullYear();
+      const quarterStartMonth = Math.floor(currentMonth / 3) * 3;
+      startDate = new Date(currentYear, quarterStartMonth, 1);
+    } else if (selectedPastTimeFrame === "this_year") {
+      const year = today.getFullYear();
+      startDate = new Date(year, 0, 1);
+    } else if (selectedPastTimeFrame === "past_year") {
+      const year = today.getFullYear() - 1;
+      startDate = new Date(year, 0, 1);
+      endDate = new Date(year, 11, 31);
+    }
+
+    let baseQuery = query(
+      collection(db, "leave_applications"),
+      where("userId", "==", userId),
+      where("status", "==", "approved"),
+      where("toDate", "<=", endDate)
+    );
+
+    if (startDate) {
+      baseQuery = query(baseQuery, where("toDate", ">=", startDate));
+    }
+
+    const unsubscribe = onSnapshot(baseQuery, (snapshot) => {
+      let data = snapshot.docs.map((doc) => {
+        const item = doc.data();
+        return {
+          id: doc.id,
+          leaveType: item.leaveType,
+          fromDate: item.fromDate?.toDate?.(),
+          toDate: item.toDate?.toDate?.(),
+        };
+      });
+
+      if (selectedPastLeaveType === "leaves") {
+        setPastLeaves(data);
+      } else {
+        setPastLeaves([]); // Adjust if holidays data is implemented later
+      }
+    });
+
+    return () => unsubscribe();
+  }, [selectedPastLeaveType, selectedPastTimeFrame]);
+
+  const [upcomingLeaves, setUpcomingLeaves] = useState([]);
+
+  useEffect(() => {
+    const userId = auth.currentUser?.uid;
+    if (!userId) return;
+
+    const today = new Date();
+    let startDate = today;
+    let endDate = null; // open-ended unless filtered
+
+    // Only apply filtering if a timeframe is selected
+    if (selectedTimeFrame === "this_quarter") {
+      const currentMonth = today.getMonth();
+      const currentYear = today.getFullYear();
+      const quarterStartMonth = Math.floor(currentMonth / 3) * 3;
+      startDate = new Date(currentYear, quarterStartMonth, 1);
+      endDate = new Date(currentYear, quarterStartMonth + 3, 0);
+    } else if (selectedTimeFrame === "this_year") {
+      const year = today.getFullYear();
+      startDate = new Date(year, 0, 1);
+      endDate = new Date(year, 11, 31);
+    } else if (selectedTimeFrame === "past_year") {
+      const year = today.getFullYear() - 1;
+      startDate = new Date(year, 0, 1);
+      endDate = new Date(year, 11, 31);
+    }
+
+    const isLeaveSelected = selectedLeaveType === "leaves";
+
+    // Build query dynamically
+    let baseQuery = query(
+      collection(db, "leave_applications"),
+      where("userId", "==", userId),
+      where("status", "==", "approved"),
+      where("fromDate", ">=", startDate)
+    );
+
+    // Only apply "endDate" condition if selectedTimeFrame is not empty
+    if (selectedTimeFrame !== "" && endDate) {
+      baseQuery = query(baseQuery, where("fromDate", "<=", endDate));
+    }
+
+    const unsubscribe = onSnapshot(baseQuery, (snapshot) => {
+      const data = snapshot.docs.map((doc) => {
+        const item = doc.data();
+        return {
+          id: doc.id,
+          leaveType: item.leaveType,
+          fromDate: item.fromDate?.toDate?.(),
+          toDate: item.toDate?.toDate?.(),
+        };
+      });
+
+      setUpcomingLeaves(isLeaveSelected ? data : []);
+    });
+
+    return () => unsubscribe();
+  }, [selectedLeaveType, selectedTimeFrame]);
+
+  const leaveAssets = {
+    "Sick Leave": {
       image: require("@/assets/images/sick.png"),
+      bgColor: "#FFD9E0",
     },
-    {
-      id: "2",
-      title: "Emergency Leave",
-      granted: 25,
-      taken: 15,
-      available: 10,
+    "Emergency Leave": {
       image: require("@/assets/images/emergency.png"),
+      bgColor: "#FFD9E0",
     },
-    {
-      id: "3",
-      title: "Casual Leave",
-      granted: 20,
-      taken: 5,
-      available: 15,
+    "Casual Leave": {
       image: require("@/assets/images/casual.png"),
+      bgColor: "#D9F8FF",
     },
-    {
-      id: "4",
-      title: "Maternity Leave",
-      granted: 90,
-      taken: 30,
-      available: 60,
+    "Maternity Leave": {
       image: require("@/assets/images/maternity.png"),
+      bgColor: "#D9F8FF",
     },
-  ];
+    "Earned Leave": {
+      image: require("@/assets/images/earned.png"),
+      bgColor: "#FFD9F7",
+    },
+  };
+
+  const useLeaveData = (userId: any) => {
+    const [leaveTypes, setLeaveTypes] = useState([
+      {
+        id: "1",
+        title: "Sick Leave",
+        granted: 25,
+        taken: 0,
+        available: 25,
+        image: require("@/assets/images/sick.png"),
+      },
+      {
+        id: "2",
+        title: "Emergency Leave",
+        granted: 25,
+        taken: 0,
+        available: 25,
+        image: require("@/assets/images/emergency.png"),
+      },
+      {
+        id: "3",
+        title: "Casual Leave",
+        granted: 20,
+        taken: 0,
+        available: 20,
+        image: require("@/assets/images/casual.png"),
+      },
+      {
+        id: "4",
+        title: "Maternity Leave",
+        granted: 90,
+        taken: 0,
+        available: 90,
+        image: require("@/assets/images/maternity.png"),
+      },
+    ]);
+
+    useEffect(() => {
+      if (!userId) return;
+
+      const q = query(
+        collection(db, "leave_applications"),
+        where("userId", "==", userId),
+        where("status", "==", "approved")
+      );
+
+      const unsubscribe = onSnapshot(q, (snapshot) => {
+        const leaveTaken: Record<string, number> = {};
+
+        snapshot.forEach((doc) => {
+          const data = doc.data();
+          const type = data.leaveType;
+          const duration = data.duration?.toString() ?? "0";
+
+          // Parse "4 days" or "1.5 days" → 4 or 1.5
+          const days = parseFloat(duration.replace(/[^\d.]/g, "")) || 0;
+
+          leaveTaken[type] = (leaveTaken[type] || 0) + days;
+        });
+
+        const updated = leaveTypes.map((leave) => {
+          const taken = leaveTaken[leave.title] || 0;
+          const available = leave.granted - taken;
+          return { ...leave, taken, available };
+        });
+
+        setLeaveTypes(updated);
+      });
+
+      return () => unsubscribe();
+    }, [userId]);
+
+    return leaveTypes;
+  };
+
+  const userId = auth.currentUser?.uid;
+  const leaveTypes = useLeaveData(userId);
+
   const renderLeaveCard = ({ item }) => (
     <View style={styles.card}>
       <Text style={styles.cardTitle}>{item.title}</Text>
@@ -134,11 +326,13 @@ const TelecallerLeaveApplication: React.FC = () => {
       setCurrentIndex(newIndex);
     }
   };
-   // Fetching Earned Leave data in real-time
-   useEffect(() => {
+  // Fetching Earned Leave data in real-time
+  useEffect(() => {
     const q = query(
       collection(db, "leave_applications"), // Replace 'leaveRequests' with your actual Firestore collection name
-      where("leaveType", "==", "Earned Leave")
+      where("userId", "==", userId),
+      where("leaveType", "==", "Earned Leave"),
+      where("status", "==", "approved")
     );
 
     // Using onSnapshot() to listen to real-time updates
@@ -152,14 +346,15 @@ const TelecallerLeaveApplication: React.FC = () => {
   }, []);
 
   return (
-    <AppGradient>
+    <AppGradient style={{ flex: 1 }}>
       <TelecallerMainLayout
         showDrawer
         showBackButton={true}
         showBottomTabs={true}
         title={"Leave Application"}
+        style={{ flex: 1 }}
       >
-        <ScrollView style={styles.container}>
+        <ScrollView contentContainerStyle={styles.container}>
           {/* Top Button Row */}
           <View style={styles.header}>
             <View style={styles.iconRow}>
@@ -198,10 +393,14 @@ const TelecallerLeaveApplication: React.FC = () => {
             </TouchableOpacity>
           </View>
 
-           {/* Earned Leave Section */}
-           <View style={styles.leaveCountBox}>
+          {/* Earned Leave Section */}
+          <View style={styles.leaveCountBox}>
             <Text style={styles.earnedTitle}>Earned Leave</Text>
-            <Text>{earnedLeaveData.length > 0 ? `${earnedLeaveData.length} days` : "No data found"}</Text>
+            <Text>
+              {earnedLeaveData.length > 0
+                ? `${earnedLeaveData.length} days`
+                : "No data found"}
+            </Text>
           </View>
 
           <View style={styles.leaveBox}>
@@ -213,29 +412,28 @@ const TelecallerLeaveApplication: React.FC = () => {
               horizontal
               pagingEnabled
               showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ paddingVertical: 10, flexGrow: 1 }}
               onMomentumScrollEnd={(event) => {
                 const index = Math.round(
                   event.nativeEvent.contentOffset.x / ((width * 0.9) / 2)
                 );
                 setCurrentIndex(index);
               }}
-              contentContainerStyle={{ paddingVertical: 10 }}
             />
 
             {/* Prev Arrow (only show if not at the first slide) */}
-{currentIndex !== 0 && (
-  <TouchableOpacity style={styles.prevBtn} onPress={handlePrev}>
-    <Ionicons name="chevron-back" size={20} color="black" />
-  </TouchableOpacity>
-)}
+            {currentIndex !== 0 && (
+              <TouchableOpacity style={styles.prevBtn} onPress={handlePrev}>
+                <Ionicons name="chevron-back" size={20} color="black" />
+              </TouchableOpacity>
+            )}
 
-{/* Next Arrow (only show if not at the last slide) */}
-{currentIndex < leaveTypes.length - 2 && (
-  <TouchableOpacity style={styles.nextBtn} onPress={handleNext}>
-    <Ionicons name="chevron-forward" size={20} color="black" />
-  </TouchableOpacity>
-)}
-
+            {/* Next Arrow (only show if not at the last slide) */}
+            {currentIndex < leaveTypes.length - 2 && (
+              <TouchableOpacity style={styles.nextBtn} onPress={handleNext}>
+                <Ionicons name="chevron-forward" size={20} color="black" />
+              </TouchableOpacity>
+            )}
           </View>
 
           <View style={styles.dotRow}>
@@ -254,7 +452,6 @@ const TelecallerLeaveApplication: React.FC = () => {
           </View>
 
           <View style={styles.Box}>
-            {/* Upcoming Leaves */}
             <Text style={styles.sectionTitle}>Upcoming Leaves & Holidays</Text>
 
             <View style={styles.filterBox}>
@@ -264,7 +461,7 @@ const TelecallerLeaveApplication: React.FC = () => {
                   data={leaveTypeOptions}
                   labelField="label"
                   valueField="value"
-                  placeholder="Select Leave Type"
+                  placeholder="Leave Type"
                   value={selectedLeaveType}
                   onChange={(item) => {
                     setSelectedLeaveType(item.value);
@@ -278,7 +475,7 @@ const TelecallerLeaveApplication: React.FC = () => {
                   data={timeFrameOptions}
                   labelField="label"
                   valueField="value"
-                  placeholder="Select Time Frame"
+                  placeholder="Time Frame"
                   value={selectedTimeFrame}
                   onChange={(item) => {
                     setSelectedTimeFrame(item.value);
@@ -287,60 +484,109 @@ const TelecallerLeaveApplication: React.FC = () => {
               </View>
             </View>
 
-            <View style={styles.leaveItem}>
-              <View
-                style={[
-                  styles.iconImageBg,
-                  { backgroundColor: "#D9F8FF" }, // Casual Leave BG
-                ]}
-              >
+            {upcomingLeaves.length > 0 ? (
+              upcomingLeaves.map((leave) => {
+                const { image, bgColor } = leaveAssets[leave.leaveType] || {};
+
+                return (
+                  <View key={leave.id} style={styles.leaveItem}>
+                    <View
+                      style={[
+                        styles.iconImageBg,
+                        { backgroundColor: bgColor || "#eee" },
+                      ]}
+                    >
+                      <Image source={image} style={styles.iconImage} />
+                    </View>
+                    <View style={{ marginLeft: 10 }}>
+                      <Text style={styles.leaveType}>{leave.leaveType}</Text>
+                      <Text style={styles.leaveDate}>
+                        {format(leave.fromDate, "dd MMM yyyy")} -{" "}
+                        {format(leave.toDate, "dd MMM yyyy")}
+                      </Text>
+                    </View>
+                  </View>
+                );
+              })
+            ) : (
+              <View style={styles.noData}>
                 <Image
-                  source={require("@/assets/images/casual.png")}
-                  style={styles.iconImage}
+                  source={require("@/assets/images/pastimage.png")}
+                  style={styles.noDataImage}
+                  resizeMode="contain"
                 />
               </View>
-
-              <View style={{ marginLeft: 10 }}>
-                <Text style={styles.leaveType}>Casual Leave</Text>
-                <Text style={styles.leaveDate}>
-                  10 April 2025 - 12 April 2025
-                </Text>
-              </View>
-            </View>
-
-            <View style={styles.leaveItem}>
-              <View
-                style={[
-                  styles.iconImageBg,
-                  { backgroundColor: "#FFD9E0" }, // Emergency Leave BG
-                ]}
-              >
-                <Image
-                  source={require("@/assets/images/emergency.png")}
-                  style={styles.iconImage}
-                />
-              </View>
-
-              <View style={{ marginLeft: 10 }}>
-                <Text style={styles.leaveType}>Emergency Leave</Text>
-                <Text style={styles.leaveDate}>
-                  10 April 2025 - 12 April 2025
-                </Text>
-              </View>
-            </View>
+            )}
           </View>
+
           {/* Past Leave */}
           <View style={styles.Box}>
             <Text style={styles.sectionTitle}>Past Leaves & Holidays</Text>
 
-            <View style={styles.noData}>
-              <Image
-                source={require("@/assets/images/pastimage.png")}
-                style={styles.noDataImage}
-              />
+            {/* Filter dropdowns for Past Leaves */}
+            <View style={styles.filterBox}>
+              <View style={styles.dropdownContainer}>
+                <Dropdown
+                  style={styles.dropdown}
+                  data={leaveTypeOptions}
+                  labelField="label"
+                  valueField="value"
+                  placeholder="Leave Type"
+                  value={selectedPastLeaveType}
+                  onChange={(item) => {
+                    setSelectedPastLeaveType(item.value);
+                  }}
+                />
+              </View>
 
-              <Text>No Result Found</Text>
+              <View style={styles.dropdownContainer}>
+                <Dropdown
+                  style={styles.dropdown}
+                  data={timeFrameOptions}
+                  labelField="label"
+                  valueField="value"
+                  placeholder="Time Frame"
+                  value={selectedPastTimeFrame}
+                  onChange={(item) => {
+                    setSelectedPastTimeFrame(item.value);
+                  }}
+                />
+              </View>
             </View>
+
+            {/* Display Past Leaves */}
+            {pastLeaves.length > 0 ? (
+              pastLeaves.map((leave) => {
+                const { image, bgColor } = leaveAssets[leave.leaveType] || {};
+                return (
+                  <View key={leave.id} style={styles.leaveItem}>
+                    <View
+                      style={[
+                        styles.iconImageBg,
+                        { backgroundColor: bgColor || "#eee" },
+                      ]}
+                    >
+                      <Image source={image} style={styles.iconImage} />
+                    </View>
+                    <View style={{ marginLeft: 10 }}>
+                      <Text style={styles.leaveType}>{leave.leaveType}</Text>
+                      <Text style={styles.leaveDate}>
+                        {format(leave.fromDate, "dd MMM yyyy")} -{" "}
+                        {format(leave.toDate, "dd MMM yyyy")}
+                      </Text>
+                    </View>
+                  </View>
+                );
+              })
+            ) : (
+              <View style={styles.noData}>
+                <Image
+                  source={require("@/assets/images/pastimage.png")}
+                  style={styles.noDataImage}
+                  resizeMode="contain"
+                />
+              </View>
+            )}
           </View>
         </ScrollView>
       </TelecallerMainLayout>
@@ -352,6 +598,8 @@ const styles = StyleSheet.create({
   container: {
     padding: 10,
     marginBottom: 50,
+    paddingBottom: 80, // Adds padding at bottom for visibility
+    flexGrow: 1, // Enables proper scrolling
   },
   Box: {
     padding: 10,
@@ -365,7 +613,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 15,
+    marginBottom: 20,
   },
   iconRow: {
     flexDirection: "row",
@@ -398,7 +646,6 @@ const styles = StyleSheet.create({
   leaveCountBox: {
     flexDirection: "row",
     justifyContent: "space-between",
-    marginBottom: 10,
     backgroundColor: "white",
     padding: 15,
     borderRadius: 10,
@@ -423,15 +670,12 @@ const styles = StyleSheet.create({
     fontSize: 18,
     textAlign: "center", // Add this line
   },
-
   noData: {
     alignItems: "center",
-    marginTop: 20,
   },
   noDataImage: {
-    width: 300,
-    height: 300,
-    marginBottom: 10,
+    width: width * 0.7, // 80% of screen width
+    height: width * 0.7, // maintain aspect ratio
   },
   dropdown: {
     height: 40,

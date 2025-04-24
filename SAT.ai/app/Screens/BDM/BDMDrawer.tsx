@@ -244,7 +244,7 @@ const BDMDrawer = (props: DrawerContentComponentProps) => {
           />
         </View>
                 <DrawerItem
-                  label="Leave Application"
+                  label="HR-leave (under development)"
                   icon={({ color, size }) => <MaterialCommunityIcons name="calendar-star" size={size} color="#09142D" />}
                   labelStyle={styles.menuText}
                   style={styles.drawerItem}

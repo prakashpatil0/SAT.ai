@@ -17,6 +17,7 @@ type RootStackParamList = {
   Login: undefined;
   MainApp: undefined;
   BDMStack: undefined;
+  HrStack: undefined; // ✅ Add this screen
   SignUpScreen: undefined;
   AdminDrawer: undefined;
   ForgotPassword: undefined;
@@ -217,27 +218,22 @@ const LoginScreen = () => {
   const navigateBasedOnRole = (role: string) => {
     switch (role.toLowerCase()) {
       case 'telecaller':
-        navigation.reset({
-          index: 0,
-          routes: [{ name: 'MainApp' }],
-        });
+        navigation.reset({ index: 0, routes: [{ name: 'MainApp' }] });
         break;
       case 'bdm':
-        navigation.reset({
-          index: 0,
-          routes: [{ name: 'BDMStack' }],
-        });
+        navigation.reset({ index: 0, routes: [{ name: 'BDMStack' }] });
         break;
       case 'admin':
-        navigation.reset({
-          index: 0,
-          routes: [{ name: 'AdminDrawer' }],
-        });
+        navigation.reset({ index: 0, routes: [{ name: 'AdminDrawer' }] });
+        break;
+      case 'hrmanager': // ✅ Add this
+        navigation.reset({ index: 0, routes: [{ name: 'HrStack' }] });
         break;
       default:
         showCustomAlert('Oops! Something went wrong. Please contact support.');
     }
   };
+  
 
   return (
     <AppGradient>

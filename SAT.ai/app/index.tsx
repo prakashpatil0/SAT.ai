@@ -36,7 +36,6 @@ import AddContactModal from "@/app/Screens/Telecaller/TelecallerAddContactModal"
 import CallHistory from "./Screens/Telecaller/TelecallerCallHistory";
 import TelecallerPersonNotes from "@/app/Screens/Telecaller/TelecallerPersonNotes";
 import ContactBook from "@/app/components/ContactBook/ContactBook";
-import TelecallerLeaveApplication from "@/app/HRMS/TelecallerLeaveApplication";
 
 import BDMBottomTabs from "@/app/Screens/BDM/BDMBottomTabs";
 import BDMContactDetailsScreen from "@/app/Screens/BDM/BDMContactDetailsScreen";
@@ -79,8 +78,14 @@ import AlertScreen from "@/app/Screens/Telecaller/Tab/AlertScreen";
 import TelecallerIdleTimer from "./Screens/Telecaller/Tab/TelecallerIdleTimer";
 import BDMContactBook from "@/app/components/ContactBook/BDMContactBook"
 
+
+import HrHomeScreen from "@/app/HRMS/Tab/HrHomeScreen";
+import HrDrawer from "@/app/HRMS/HrDrawer";
+import HrProfile from "./HRMS/DrawerTab/HrProfile";
 import ApplyLeaveScreen from "@/app/HRMS/ApplyLeaveScreen";
 import CalendarViewScreen from "@/app/HRMS/CalendarViewScreen";
+import TelecallerLeaveApplication from "@/app/HRMS/TelecallerLeaveApplication";
+import HrSettings from "./HRMS/DrawerTab/HrSettings";
 
 export type RootStackParamList = {
   // Auth Screens
@@ -97,6 +102,15 @@ export type RootStackParamList = {
   Profile: undefined;
   ContactBook: undefined;
   
+// HRMS Screens
+  HrHomeScreen: undefined;
+  HrStackNavigator: undefined;
+  HrProfile: undefined;
+  HrSettings: undefined;
+
+
+
+
   // BDM Screens
   MeetingDetails: { meetingId: string };
   DealDetails: { dealId: string };
@@ -266,6 +280,14 @@ export type BDMStackParamList = {
   BDMMeetingReports: undefined;
 };
 
+export type HrStackParamList = {
+  HrHomeScreen: undefined;
+  TelecallerLeaveApplication: undefined;
+  ApplyLeaveScreen: undefined;
+  CalendarViewScreen: undefined;
+  HrProfile: undefined;
+  HrSettings: undefined;
+};
 // Prevent splash screen from hiding automatically
 SplashScreen.preventAutoHideAsync();
 
@@ -541,6 +563,78 @@ function BDMStackNavigator() {
   );
 }
 
+
+const HrStack = createDrawerNavigator<HrStackParamList>();
+
+function HrStackNavigator() {
+  return (
+    <HrStack.Navigator
+      drawerContent={(props) => <HrDrawer {...props} />}
+      initialRouteName="HrHomeScreen"
+      screenOptions={{
+        headerShown: false,
+        drawerStyle: {
+          backgroundColor: '#fff',
+          width: 280,
+          borderTopRightRadius: 20,
+          borderBottomRightRadius: 20,
+          elevation: 5,
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 2 },
+          shadowOpacity: 0.25,
+          shadowRadius: 3.84,
+        },
+        drawerLabelStyle: {
+          fontFamily: 'LexendDeca_400Regular',
+          fontSize: 16,
+          color: '#333',
+          marginLeft: -16,
+          paddingLeft: 16,
+        },
+        drawerItemStyle: {
+          paddingVertical: 8,
+          marginVertical: 4,
+          borderRadius: 8,
+        },
+        drawerActiveTintColor: '#FF8447',
+        drawerInactiveTintColor: '#666',
+        drawerActiveBackgroundColor: '#FFF8F0',
+        drawerInactiveBackgroundColor: 'transparent',
+      }}
+    >
+      <HrStack.Screen 
+        name="HrHomeScreen" 
+        component={HrHomeScreen}
+        options={{
+          title: 'Home',
+          drawerIcon: ({ color }) => (
+            <MaterialIcons name="home" size={24} color={color} />
+          ),
+        }}
+      />
+       <HrStack.Screen 
+        name="HrProfile" 
+        component={HrProfile}
+        options={{
+          title: 'Profile',
+          drawerIcon: ({ color }) => (
+            <MaterialIcons name="person" size={24} color={color} />
+          ),
+        }}
+      />
+      <HrStack.Screen 
+        name="HrSettings" 
+        component={HrSettings}
+        options={{
+          title: 'Settings',
+          drawerIcon: ({ color }) => (
+            <MaterialIcons name="person" size={24} color={color} />
+          ),
+        }}
+      />
+    </HrStack.Navigator>
+  );
+}
 const RootStack = () => {
   const [initialRoute, setInitialRoute] = useState<string | null>(null);
 
@@ -585,7 +679,7 @@ const RootStack = () => {
           gestureEnabled: false
         }}
       />
-      
+      <Stack.Screen name="HrStack" component={HrStackNavigator} options={{ headerShown: false }} />
       <Stack.Screen name="ContactInfo" component={ContactInfo} options={{ headerShown: false }} />
     </Stack.Navigator>
   );

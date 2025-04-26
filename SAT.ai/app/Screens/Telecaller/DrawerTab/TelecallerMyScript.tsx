@@ -17,8 +17,14 @@ interface Script {
   date: string;
   isPinned: boolean;
   userId: string;
-  createdAt: Timestamp;
+  // createdAt: Timestamp;
+  isDefault?: boolean; // Optional field to indicate default scripts
 }
+
+// Helper function to format a date into dd/mm/yyyy
+const formatDate = (date: Date): string => {
+  return `${date.getDate().toString().padStart(2, '0')}/${(date.getMonth() + 1).toString().padStart(2, '0')}/${date.getFullYear()}`;
+};
 
 type RootStackParamList = {
   // ... other routes
@@ -38,11 +44,114 @@ const MyScript = () => {
   const [modalVisible, setModalVisible] = useState(false);
   const [newTitle, setNewTitle] = useState('');
   const [newContent, setNewContent] = useState('');
+  const DEFAULT_SCRIPTS: Script[] = [
+    {
+      id: 'term-001',
+      title: 'Term Insurance',
+      content: `Hello, I'm calling from Policy Planner Insurance Brokers Pvt Ltd. We've got an exciting offer on our term insurance plans that can secure your family's future. Our plans offer high coverage at affordable premiums, with options starting from ₹500 per month. You can choose from various plans, including those with critical illness cover and accidental death benefit.
+  
+  Benefits:
+  
+  - High coverage at affordable premiums
+  - Option to choose from various plans
+  - Critical illness cover and accidental death benefit available
+  - Tax benefits under Section 80C and 10(10D)
+  
+  Attractive Offer: Get 10% discount on your first-year premium if you purchase a plan within the next 48 hours.
+  
+  Claim Support: Our claims process is hassle-free and transparent. We ensure that your claims are settled quickly and efficiently.
+  
+  Immediate Closing Request: If you're interested, I can guide you through the application process and help you purchase a plan immediately.
+  
+  Would you like to know more about our term insurance plans?`,
+      date: formatDate(new Date()),
+      // createdAt: new Date(),
+      isPinned: true,
+      userId: 'default',
+      isDefault: true,
+    },
+    {
+      id: 'health-001',
+      title: 'Health Insurance',
+      content: `Health Insurance
+Hello, I'm calling from Policy Planner Insurance Brokers Pvt Ltd. Are you and your family protected against unexpected medical expenses? Our health insurance plans offer comprehensive coverage, including hospitalization expenses, surgeries, and doctor consultations.
 
+Benefits:
+
+- Comprehensive coverage for hospitalization expenses, surgeries, and doctor consultations
+- Option to choose from various plans, including individual and family floater plans
+- No claim bonus and lifetime renewal available
+- Tax benefits under Section 80D
+
+Attractive Offer: Get a free health check-up package worth ₹2,000 with your policy purchase.
+
+Claim Support: Our claims process is designed to be quick and hassle-free. We have a dedicated team to assist you with your claims.
+
+Immediate Closing Request: If you're interested, I can help you purchase a plan immediately and guide you through the application process.
+
+Would you like to know more about our health insurance plans?`,
+      date: formatDate(new Date()),
+      // createdAt: new Date(),
+      isPinned: false,
+      userId: 'default',
+      isDefault: true,
+    },
+    {
+      id: 'motor-001',
+      title: 'Motor Insurance',
+      content: `Motor Insurance
+Hello, I'm calling from Policy Planner Insurance Brokers Pvt Ltd. Is your vehicle insured against accidents, theft, or damage? Our motor insurance plans offer comprehensive coverage, including third-party liability, own damage, and personal accident cover.
+
+Benefits:
+
+- Comprehensive coverage for third-party liability, own damage, and personal accident cover
+- Option to choose from various plans, including two-wheeler and four-wheeler insurance
+- No claim bonus and lifetime renewal available
+- 24x7 claim support
+
+Attractive Offer: Get a 5% discount on your premium if you purchase a plan within the next 48 hours.
+
+Claim Support: Our claims process is designed to be quick and hassle-free. We have a dedicated team to assist you with your claims.
+
+Immediate Closing Request: If you're interested, I can help you purchase a plan immediately and guide you through the application process.
+
+Would you like to know more about our motor insurance plans?`,
+      date: formatDate(new Date()),
+      // createdAt: new Date(),
+      isPinned: false,
+      userId: 'default',
+      isDefault: true,
+    },
+    {
+      id: 'sme-001',
+      title: 'SME Insurance',
+      content: `Hello, I'm calling from Policy Planner Insurance Brokers Pvt Ltd. We've got an exciting offer on our term insurance plans that can secure your family's future. Our plans offer high coverage at affordable premiums, with options starting from ₹500 per month. You can choose from various plans, including those with critical illness cover and accidental death benefit.
+
+Benefits:
+
+- High coverage at affordable premiums
+- Option to choose from various plans
+- Critical illness cover and accidental death benefit available
+- Tax benefits under Section 80C and 10(10D)
+
+Attractive Offer: Get 10% discount on your first-year premium if you purchase a plan within the next 48 hours.
+
+Claim Support: Our claims process is hassle-free and transparent. We ensure that your claims are settled quickly and efficiently.
+
+Immediate Closing Request: If you're interested, I can guide you through the application process and help you purchase a plan immediately.
+
+Would you like to know more about our term insurance plans?`,
+      date: formatDate(new Date()),
+      // createdAt: new Date(),
+      isPinned: false,
+      userId: 'default',
+      isDefault: true,
+    }
+  ];
   useEffect(() => {
     const userId = auth.currentUser?.uid;
     if (!userId) return;
-
+  
     const scriptsRef = collection(db, 'scripts');
     const q = query(
       scriptsRef,
@@ -50,18 +159,26 @@ const MyScript = () => {
       orderBy('isPinned', 'desc'),
       orderBy('createdAt', 'desc')
     );
-
+  
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const scriptData = snapshot.docs.map(doc => ({
+      const dbScripts = snapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
       })) as Script[];
-      setScripts(scriptData);
+    
+      // Filter out any Firestore scripts that have the same title as default ones
+      const filteredDbScripts = dbScripts.filter(
+        dbScript => !DEFAULT_SCRIPTS.some(defaultScript => defaultScript.title === dbScript.title)
+      );
+      const combined = [...DEFAULT_SCRIPTS, ...filteredDbScripts];
+      
+      setScripts(combined);
       setLoading(false);
     });
-
+    
     return () => unsubscribe();
   }, []);
+  
 
   const handleBackPress = () => {
     navigation.goBack();
@@ -137,7 +254,11 @@ const MyScript = () => {
     <AppGradient>
       <TelecallerMainLayout showDrawer showBottomTabs={true} showBackButton title="My Script">
         <View style={styles.container}>
-          <ScrollView style={styles.scrollView}>
+          <ScrollView style={styles.scrollView}
+  contentContainerStyle={{ paddingBottom: 100 }}
+  showsVerticalScrollIndicator={false}
+  keyboardShouldPersistTaps="handled"
+>
             {loading ? (
               <ActivityIndicator size="large" color="#FF8447" style={styles.loader} />
             ) : scripts.length === 0 ? (
@@ -152,14 +273,14 @@ const MyScript = () => {
                     <View style={styles.cardHeader}>
                       <Text style={styles.title}>{script.title}</Text>
                       {script.isPinned && (
-                        <MaterialCommunityIcons name='pin-outline' size={25} color="black"/>
+                        <MaterialCommunityIcons name='pin-outline' size={25} color="black" />
                       )}
                     </View>
-                    <Text style={styles.content}>{truncateContent(script.content)}</Text>
                     <Text style={styles.date}>{script.date}</Text>
                   </View>
                 </TouchableOpacity>
               ))
+              
             )}
           </ScrollView>
 

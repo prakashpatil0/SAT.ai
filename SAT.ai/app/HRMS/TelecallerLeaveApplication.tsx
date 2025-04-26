@@ -222,7 +222,7 @@ const TelecallerLeaveApplication: React.FC = () => {
       {
         id: "4",
         title: "Maternity Leave",
-        granted: 90,
+        granted: 80,
         taken: 0,
         available: 90,
         image: require("@/assets/images/maternity.png"),
@@ -395,14 +395,17 @@ const TelecallerLeaveApplication: React.FC = () => {
 
           {/* Earned Leave Section */}
           <View style={styles.leaveCountBox}>
-            <Text style={styles.earnedTitle}>Earned Leave</Text>
-            <Text>
-              {earnedLeaveData.length > 0
-                ? `${earnedLeaveData.length} days`
-                : "No data found"}
-            </Text>
+  <Text style={styles.earnedTitle}>Earned Leave</Text>
+  <Text>
+    {earnedLeaveData.length > 0
+      ? `${earnedLeaveData.reduce((total, item) => {
+          const days = parseFloat(item.duration?.replace(/[^\d.]/g, "") || "0");
+          return total + days;
+        }, 0)} days`
+      : "No data found"}
+  </Text>
+</View>
 
-          </View>
 
           <View style={styles.leaveBox}>
             <FlatList

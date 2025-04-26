@@ -39,6 +39,7 @@ interface Note {
   createdAt: Date;
   isPinned: boolean;
   userId: string;
+  isDefault?: boolean; // 👈 add this optional flag
 }
 
 // Function to truncate content
@@ -64,6 +65,111 @@ const BDMMyNotesScreen = () => {
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   
+  const DEFAULT_SCRIPTS: Note[] = [
+    {
+      id: 'term-001',
+      title: 'Term Insurance',
+      content: `Hello, I'm calling from Policy Planner Insurance Brokers Pvt Ltd. We've got an exciting offer on our term insurance plans that can secure your family's future. Our plans offer high coverage at affordable premiums, with options starting from ₹500 per month. You can choose from various plans, including those with critical illness cover and accidental death benefit.
+  
+  Benefits:
+  
+  - High coverage at affordable premiums
+  - Option to choose from various plans
+  - Critical illness cover and accidental death benefit available
+  - Tax benefits under Section 80C and 10(10D)
+  
+  Attractive Offer: Get 10% discount on your first-year premium if you purchase a plan within the next 48 hours.
+  
+  Claim Support: Our claims process is hassle-free and transparent. We ensure that your claims are settled quickly and efficiently.
+  
+  Immediate Closing Request: If you're interested, I can guide you through the application process and help you purchase a plan immediately.
+  
+  Would you like to know more about our term insurance plans?`,
+      date: formatDate(new Date()),
+      createdAt: new Date(),
+      isPinned: true,
+      userId: 'default',
+      isDefault: true,
+    },
+    {
+      id: 'health-001',
+      title: 'Health Insurance',
+      content: `Health Insurance
+Hello, I'm calling from Policy Planner Insurance Brokers Pvt Ltd. Are you and your family protected against unexpected medical expenses? Our health insurance plans offer comprehensive coverage, including hospitalization expenses, surgeries, and doctor consultations.
+
+Benefits:
+
+- Comprehensive coverage for hospitalization expenses, surgeries, and doctor consultations
+- Option to choose from various plans, including individual and family floater plans
+- No claim bonus and lifetime renewal available
+- Tax benefits under Section 80D
+
+Attractive Offer: Get a free health check-up package worth ₹2,000 with your policy purchase.
+
+Claim Support: Our claims process is designed to be quick and hassle-free. We have a dedicated team to assist you with your claims.
+
+Immediate Closing Request: If you're interested, I can help you purchase a plan immediately and guide you through the application process.
+
+Would you like to know more about our health insurance plans?`,
+      date: formatDate(new Date()),
+      createdAt: new Date(),
+      isPinned: false,
+      userId: 'default',
+      isDefault: true,
+    },
+    {
+      id: 'motor-001',
+      title: 'Motor Insurance',
+      content: `Motor Insurance
+Hello, I'm calling from Policy Planner Insurance Brokers Pvt Ltd. Is your vehicle insured against accidents, theft, or damage? Our motor insurance plans offer comprehensive coverage, including third-party liability, own damage, and personal accident cover.
+
+Benefits:
+
+- Comprehensive coverage for third-party liability, own damage, and personal accident cover
+- Option to choose from various plans, including two-wheeler and four-wheeler insurance
+- No claim bonus and lifetime renewal available
+- 24x7 claim support
+
+Attractive Offer: Get a 5% discount on your premium if you purchase a plan within the next 48 hours.
+
+Claim Support: Our claims process is designed to be quick and hassle-free. We have a dedicated team to assist you with your claims.
+
+Immediate Closing Request: If you're interested, I can help you purchase a plan immediately and guide you through the application process.
+
+Would you like to know more about our motor insurance plans?`,
+      date: formatDate(new Date()),
+      createdAt: new Date(),
+      isPinned: false,
+      userId: 'default',
+      isDefault: true,
+    },
+    {
+      id: 'sme-001',
+      title: 'SME Insurance',
+      content: `Hello, I'm calling from Policy Planner Insurance Brokers Pvt Ltd. As a business owner, do you want to protect your business against unexpected risks and losses? Our SME insurance plans offer comprehensive coverage, including property damage, liability, and business interruption.
+
+Benefits:
+
+- Comprehensive coverage for property damage, liability, and business interruption
+- Option to choose from various plans, including package policies and customized solutions
+- Tax benefits under Section 80C and 10(10D)
+- 24x7 claim support
+
+Attractive Offer: Get a 10% discount on your premium if you purchase a plan within the next 48 hours.
+
+Claim Support: Our claims process is designed to be quick and hassle-free. We have a dedicated team to assist you with your claims.
+
+Immediate Closing Request: If you're interested, I can help you purchase a plan immediately and guide you through the application process.
+
+Would you like to know more about our SME insurance plans?`,
+      date: formatDate(new Date()),
+      createdAt: new Date(),
+      isPinned: false,
+      userId: 'default',
+      isDefault: true,
+    }
+  ];
+  
   // Animation for FAB
   const scaleAnim = useRef(new Animated.Value(1)).current;
   const { width } = Dimensions.get('window');
@@ -73,34 +179,42 @@ const BDMMyNotesScreen = () => {
     try {
       setLoading(true);
       setError(null);
-      
+  
       const userId = auth.currentUser?.uid;
       if (!userId) {
         setError("User not authenticated");
         setLoading(false);
         return;
       }
-      
-      // Get notes from AsyncStorage
-      const storedNotes = await AsyncStorage.getItem(NOTES_STORAGE_KEY + "_" + userId);
-      
-      if (storedNotes) {
-        const parsedNotes: Note[] = JSON.parse(storedNotes);
-        
-        // Sort notes: pinned first, then by creation date
-        const sortedNotes = parsedNotes.sort((a, b) => {
-          // First sort by pin status
-          if (a.isPinned && !b.isPinned) return -1;
-          if (!a.isPinned && b.isPinned) return 1;
-          
-          // Then sort by date (newest first)
-          return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-        });
-        
-        setNotes(sortedNotes);
-      } else {
-        setNotes([]);
+  
+      const storageKey = NOTES_STORAGE_KEY + "_" + userId;
+  
+      // Get stored notes
+      const storedNotes = await AsyncStorage.getItem(storageKey);
+      const parsedNotes: Note[] = storedNotes ? JSON.parse(storedNotes) : [];
+  
+      // Get IDs of saved notes
+      const userNoteIds = parsedNotes.map(note => note.id);
+  
+      // Only include default notes not already saved
+      const filteredDefaults = DEFAULT_SCRIPTS.filter(defaultNote => !userNoteIds.includes(defaultNote.id));
+  
+      // Merge and update AsyncStorage if needed
+      let mergedNotes = [...parsedNotes];
+  
+      if (filteredDefaults.length > 0) {
+        mergedNotes = [...filteredDefaults, ...parsedNotes];
+        await AsyncStorage.setItem(storageKey, JSON.stringify(mergedNotes));
       }
+  
+      const sortedNotes = mergedNotes.sort((a, b) => {
+        if (a.isPinned && !b.isPinned) return -1;
+        if (!a.isPinned && b.isPinned) return 1;
+        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      });
+  
+      setNotes(sortedNotes);
+  
     } catch (err) {
       console.error("Error fetching notes:", err);
       setError("Failed to load notes. Please try again.");
@@ -109,6 +223,8 @@ const BDMMyNotesScreen = () => {
       setRefreshing(false);
     }
   };
+  
+  
   
   // Save notes to AsyncStorage
   const saveNotesToStorage = async (updatedNotes: Note[]) => {
@@ -278,7 +394,7 @@ const BDMMyNotesScreen = () => {
   
   // Navigate to note details
   const navigateToNoteDetails = (note: Note) => {
-    navigation.navigate('BDMNotesDetailScreen', { note });
+    navigation.navigate('BDMNotesDetailScreen', { note: note });
   };
   
   if (loading && !refreshing) {
@@ -317,15 +433,18 @@ const BDMMyNotesScreen = () => {
             style={styles.scrollContainer}
             showsVerticalScrollIndicator={false}
           >
-            {notes.map((item) => (
-              <TouchableOpacity 
-                key={item.id} 
-                onPress={() => navigateToNoteDetails(item)}
-                style={styles.cardContainer}
-              >
-                <View style={[styles.card, item.isPinned && styles.pinnedCard]}>
-                  <View style={styles.cardHeader}>
-                    <Text style={styles.title}>{item.title}</Text>
+           {notes.map((item) => (
+  <TouchableOpacity 
+    key={item.id}
+  onPress={() => {
+    console.log("Opening Note:", item.title); // ✅ Check which one is clicked
+    navigateToNoteDetails(item);
+  }}
+  style={styles.cardContainer}
+>
+               <View style={[styles.card, item.isPinned && styles.pinnedCard]}>
+      <View style={styles.cardHeader}>
+        <Text style={styles.title}>{item.title}</Text>
                     <View style={styles.cardActions}>
                       <TouchableOpacity 
                         onPress={() => togglePinStatus(item.id, item.isPinned)}
@@ -337,21 +456,24 @@ const BDMMyNotesScreen = () => {
                           color={item.isPinned ? "#FF8447" : "#555"}
                         />
                       </TouchableOpacity>
-                      <TouchableOpacity 
-                        onPress={() => handleDeleteNote(item.id)}
-                        style={styles.actionButton}
-                      >
-                        <MaterialIcons name="delete-outline" size={22} color="#FF5252" />
-                      </TouchableOpacity>
+                      {!item.isDefault && (
+  <TouchableOpacity 
+    onPress={() => handleDeleteNote(item.id)}
+    style={styles.actionButton}
+  >
+    <MaterialIcons name="delete-outline" size={22} color="#FF5252" />
+  </TouchableOpacity>
+)}
+
+
                     </View>
                   </View>
                   <Text style={styles.content}>{truncateContent(item.content)}</Text>
                   <Text style={styles.date}>{item.date}</Text>
-                  {item.isPinned && (
-                    <View style={styles.pinnedBadge}>
-                      <MaterialCommunityIcons name="pin" size={14} color="#FFF" />
-                    </View>
-                  )}
+                </View>
+                <View style={styles.cardActions}>
+
+                 
                 </View>
               </TouchableOpacity>
             ))}

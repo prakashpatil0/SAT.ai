@@ -7,6 +7,8 @@ import { StackNavigationProp } from '@react-navigation/stack';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { auth } from '@/firebaseConfig';
 import AppGradient from '@/app/components/AppGradient';
+// import { useNavigation } from '@react-navigation/native';
+// import { RootStackParamList } from '@/app/types/RootStackParamList';
 
 // Define the Note interface
 interface Note {
@@ -27,15 +29,16 @@ type RootStackParamList = {
 
 // Define the navigation prop type
 type BDMNotesDetailScreenNavigationProp = StackNavigationProp<RootStackParamList>;
-type BDMNotesDetailScreenRouteProp = RouteProp<RootStackParamList, 'BDMNotesDetailScreen'>;
+type NoteDetailRouteProp = RouteProp<RootStackParamList, 'BDMNotesDetailScreen'>;
 
 // Storage key for notes
 const NOTES_STORAGE_KEY = 'bdm_user_notes';
 
 const BDMNotesDetailScreen = () => {
   const navigation = useNavigation<BDMNotesDetailScreenNavigationProp>();
-  const route = useRoute<BDMNotesDetailScreenRouteProp>();
-  const { note } = route.params;
+  const route = useRoute<RouteProp<RootStackParamList, 'BDMNotesDetailScreen'>>();
+const { note } = route.params;
+  
 
   const [editMode, setEditMode] = useState(false);
   const [title, setTitle] = useState(note.title);
@@ -43,6 +46,7 @@ const BDMNotesDetailScreen = () => {
   const [isPinned, setIsPinned] = useState(note.isPinned);
   const [isSaving, setIsSaving] = useState(false);
 
+ 
   // Format date for display
   const formatDate = (date: Date) => {
     if (!date) return 'Unknown date';
@@ -266,7 +270,8 @@ const BDMNotesDetailScreen = () => {
               <>
                 <View style={styles.noteHeader}>
                   <View style={styles.titleContainer}>
-                    <Text style={styles.title}>{title}</Text>
+                     <Text style={styles.title}>{note.title}</Text>
+                    
                     {isPinned && (
                       <MaterialIcons name="push-pin" size={20} color="#FF7B42" style={styles.pinIcon} />
                     )}
@@ -277,7 +282,7 @@ const BDMNotesDetailScreen = () => {
                 <View style={styles.divider} />
                 
                 <ScrollView style={styles.contentContainer}>
-                  <Text style={styles.content}>{content || "No content"}</Text>
+                <Text style={styles.content}>{note.content}</Text>
                 </ScrollView>
               </>
             )}

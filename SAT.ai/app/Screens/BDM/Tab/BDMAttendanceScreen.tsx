@@ -1786,7 +1786,9 @@ const BDMAttendanceScreen = () => {
                       </View>
                     </View>
                     <View style={[styles.statusBadge, getStatusStyle(record.status)]}>
-                      <Text style={[styles.statusText, getStatusTextStyle(record.status)]}>{record.status}</Text>
+                    <Text style={[styles.statusText, getStatusTextStyle(record.status)]}>
+  {record.status}
+</Text>
                     </View>
                   </View>
                 ))

@@ -457,10 +457,10 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   activeIcon: {
-    backgroundColor: "#d1ffe7", // Light Green Background
+    backgroundColor: "#d1ffe7", 
     paddingVertical: 10,
     paddingHorizontal: 25,
-    borderRadius: 15, // Slightly rounded like your image
+    borderRadius: 15, 
     borderWidth: 1,
     borderColor: "#34c759", // Green Border
   },
@@ -506,15 +506,15 @@ const styles = StyleSheet.create({
     marginTop: 5,
     fontFamily: 'LexendDeca_500Medium',
     fontSize: 18,
-    textAlign: "center", // Add this line
+    textAlign: "center", 
   },
 
   noData: {
     alignItems: "center",
   },
   noDataImage: {
-    width: width * 0.7, // 80% of screen width
-    height: width * 0.7, // maintain aspect ratio
+    width: width * 0.7, 
+    height: width * 0.7,
   },
   dropdown: {
     height: 40,
@@ -530,11 +530,11 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "center",
     marginTop: 20,
-    gap: 10, // space between 2 dropdowns
+    gap: 10, 
   },
 
   dropdownContainer: {
-    flex: 1, // Both dropdown will take equal space
+    flex: 1, 
   },
   leaveBox: {
     flexDirection: "row",
@@ -718,7 +718,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: "rgba(0, 0, 0, 0.4)", // semi-transparent overlay
+    backgroundColor: "rgba(0, 0, 0, 0.4)", 
     justifyContent: "center",
     alignItems: "center",
     zIndex: 10,

@@ -1028,6 +1028,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#F5F5F5',
     color: '#666',
   },
-});
+});      
 
-export default BDMContactBook; 
+export default BDMContactBook;  

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Linking, Platform, Alert, Image, ActivityIndicator, Share } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
@@ -7,15 +7,14 @@ import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import PermissionsService from '@/app/services/PermissionsService';
 import { DEFAULT_LOCATION, DEFAULT_MAP_DELTA, GOOGLE_MAPS_STYLE } from '@/app/utils/MapUtils';
-import { format, startOfMonth, endOfMonth, parseISO, eachDayOfInterval, parse } from 'date-fns';
-import { collection, addDoc, getDocs, query, where, Timestamp, updateDoc, doc, setDoc, getDoc, orderBy } from 'firebase/firestore';
+import { format, startOfMonth, endOfMonth, parseISO } from 'date-fns';
+import { collection, addDoc, getDocs, query, where, Timestamp, updateDoc, doc, setDoc, getDoc } from 'firebase/firestore';
 import { db, auth } from '@/firebaseConfig';
 import BDMMainLayout from '@/app/components/BDMMainLayout';
 import AppGradient from '@/app/components/AppGradient';
 import WaveSkeleton from '@/app/components/WaveSkeleton';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system';
-
 
 const STORAGE_KEY = '@attendance_records';
 const SYNC_INTERVAL = 60 * 1000; // Sync every minute
@@ -78,7 +77,6 @@ type AttendanceRecord = {
   timestamp: Date;
   photoUri?: string;
   location?: { latitude: number; longitude: number };
-  synced: boolean;
 };
 
 // Add new interfaces for month selection
@@ -102,18 +100,422 @@ const MONTHS: MonthOption[] = [
   { value: 11, label: 'December' }
 ];
 
-// Add new interfaces for local storage
-interface LocalAttendanceRecord extends AttendanceRecord {
-  localId: string;
-  needsSync: boolean;
-  syncRetries: number;
-}
-
-interface SyncQueueItem {
-  localId: string;
-  timestamp: number;
-  retries: number;
-}
+// Add styles first
+const styles = StyleSheet.create({
+  scrollView: {
+    flex: 1,
+    backgroundColor: '#FFF8F0',
+  },
+  mapContainer: {
+    height: 180,
+    borderRadius: 8,
+    overflow: 'hidden',
+    marginBottom: 16,
+  },
+  map: {
+    flex: 1,
+  },
+  mapFallback: {
+    flex: 1,
+    backgroundColor: '#F5F5F5',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: 12,
+  },
+  mapFallbackText: {
+    fontSize: 16,
+    fontFamily: 'LexendDeca_400Regular',
+    color: '#666',
+    textAlign: 'center',
+    marginTop: 12,
+    paddingHorizontal: 24,
+  },
+  punchCard: {
+    backgroundColor: 'white',
+    borderRadius: 12,
+    padding: 16,
+    margin: 16,
+    marginTop: 0,
+    marginBottom: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  punchInfo: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  punchLabel: {
+    fontSize: 16,
+    fontFamily: 'LexendDeca_500Medium',
+    color: '#333',
+  },
+  punchButton: {
+    backgroundColor: '#4CAF50',
+    paddingHorizontal: 20,
+    paddingVertical: 8,
+    borderRadius: 8,
+  },
+  punchOutButton: {
+    backgroundColor: '#FF4444',
+  },
+  punchButtonText: {
+    color: 'white',
+    fontFamily: 'LexendDeca_500Medium',
+  },
+  timeInfo: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+  },
+  timeColumn: {
+    alignItems: 'center',
+  },
+  timeLabel: {
+    fontSize: 14,
+    color: '#666',
+    fontFamily: 'LexendDeca_400Regular',
+  },
+  timeValue: {
+    fontSize: 16,
+    color: '#333',
+    fontFamily: 'LexendDeca_500Medium',
+    marginTop: 4,
+  },
+  weekCard: {
+    backgroundColor: 'white',
+    borderRadius: 12,
+    padding: 16,
+    margin: 16,
+    marginTop: 0,
+    marginBottom: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  dateText: {
+    fontSize: 18,
+    color: '#333',
+    fontFamily: 'LexendDeca_500Medium',
+    marginBottom: 16,
+    textAlign: 'center',
+  },
+  weekDays: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: 8,
+  },
+  dayContainer: {
+    alignItems: 'center',
+    width: 45,
+  },
+  dayCircle: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 4,
+    borderWidth: 1,
+    borderColor: '#DDD',
+  },
+  weekDayText: {
+    fontSize: 14,
+    color: '#666',
+    fontFamily: 'LexendDeca_500Medium',
+    marginTop: 2,
+  },
+  weekDateText: {
+    fontSize: 12,
+    color: '#999',
+    fontFamily: 'LexendDeca_400Regular',
+  },
+  summaryContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginHorizontal: 16,
+    marginBottom: 16,
+  },
+  summaryItem: {
+    flex: 1,
+    backgroundColor: 'white',
+    borderRadius: 12,
+    padding: 12,
+    marginHorizontal: 4,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  summaryStatusPresent: {
+    fontSize: 16,
+    fontFamily: 'LexendDeca_500Medium',
+    color: '#4CAF50',
+    marginBottom: 4,
+  },
+  summaryStatusHalfDay: {
+    fontSize: 16,
+    fontFamily: 'LexendDeca_500Medium',
+    color: '#FFC107',
+    marginBottom: 4,
+  },
+  summaryStatusAbsent: {
+    fontSize: 16,
+    fontFamily: 'LexendDeca_500Medium',
+    color: '#FF5252',
+    marginBottom: 4,
+  },
+  summaryCount: {
+    fontSize: 14,
+    fontFamily: 'LexendDeca_400Regular',
+    color: '#666',
+  },
+  historyCard: {
+    backgroundColor: 'white',
+    borderRadius: 12,
+    padding: 16,
+    marginHorizontal: 16,
+    marginBottom: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  dateColumn: {
+    alignItems: 'center',
+    width: 40,
+    marginRight: 12,
+  },
+  dateNumber: {
+    fontSize: 18,
+    fontFamily: 'LexendDeca_600SemiBold',
+    color: '#333',
+  },
+  dateDay: {
+    fontSize: 12,
+    color: '#666',
+    fontFamily: 'LexendDeca_400Regular',
+  },
+  punchDetails: {
+    flex: 1,
+    flexDirection: 'column',
+    marginRight: 8,
+  },
+  punchTimeContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 4,
+  },
+  punchTime: {
+    fontSize: 14,
+    color: '#333',
+    fontFamily: 'LexendDeca_500Medium',
+  },
+  punchType: {
+    fontSize: 12,
+    color: '#666',
+    fontFamily: 'LexendDeca_400Regular',
+  },
+  statusBadge: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+    minWidth: 80,
+  },
+  presentStatus: {
+    backgroundColor: '#E8F5E9',
+  },
+  halfDayStatus: {
+    backgroundColor: '#FFF3E0',
+  },
+  leaveStatus: {
+    backgroundColor: '#FFEBEE',
+  },
+  presentText: {
+    color: '#4CAF50',
+    fontSize: 12,
+    fontFamily: 'LexendDeca_500Medium',
+  },
+  halfDayText: {
+    color: '#FFC107',
+    fontSize: 12,
+    fontFamily: 'LexendDeca_500Medium',
+  },
+  leaveText: {
+    color: '#FF5252',
+    fontSize: 12,
+    fontFamily: 'LexendDeca_500Medium',
+  },
+  statusText: {
+    fontSize: 12,
+    fontFamily: 'LexendDeca_500Medium',
+  },
+  markerContainer: {
+    width: 36,
+    height: 36,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  emptyHistoryContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 40,
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    margin: 16,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 3.84,
+    elevation: 3,
+  },
+  emptyHistoryText: {
+    fontSize: 16,
+    color: '#666',
+    fontFamily: 'LexendDeca_500Medium',
+    marginTop: 16,
+  },
+  emptyHistorySubText: {
+    fontSize: 14,
+    color: '#999',
+    fontFamily: 'LexendDeca_400Regular',
+    marginTop: 8,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    color: '#333',
+    fontFamily: 'LexendDeca_600SemiBold',
+    marginHorizontal: 16,
+    marginVertical: 8,
+  },
+  historySection: {
+    marginTop: 16,
+  },
+  loadingLocation: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#F5F5F5',
+  },
+  loadingText: {
+    marginTop: 12,
+    fontSize: 16,
+    fontFamily: 'LexendDeca_400Regular',
+    color: '#666',
+  },
+  punchButtonDisabled: {
+    backgroundColor: '#CCCCCC',
+    opacity: 0.7,
+  },
+  punchButtonTextDisabled: {
+    color: '#666',
+  },
+  nextPunchInfo: {
+    textAlign: 'center',
+    fontSize: 12,
+    fontFamily: 'LexendDeca_400Regular',
+    color: '#666',
+    marginTop: 8,
+    fontStyle: 'italic',
+  },
+  summaryItemBlurred: {
+    opacity: 0.5,
+  },
+  summaryItemActive: {
+    borderWidth: 2,
+    borderColor: '#FF8447',
+    transform: [{ scale: 1.05 }],
+  },
+  historyHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginHorizontal: 16,
+    marginVertical: 8,
+  },
+  clearFilterButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFF5E6',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 16,
+  },
+  clearFilterText: {
+    fontSize: 12,
+    fontFamily: 'LexendDeca_400Regular',
+    color: '#FF8447',
+    marginRight: 4,
+  },
+  monthScrollContainer: {
+    marginVertical: 8,
+  },
+  monthScrollContent: {
+    paddingHorizontal: 16,
+  },
+  monthItem: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    marginRight: 8,
+    borderRadius: 20,
+    backgroundColor: '#F5F5F5',
+  },
+  selectedMonthItem: {
+    backgroundColor: '#FF8447',
+  },
+  pastMonthItem: {
+    opacity: 0.6,
+  },
+  monthText: {
+    fontSize: 14,
+    color: '#666',
+    fontFamily: 'LexendDeca_400Regular',
+  },
+  selectedMonthText: {
+    color: '#FFFFFF',
+    fontFamily: 'LexendDeca_500Medium',
+  },
+  pastMonthText: {
+    color: '#999',
+  },
+  skeletonContainer: {
+    padding: 16,
+  },
+  skeletonMap: {
+    borderRadius: 12,
+    marginBottom: 16,
+  },
+  skeletonPunchCard: {
+    borderRadius: 12,
+    marginBottom: 16,
+  },
+  skeletonWeekCard: {
+    borderRadius: 12,
+    marginBottom: 16,
+  },
+  skeletonSummary: {
+    borderRadius: 12,
+    marginBottom: 16,
+  },
+  skeletonHistory: {
+    borderRadius: 12,
+  },
+});
 
 // Add AttendanceSkeleton component
 const AttendanceSkeleton = () => {
@@ -179,13 +581,6 @@ const BDMAttendanceScreen = () => {
   const [locationServiceEnabled, setLocationServiceEnabled] = useState<boolean | null>(null);
   const [mapReady, setMapReady] = useState(false);
   
-  // Add new state variables for offline support at the top
-  const [isOnline, setIsOnline] = useState<boolean>(true);
-  const [offlineRecords, setOfflineRecords] = useState<AttendanceRecord[]>([]);
-  const [syncQueue, setSyncQueue] = useState<AttendanceRecord[]>([]);
-  const [syncRetries, setSyncRetries] = useState<number>(0);
-  const [lastSyncAttempt, setLastSyncAttempt] = useState<Date | null>(null);
-  
   // Attendance states
   const [currentDate, setCurrentDate] = useState(new Date());
   const [punchInTime, setPunchInTime] = useState<string>('');
@@ -238,17 +633,6 @@ const BDMAttendanceScreen = () => {
     timestamp: Date.now()
   };
 
-  // Add new state for loading optimization
-  const [isInitialLoadComplete, setIsInitialLoadComplete] = useState(false);
-  const [isDataLoading, setIsDataLoading] = useState(false);
-  const [cachedLocation, setCachedLocation] = useState<Location.LocationObject | null>(null);
-  const [cachedAttendance, setCachedAttendance] = useState<AttendanceRecord[]>([]);
-
-  // Update time constants
-  const PUNCH_IN_START = 1 * 60; // 1:00 AM in minutes
-  const PUNCH_OUT_DEADLINE = 23 * 60; // 11:00 PM in minutes
-  const REQUIRED_HOURS = 8; // 8 hours required for full day
-
   // Add checkAndRequestPermissions function
   const checkAndRequestPermissions = async () => {
     try {
@@ -290,213 +674,19 @@ const BDMAttendanceScreen = () => {
     }
   };
 
-  // Optimized data loading function
-  const loadInitialData = useCallback(async () => {
-    try {
-      setIsDataLoading(true);
-      
-      // Load local data first
-      const localRecordsStr = await AsyncStorage.getItem(LOCAL_ATTENDANCE_KEY);
-      let localRecords: LocalAttendanceRecord[] = [];
-      
-      if (localRecordsStr) {
-        try {
-          localRecords = JSON.parse(localRecordsStr);
-        } catch (parseError) {
-          console.warn('Error parsing local records:', parseError);
-          // Don't throw error, continue with empty records
-        }
-      }
-      
-      // Set initial data from local storage
-      setAttendanceHistory(localRecords);
-      updateWeekDaysStatus(localRecords);
-      calculateStatusCounts(localRecords);
-      
-      // Find today's record
-      const today = format(new Date(), 'dd');
-      const todayRecord = localRecords.find(r => r.date === today);
-      if (todayRecord) {
-        setTodayRecord(todayRecord);
-        setPunchInTime(todayRecord.punchIn ? format(new Date(`2000-01-01T${todayRecord.punchIn}`), 'hh:mm a') : '');
-        setPunchOutTime(todayRecord.punchOut ? format(new Date(`2000-01-01T${todayRecord.punchOut}`), 'hh:mm a') : '');
-        setIsPunchedIn(!!todayRecord.punchIn && !todayRecord.punchOut);
-      }
-      
-      // Load location in parallel with other operations
-      const locationPromise = loadLocation();
-      
-      // Try to load from Firebase if online
-      if (await checkNetworkStatus()) {
-        try {
-          const firebaseRecords = await loadFirebaseRecords();
-          if (firebaseRecords && firebaseRecords.length > 0) {
-            setAttendanceHistory(firebaseRecords);
-            updateWeekDaysStatus(firebaseRecords);
-            calculateStatusCounts(firebaseRecords);
-            
-            // Update local storage with Firebase data
-            await AsyncStorage.setItem(LOCAL_ATTENDANCE_KEY, JSON.stringify(firebaseRecords));
-          }
-        } catch (firebaseError) {
-          console.warn('Error loading from Firebase:', firebaseError);
-          // Continue with local data
-        }
-      }
-      
-      // Wait for location to be loaded
-      const locationData = await locationPromise;
-      setLocation(locationData);
-      setCachedLocation(locationData);
-      
-      // Initialize date
-      initializeDate();
-      setIsInitialLoadComplete(true);
-      
-    } catch (error) {
-      console.error('Error in loadInitialData:', error);
-      // Don't show error alert, just log it
-    } finally {
-      setIsDataLoading(false);
-    }
-  }, []);
-
-  // Add function to load Firebase records
-  const loadFirebaseRecords = async (): Promise<LocalAttendanceRecord[]> => {
-    const userId = auth.currentUser?.uid;
-    if (!userId) return [];
-
-    const currentDate = new Date();
-    const monthYear = `${currentDate.getFullYear()}_${(currentDate.getMonth() + 1).toString().padStart(2, '0')}`;
-    
-    try {
-      const monthlyRef = doc(db, 'bdm_monthly_attendance', `${userId}_${monthYear}`);
-      const monthlyDoc = await getDoc(monthlyRef);
-      
-      if (monthlyDoc.exists()) {
-        const data = monthlyDoc.data();
-        return (data.records || []).map((record: any) => ({
-          ...record,
-          timestamp: record.timestamp instanceof Timestamp ? 
-            record.timestamp.toDate() : 
-            new Date(record.timestamp),
-          synced: true
-        }));
-      }
-      
-      // If no monthly doc exists, try individual records
-      const attendanceRef = collection(db, 'users', userId, 'attendance');
-      const monthStart = startOfMonth(currentDate);
-      const monthEnd = endOfMonth(currentDate);
-      
-      const q = query(
-        attendanceRef,
-        where('timestamp', '>=', Timestamp.fromDate(monthStart)),
-        where('timestamp', '<=', Timestamp.fromDate(monthEnd)),
-        orderBy('timestamp', 'desc')
-      );
-      
-      const querySnapshot = await getDocs(q);
-      return querySnapshot.docs.map(doc => ({
-        ...doc.data(),
-        timestamp: doc.data().timestamp instanceof Timestamp ? 
-          doc.data().timestamp.toDate() : 
-          new Date(doc.data().timestamp),
-        synced: true
-      })) as LocalAttendanceRecord[];
-      
-    } catch (error) {
-      console.error('Error loading Firebase records:', error);
-      return [];
-    }
-  };
-
-  // Optimized location loading
-  const loadLocation = useCallback(async () => {
-    try {
-      // Check cache first
-      const cachedLoc = await getCachedLocation();
-      if (cachedLoc) {
-        return cachedLoc;
-      }
-
-      // Get fresh location
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status === 'granted') {
-        const location = await Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.Balanced,
-          timeInterval: 5000
-        });
-        
-        // Cache the location
-        await cacheLocation(location);
-        return location;
-      }
-      
-      return null;
-    } catch (error) {
-      console.error('Error loading location:', error);
-      return null;
-    }
-  }, []);
-
-  // Optimized attendance loading
-  const loadCachedAttendance = useCallback(async () => {
-    try {
-      // Check cache first
-      const cachedData = await AsyncStorage.getItem(STORAGE_KEY);
-      if (cachedData) {
-        const { data, timestamp } = JSON.parse(cachedData);
-        const now = Date.now();
-        
-        if (now - timestamp < ATTENDANCE_CACHE_TIMEOUT) {
-          return data;
-        }
-      }
-
-      // Load from Firebase if cache is invalid
-      const userId = auth.currentUser?.uid;
-      if (!userId) return [];
-
-      const attendanceRef = collection(db, 'users', userId, 'attendance');
-      const q = query(
-        attendanceRef,
-        where('timestamp', '>=', Timestamp.fromDate(startOfMonth(new Date()))),
-        orderBy('timestamp', 'desc')
-      );
-
-      const querySnapshot = await getDocs(q);
-      const attendanceData = querySnapshot.docs.map(doc => ({
-        ...doc.data(),
-        timestamp: doc.data().timestamp.toDate()
-      })) as AttendanceRecord[];
-
-      // Cache the data
-      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify({
-        data: attendanceData,
-        timestamp: Date.now()
-      }));
-
-      return attendanceData;
-    } catch (error) {
-      console.error('Error loading attendance:', error);
-      return [];
-    }
-  }, []);
-
-  // Optimized useEffect for initial load
+  // Add effect for initial loading
   useEffect(() => {
+    const loadInitialData = async () => {
+      setIsLoading(true);
+      await Promise.all([
+        checkAndRequestPermissions(),
+        fetchAttendanceHistory()
+      ]);
+      setIsLoading(false);
+    };
+
     loadInitialData();
-
-    // Set up sync interval
-    const syncInterval = setInterval(() => {
-      if (!isDataLoading) {
-        loadCachedAttendance();
-      }
-    }, SYNC_INTERVAL);
-
-    return () => clearInterval(syncInterval);
-  }, [loadInitialData, loadCachedAttendance]);
+  }, []);
 
   useEffect(() => {
     // Request location permission immediately on screen load
@@ -544,7 +734,7 @@ const BDMAttendanceScreen = () => {
     initializeDate();
     
     // Fetch attendance history
-    loadCachedAttendance();
+    fetchAttendanceHistory();
   }, []);
 
   // Add filtered history effect
@@ -629,6 +819,63 @@ const BDMAttendanceScreen = () => {
     
   };
 
+  // Optimize map loading with caching
+  const loadLocation = async () => {
+    try {
+      // First try to get cached location
+      const cachedLocation = await getCachedLocation();
+      if (cachedLocation) {
+        setLocation(cachedLocation);
+        return;
+      }
+
+      // If no cached location, request new location
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      setPermissionStatus(status);
+      
+      if (status !== 'granted') {
+        setMapError(true);
+        return;
+      }
+      
+      const locationService = await Location.hasServicesEnabledAsync();
+      setLocationServiceEnabled(locationService);
+      
+      if (!locationService) {
+        setMapError(true);
+        return;
+      }
+      
+      // Get location with high accuracy but with a timeout
+      const location = await Promise.race([
+        Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.High,
+          timeInterval: 5000
+        }),
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Location timeout')), 10000)
+        )
+      ]).catch(async () => {
+        // Fallback to lower accuracy if high accuracy times out
+        return Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced,
+          timeInterval: 5000
+        });
+      });
+      
+      if (location && typeof location === 'object' && 'coords' in location) {
+        const locationObj = location as Location.LocationObject;
+        setLocation(locationObj);
+        await cacheLocation(locationObj);
+      } else {
+        throw new Error('Invalid location data');
+      }
+    } catch (error) {
+      console.error('Error loading location:', error);
+      setMapError(true);
+    }
+  };
+
   // Cache location for faster loading
   const cacheLocation = async (location: Location.LocationObject) => {
     try {
@@ -670,51 +917,94 @@ const BDMAttendanceScreen = () => {
       }
 
       const currentYear = new Date().getFullYear();
-      const monthStr = (selectedMonth + 1).toString().padStart(2, '0');
-      const monthYearKey = `${currentYear}_${monthStr}`;
+      const monthYearKey = `${currentYear}_${selectedMonth.toString().padStart(2, '0')}`;
 
-      // Try to get from monthly attendance first
-      const monthlyRef = doc(db, 'bdm_monthly_attendance', `${userId}_${monthYearKey}`);
-      const monthlyDoc = await getDoc(monthlyRef);
-
-      let records: AttendanceRecord[] = [];
+      // First try to get from monthly attendance collection
+      const monthlyAttendanceRef = doc(db, 'bdm_monthly_attendance', `${userId}_${monthYearKey}`);
+      const monthlyDoc = await getDoc(monthlyAttendanceRef);
 
       if (monthlyDoc.exists()) {
         const monthlyData = monthlyDoc.data();
-        records = monthlyData.records || [];
-      } else {
-        // Fallback to individual records
-        const attendanceRef = collection(db, 'users', userId, 'attendance');
-        const monthStart = new Date(currentYear, selectedMonth, 1);
-        const monthEnd = new Date(currentYear, selectedMonth + 1, 0);
-
-        const q = query(
-          attendanceRef,
-          where('timestamp', '>=', Timestamp.fromDate(monthStart)),
-          where('timestamp', '<=', Timestamp.fromDate(monthEnd)),
-          orderBy('timestamp', 'desc')
-        );
-
-        const querySnapshot = await getDocs(q);
-        records = querySnapshot.docs.map(doc => ({
-          ...doc.data(),
-          timestamp: doc.data().timestamp.toDate(),
-          synced: true
-        })) as AttendanceRecord[];
-
-        // Save to monthly attendance for future quick access
-        await setDoc(monthlyRef, {
+        const records = monthlyData.records || [];
+        
+        const history: AttendanceRecord[] = records.map((record: any) => ({
+          date: record.date,
+          day: record.day,
+          punchIn: record.punchIn,
+          punchOut: record.punchOut,
+          status: record.status,
           userId,
-          month: selectedMonth + 1,
-          year: currentYear,
-          records,
-          lastUpdated: Timestamp.fromDate(new Date())
-        });
-      }
+          timestamp: new Date(currentYear, selectedMonth, parseInt(record.date)),
+          photoUri: record.photoUri,
+          location: record.location
+        }));
 
-      setAttendanceHistory(records);
-      updateWeekDaysStatus(records);
-      calculateStatusCounts(records);
+        const sortedHistory = history.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
+        setAttendanceHistory(sortedHistory);
+        calculateStatusCounts(sortedHistory);
+        updateWeekDaysStatus(sortedHistory);
+
+        // Update today's punch in/out status if today's record exists
+        const today = format(new Date(), 'dd');
+        const todayRecord = history.find(record => record.date === today);
+        if (todayRecord) {
+          setTodayRecord(todayRecord);
+          setPunchInTime(todayRecord.punchIn ? format(new Date(`2000-01-01T${todayRecord.punchIn}`), 'hh:mm a') : '');
+          setPunchOutTime(todayRecord.punchOut ? format(new Date(`2000-01-01T${todayRecord.punchOut}`), 'hh:mm a') : '');
+          setIsPunchedIn(!!todayRecord.punchIn && !todayRecord.punchOut);
+        }
+      } else {
+        // Fallback to individual attendance records if monthly data not found
+        const attendanceRef = collection(db, 'users', userId, 'attendance');
+        const querySnapshot = await getDocs(attendanceRef);
+        
+        const history: AttendanceRecord[] = [];
+        const today = format(new Date(), 'dd');
+        
+        querySnapshot.forEach((doc) => {
+          const data = doc.data();
+          const recordDate = data.timestamp.toDate();
+          
+          // Only include records from selected month
+          if (recordDate.getMonth() === selectedMonth && recordDate.getFullYear() === currentYear) {
+            history.push({
+              date: data.date,
+              day: data.day,
+              punchIn: data.punchIn,
+              punchOut: data.punchOut,
+              status: data.status,
+              userId: data.userId,
+              timestamp: recordDate,
+              photoUri: data.photoUri,
+              location: data.location
+            });
+
+            // Update today's punch in/out status
+            if (data.date === today) {
+              setTodayRecord({
+                date: data.date,
+                day: data.day,
+                punchIn: data.punchIn,
+                punchOut: data.punchOut,
+                status: data.status,
+                userId: data.userId,
+                timestamp: recordDate,
+                photoUri: data.photoUri,
+                location: data.location
+              });
+              
+              setPunchInTime(data.punchIn ? format(new Date(`2000-01-01T${data.punchIn}`), 'hh:mm a') : '');
+              setPunchOutTime(data.punchOut ? format(new Date(`2000-01-01T${data.punchOut}`), 'hh:mm a') : '');
+              setIsPunchedIn(!!data.punchIn && !data.punchOut);
+            }
+          }
+        });
+
+        const sortedHistory = history.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
+        setAttendanceHistory(sortedHistory);
+        calculateStatusCounts(sortedHistory);
+        updateWeekDaysStatus(sortedHistory);
+      }
     } catch (error) {
       console.error('Error fetching attendance history:', error);
       Alert.alert('Error', 'Failed to fetch attendance history');
@@ -722,110 +1012,70 @@ const BDMAttendanceScreen = () => {
   };
 
   const updateWeekDaysStatus = (history: AttendanceRecord[]) => {
-  try {
     const today = new Date();
-    const dayOfWeek = today.getDay(); // 0 = Sunday, 1 = Monday, etc.
-    const adjustedDay = dayOfWeek === 0 ? 6 : dayOfWeek - 1; // Adjust to our 0-indexed array (M=0, T=1, etc.)
-    
-    // Calculate the date for Monday of this week
     const startOfWeek = new Date(today);
-    startOfWeek.setDate(today.getDate() - adjustedDay);
+    startOfWeek.setDate(today.getDate() - today.getDay() + 1); // Start from Monday
 
-    const updatedWeekDays = weekDays.map((day, index) => {
-      // Calculate the date for this weekday
+    const updatedWeekDays = weekDaysStatus.map((day, index) => {
       const currentDate = new Date(startOfWeek);
       currentDate.setDate(startOfWeek.getDate() + index);
-      const dateStr = format(currentDate, 'dd');
       
       // Find attendance record for this date
+      const dateStr = format(currentDate, 'dd');
       const attendanceRecord = history.find(record => record.date === dateStr);
       
-      // Determine status
+      // Default to 'inactive' for future dates, use attendance status for past dates
       let status: 'active' | 'inactive' | 'Present' | 'Half Day' | 'On Leave';
-      
-      if (format(currentDate, 'yyyy-MM-dd') === format(today, 'yyyy-MM-dd')) {
-        // Today's date
-        status = attendanceRecord ? attendanceRecord.status : 'active';
-      } else if (currentDate > today) {
-        // Future date
+      if (currentDate > today) {
         status = 'inactive';
+      } else if (attendanceRecord) {
+        status = attendanceRecord.status as 'Present' | 'Half Day' | 'On Leave';
       } else {
-        // Past date
-        status = attendanceRecord ? attendanceRecord.status : 'On Leave';
+        status = 'On Leave';
       }
       
       return {
-        day,
+        day: day.day,
         date: dateStr,
         status
       };
     });
     
     setWeekDaysStatus(updatedWeekDays);
-  } catch (error) {
-    console.error('Error updating week days status:', error);
-  }
 };
 
-  // Update calculateStatusCounts function to handle date calculations safely
   const calculateStatusCounts = (history: AttendanceRecord[]) => {
-    try {
       const counts = {
         Present: 0,
         'Half Day': 0,
+      'Absent': 0,
         'On Leave': 0
       };
-
-      if (!history || history.length === 0) {
-        setStatusCounts(counts);
-        return;
-      }
-
-      const today = new Date();
-      const currentMonth = format(today, 'MM');
-      const currentYear = format(today, 'yyyy');
-      
-      // Safely create start and end of month dates
-      const startOfMonthDate = new Date(parseInt(currentYear), parseInt(currentMonth) - 1, 1);
-      const endOfMonthDate = new Date(parseInt(currentYear), parseInt(currentMonth), 0);
-      const daysInMonth = endOfMonthDate.getDate();
-
-      // Create array of valid dates for current month
-      const allDates = [];
-      for (let day = 1; day <= daysInMonth; day++) {
-        const currentDate = new Date(parseInt(currentYear), parseInt(currentMonth) - 1, day);
-        if (!isNaN(currentDate.getTime())) { // Validate date is valid
-          allDates.push({
-            dateStr: format(currentDate, 'dd'),
-            isSunday: format(currentDate, 'EEEE') === 'Sunday',
-            fullDate: currentDate
-          });
-        }
-      }
-
-      // Filter and validate records for current month
+    // Get current month and year
+    const currentMonth = format(new Date(), 'MM');
+    const currentYear = format(new Date(), 'yyyy');
+    
+    // Get the number of days in current month
+    const daysInMonth = new Date(parseInt(currentYear), parseInt(currentMonth), 0).getDate();
+    
+    // Create array of all dates in current month (excluding Sundays)
+    const allDates = Array.from({ length: daysInMonth }, (_, i) => {
+      const date = new Date(parseInt(currentYear), parseInt(currentMonth) - 1, i + 1);
+      return {
+        dateStr: format(date, 'dd'),
+        isSunday: format(date, 'EEEE') === 'Sunday'
+      };
+    });
+  
+    // Filter records for current month and count statuses
       const currentMonthRecords = history.filter(record => {
-        try {
-          const recordTimestamp = record.timestamp instanceof Date ? 
-            record.timestamp : 
-            new Date(record.timestamp);
-
-          if (isNaN(recordTimestamp.getTime())) {
-            console.warn('Invalid timestamp in record:', record);
-            return false;
-          }
-
-          return format(recordTimestamp, 'MM') === currentMonth && 
-                 format(recordTimestamp, 'yyyy') === currentYear;
-        } catch (error) {
-          console.warn('Error processing record:', error);
-          return false;
-        }
-      });
-
-      // Count valid records
+      const recordDate = new Date(record.timestamp);
+      return format(recordDate, 'MM') === currentMonth && 
+             format(recordDate, 'yyyy') === currentYear;
+    });
+  
       currentMonthRecords.forEach(record => {
-        if (record.status in counts) {
+      if (record.status === 'Present' || record.status === 'Half Day') {
           counts[record.status]++;
         }
       });
@@ -858,64 +1108,172 @@ const BDMAttendanceScreen = () => {
   const calculateAttendanceStatus = (punchIn: string, punchOut: string): 'Present' | 'Half Day' | 'On Leave' => {
     try {
       if (!punchIn || !punchOut) return 'On Leave';
-  
+
       const punchInTime = parse(punchIn, 'HH:mm', new Date());
-      if (isNaN(punchInTime.getTime())) {
+      const punchOutTime = parse(punchOut, 'HH:mm', new Date());
+
+      if (isNaN(punchInTime.getTime()) || isNaN(punchOutTime.getTime())) {
+        console.warn('Invalid punch times:', { punchIn, punchOut });
         return 'On Leave';
       }
-  
-      const threshold = new Date();
-      threshold.setHours(9, 45, 0, 0); // 9:45 AM threshold
-  
-      return punchInTime <= threshold ? 'Present' : 'Half Day';
+
+      // Calculate duration in hours
+      const durationInMinutes = (punchOutTime.getTime() - punchInTime.getTime()) / (1000 * 60);
+      const durationInHours = durationInMinutes / 60;
+
+      // Return status based on duration
+      return durationInHours >= REQUIRED_HOURS ? 'Present' : 'Half Day';
     } catch (error) {
-      console.error('Error calculating status:', error);
+      console.error('Error calculating attendance status:', error);
       return 'On Leave';
     }
   };
-  
 
   const handlePunch = async () => {
     try {
       const currentTime = new Date();
-      const currentHours = currentTime.getHours();
-      const currentMinutes = currentTime.getMinutes();
-      const currentTimeInMinutes = currentHours * 60 + currentMinutes;
+      const dateStr = format(currentTime, 'dd');
+      const dayStr = format(currentTime, 'EEE').toUpperCase();
+      const timeStr = format(currentTime, 'HH:mm');
+      const monthStr = format(currentTime, 'MM');
+      const yearStr = format(currentTime, 'yyyy');
+      const monthYearKey = `${yearStr}_${monthStr}`;
 
-      // If there's a punch-out record, check if enough time has passed for next punch-in
-      if (todayRecord?.punchOut) {
-        const nextPunchInTime = new Date();
-        nextPunchInTime.setDate(nextPunchInTime.getDate() + 1);
-        nextPunchInTime.setHours(1, 0, 0, 0); // 1 AM next day
+      // Save to user's attendance collection
+      const attendanceRef = collection(db, 'users', userId, 'attendance');
+      const todayQuery = query(
+        attendanceRef,
+        where('date', '==', dateStr),
+        where('userId', '==', userId)
+      );
+
+      const querySnapshot = await getDocs(todayQuery);
+      
+      if (querySnapshot.empty) {
+        // Create new attendance record
+        await addDoc(attendanceRef, {
+          date: dateStr,
+          day: dayStr,
+          punchIn: isPunchIn ? timeStr : '',
+          punchOut: !isPunchIn ? timeStr : '',
+          status: isPunchIn ? 'Half Day' : 'On Leave',
+          userId,
+          timestamp: Timestamp.fromDate(currentTime),
+          photoUri,
+          location: locationCoords,
+          monthYear: monthYearKey
+        });
+      } else {
+        // Update existing record
+        const docRef = querySnapshot.docs[0].ref;
+        const existingData = querySnapshot.docs[0].data();
+        const newPunchIn = isPunchIn ? timeStr : existingData.punchIn;
+        const newPunchOut = !isPunchIn ? timeStr : existingData.punchOut;
         
-        if (currentTime < nextPunchInTime) {
-          Alert.alert(
-            "Punch-in Not Allowed",
-            "You can only punch-in after 1:00 AM tomorrow."
-          );
-          return;
-        }
+        // Calculate new status based on punch times
+        const newStatus = calculateAttendanceStatus(newPunchIn, newPunchOut);
+        
+        await updateDoc(docRef, {
+          punchIn: newPunchIn,
+          punchOut: newPunchOut,
+          status: newStatus,
+          photoUri: !isPunchIn ? photoUri : existingData.photoUri,
+          location: !isPunchIn ? locationCoords : existingData.location
+        });
       }
 
-      // Check punch in/out time restrictions
-      if (!isPunchedIn) {
-        // Punch In restrictions
-        if (currentTimeInMinutes < PUNCH_IN_START) {
-          Alert.alert(
-            "Punch In Not Allowed",
-            "You can only punch in after 1:00 AM."
-          );
-          return;
+      // Also save to monthly attendance collection for easier reporting
+      const monthlyAttendanceRef = doc(db, 'bdm_monthly_attendance', `${userId}_${monthYearKey}`);
+      const monthlyDoc = await getDoc(monthlyAttendanceRef);
+      
+      if (monthlyDoc.exists()) {
+        // Update existing monthly record
+        const monthlyData = monthlyDoc.data();
+        const records = monthlyData.records || [];
+        
+        // Check if record for this date already exists
+        const existingRecordIndex = records.findIndex((record: any) => record.date === dateStr);
+        
+        if (existingRecordIndex >= 0) {
+          // Update existing record
+          records[existingRecordIndex] = {
+            ...records[existingRecordIndex],
+            punchIn: isPunchIn ? timeStr : records[existingRecordIndex].punchIn,
+            punchOut: !isPunchIn ? timeStr : records[existingRecordIndex].punchOut,
+            status: calculateAttendanceStatus(
+              isPunchIn ? timeStr : records[existingRecordIndex].punchIn,
+              !isPunchIn ? timeStr : records[existingRecordIndex].punchOut
+            ),
+            photoUri: !isPunchIn ? photoUri : records[existingRecordIndex].photoUri,
+            location: !isPunchIn ? locationCoords : records[existingRecordIndex].location
+          };
+        } else {
+          // Add new record
+          records.push({
+            date: dateStr,
+            day: dayStr,
+            punchIn: isPunchIn ? timeStr : '',
+            punchOut: !isPunchIn ? timeStr : '',
+            status: isPunchIn ? 'Half Day' : 'On Leave',
+            photoUri,
+            location: locationCoords
+          });
         }
+        
+        await updateDoc(monthlyAttendanceRef, {
+          records,
+          lastUpdated: Timestamp.fromDate(currentTime)
+        });
       } else {
-        // Punch Out restrictions
-        if (currentTimeInMinutes >= PUNCH_OUT_DEADLINE) {
+        // Create new monthly record
+        await setDoc(monthlyAttendanceRef, {
+          userId,
+          monthYear: monthYearKey,
+          year: parseInt(yearStr),
+          month: parseInt(monthStr),
+          records: [{
+            date: dateStr,
+            day: dayStr,
+            punchIn: isPunchIn ? timeStr : '',
+            punchOut: !isPunchIn ? timeStr : '',
+            status: isPunchIn ? 'Half Day' : 'On Leave',
+            photoUri,
+            location: locationCoords
+          }],
+          createdAt: Timestamp.fromDate(currentTime),
+          lastUpdated: Timestamp.fromDate(currentTime)
+        });
+      }
+
+      // Update local state
+      if (isPunchIn) {
+        setPunchInTime(format(currentTime, 'hh:mm a'));
+        setIsPunchedIn(true);
+      } else {
+        setPunchOutTime(format(currentTime, 'hh:mm a'));
+        setIsPunchedIn(false);
+      }
+
+      // Refresh attendance history
+      fetchAttendanceHistory();
+    } catch (error) {
+      console.error('Error saving attendance:', error);
+      Alert.alert('Error', 'Failed to save attendance');
+    }
+  };
+
+  const handlePunch = async () => {
+    try {
+      // Check if user already punched out today
+      if (todayRecord?.punchOut) {
           Alert.alert(
-            "Punch Out Not Allowed",
-            "You cannot punch out after 11:00 PM."
+          "Attendance Completed",
+          "You've already completed today's attendance. You can punch in again tomorrow.",
+          [
+            { text: "OK", onPress: () => console.log("OK Pressed") }
+          ]
           );
           return;
-        }
       }
 
       // Check location permission
@@ -928,36 +1286,27 @@ const BDMAttendanceScreen = () => {
         return;
       }
 
-      // Get current location with timeout
-      const locationPromise = Location.getCurrentPositionAsync({
+      // Rest of your existing punch logic...
+      const location = await Location.getCurrentPositionAsync({
         accuracy: Location.Accuracy.Balanced,
         timeInterval: 5000
-      });
-
-      const timeoutPromise = new Promise((_, reject) => {
-        setTimeout(() => reject(new Error('Location timeout')), 10000);
-      });
-
-      const location = await Promise.race([locationPromise, timeoutPromise])
-        .catch(error => {
+      }).catch(error => {
           console.error('Location error:', error);
           return defaultLocation;
         });
 
       if (location) {
-        setLocation(location as Location.LocationObject);
+        setLocation(location);
         navigation.navigate('BDMCameraScreen', {
           type: isPunchedIn ? 'out' : 'in'
         });
-      } else {
-        Alert.alert(
-          "Location Error",
-          "Could not get your location. Please try again."
-        );
       }
     } catch (error) {
-      console.error('Error in handlePunch:', error);
-      Alert.alert('Error', 'Failed to process punch request');
+      console.error('Error handling punch:', error);
+        Alert.alert(
+        "Error",
+        "Failed to process punch request. Please try again."
+        );
     }
   };
 
@@ -980,17 +1329,15 @@ const BDMAttendanceScreen = () => {
   const getStatusCircleColor = (status: string) => {
     switch (status) {
       case 'Present':
-        return '#4CAF50'; // Green
+        return '#4CAF50';
       case 'Half Day':
-        return '#FFC107'; // Yellow/Amber
+        return '#FFC107';
       case 'On Leave':
-        return '#FF5252'; // Red
+        return '#FF5252';
       case 'active':
-        return '#FF8447A'; // Orange for today
-      case 'inactive':
-        return '#E0E0E0'; // Grey for future dates
+        return '#FF8447';
       default:
-        return '#E0E0E0';
+        return 'white';
     }
   };
 
@@ -1001,25 +1348,28 @@ const BDMAttendanceScreen = () => {
       case 'On Leave':
       case 'active':
         return 'transparent';
-      case 'inactive':
-        return '#DDD';
       default:
         return '#DDD';
     }
   };
 
   const getStatusIcon = (status: string) => {
-    switch (status) {
-      case 'Present':
-        return <MaterialIcons name="check" size={16} color="#FFF" />;
-      case 'Half Day':
-        return <MaterialIcons name="remove" size={16} color="#FFF" />;
-      case 'On Leave':
-      default:
-        return <MaterialIcons name="close" size={16} color="#FFF" />;
-    }
-  };
-  
+  switch (status) {
+    case 'Present':
+      return <MaterialIcons name="check" size={16} color="#FFF" />;
+    case 'Half Day':
+      return <MaterialIcons name="remove" size={16} color="#FFF" />;
+    case 'On Leave':
+      return <MaterialIcons name="close" size={16} color="#FFF" />;
+    case 'active': // Today's date (no punch yet)
+      return null;
+    case 'inactive': // Future date
+      return null;
+    default:
+      return null;
+  }
+};
+
   const handleMapReady = () => {
     setMapReady(true);
     console.log('Map is ready');
@@ -1967,31 +2317,29 @@ const BDMAttendanceScreen = () => {
       }
 
       // Calculate status with validated times
-     // Calculate status with validated times
-newRecord.status = calculateAttendanceStatus(
-  newRecord.punchIn,
-  newRecord.punchOut
-);
-
+      newRecord.status = calculateAttendanceStatus(
+        newRecord.punchIn,
+        newRecord.punchOut
+      );
 
       // Save to local storage
       await saveToLocalStorage(newRecord);
 
       // Update UI
-     // Update UI
-if (isPunchIn) {
-  setPunchInTime(format(currentTime, 'hh:mm a'));
-  setIsPunchedIn(true);
-} else {
-  setPunchOutTime(format(currentTime, 'hh:mm a'));
-  setIsPunchedIn(false);
-}
+      if (isPunchIn) {
+        setPunchInTime(format(currentTime, 'hh:mm a'));
+        setIsPunchedIn(true);
+      } else {
+        setPunchOutTime(format(currentTime, 'hh:mm a'));
+        setIsPunchedIn(false);
+      }
 
-// Update today record with updated status
-setTodayRecord({
-  ...newRecord,
-  status: newRecord.status, // force update
-});
+      setTodayRecord(newRecord);
+
+      // Try to sync if online
+      if (await checkNetworkStatus()) {
+        syncWithFirebase();
+      }
 
       Alert.alert(
         'Success',
@@ -2186,10 +2534,11 @@ setTodayRecord({
         showBackButton
         showDrawer={true}
       >
-        {!isInitialLoadComplete ? (
+        <ScrollView style={styles.scrollView}>
+          {isLoading ? (
           <AttendanceSkeleton />
         ) : (
-          <ScrollView style={styles.scrollView}>
+            <>
             {/* Punch Card with Map */}
             <View style={styles.punchCard}>
               {/* Map View */}
@@ -2203,16 +2552,11 @@ setTodayRecord({
                 <TouchableOpacity
                   style={[
                     styles.punchButton, 
-                    isPunchedIn && styles.punchOutButton,
-                    isPunchButtonDisabled && styles.punchButtonDisabled
+                      isPunchedIn && styles.punchOutButton
                   ]}
                   onPress={handlePunch}
-                  disabled={isPunchButtonDisabled}
                 >
-                  <Text style={[
-                    styles.punchButtonText,
-                    isPunchButtonDisabled && styles.punchButtonTextDisabled
-                  ]}>
+                  <Text style={styles.punchButtonText}>
                     {isPunchedIn ? 'Punch Out' : 'Punch In'}
                   </Text>
                 </TouchableOpacity>
@@ -2247,20 +2591,8 @@ setTodayRecord({
                     >
                       {getStatusIcon(day.status)}
                     </View>
-                    <Text style={[
-                      styles.weekDayText,
-                      day.status === 'inactive' && styles.inactiveText
-                    ]}>
-                      {day.day}
-                    </Text>
-                    {day.date && (
-                      <Text style={[
-                        styles.weekDateText,
-                        day.status === 'inactive' && styles.inactiveText
-                      ]}>
-                        {day.date}
-                      </Text>
-                    )}
+                      <Text style={styles.weekDayText}>{day.day}</Text>
+                      {day.date && <Text style={styles.weekDateText}>{day.date}</Text>}
                   </View>
                 ))}
               </View>
@@ -2353,513 +2685,12 @@ setTodayRecord({
                 ))
               )}
             </View>
-
-            {/* Absent History Section */}
-            {absentHistory.length > 0 && (
-              <View style={styles.absentHistoryContainer}>
-                <Text style={styles.absentHistoryTitle}>Absent History</Text>
-                {absentHistory.map((item, index) => (
-                  <View key={index} style={styles.absentHistoryItem}>
-                    <Text style={styles.absentDate}>{item.date}</Text>
-                    <Text style={styles.absentMessage}>{item.message}</Text>
-                  </View>
-                ))}
-              </View>
-            )}
-
-            {/* Updated Sync Status */}
-            {renderSyncStatus()}
+            </>
+          )}
           </ScrollView>
-        )}
       </BDMMainLayout>
     </AppGradient>
   );
 };
-
-// Add styles first
-const styles = StyleSheet.create({
-  scrollView: {
-    flex: 1,
-    backgroundColor: '#FFF8F0',
-  },
-  mapContainer: {
-    height: 180,
-    borderRadius: 8,
-    overflow: 'hidden',
-    marginBottom: 16,
-  },
-  map: {
-    flex: 1,
-  },
-  mapFallback: {
-    flex: 1,
-    backgroundColor: '#F5F5F5',
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderRadius: 12,
-  },
-  mapFallbackText: {
-    fontSize: 16,
-    fontFamily: 'LexendDeca_400Regular',
-    color: '#666',
-    textAlign: 'center',
-    marginTop: 12,
-    paddingHorizontal: 24,
-  },
-  punchCard: {
-    backgroundColor: 'white',
-    borderRadius: 12,
-    padding: 16,
-    margin: 16,
-    marginTop: 0,
-    marginBottom: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 2,
-  },
-  punchInfo: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  punchLabel: {
-    fontSize: 16,
-    fontFamily: 'LexendDeca_500Medium',
-    color: '#333',
-  },
-  punchButton: {
-    backgroundColor: '#4CAF50',
-    paddingHorizontal: 20,
-    paddingVertical: 8,
-    borderRadius: 8,
-  },
-  punchOutButton: {
-    backgroundColor: '#FF4444',
-  },
-  punchButtonText: {
-    color: 'white',
-    fontFamily: 'LexendDeca_500Medium',
-  },
-  timeInfo: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-  },
-  timeColumn: {
-    alignItems: 'center',
-  },
-  timeLabel: {
-    fontSize: 14,
-    color: '#666',
-    fontFamily: 'LexendDeca_400Regular',
-  },
-  timeValue: {
-    fontSize: 16,
-    color: '#333',
-    fontFamily: 'LexendDeca_500Medium',
-    marginTop: 4,
-  },
-  weekCard: {
-    backgroundColor: 'white',
-    borderRadius: 12,
-    padding: 16,
-    margin: 16,
-    marginTop: 0,
-    marginBottom: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 2,
-  },
-  dateText: {
-    fontSize: 18,
-    color: '#333',
-    fontFamily: 'LexendDeca_500Medium',
-    marginBottom: 16,
-    textAlign: 'center',
-  },
-  weekDays: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingHorizontal: 8,
-  },
-  dayContainer: {
-    alignItems: 'center',
-    width: 45,
-  },
-  dayCircle: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 4,
-    borderWidth: 1,
-  },
-  weekDayText: {
-    fontSize: 14,
-    color: '#666',
-    fontFamily: 'LexendDeca_500Medium',
-    marginTop: 2,
-  },
-  weekDateText: {
-    fontSize: 12,
-    color: '#999',
-    fontFamily: 'LexendDeca_400Regular',
-  },
-  summaryContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    marginHorizontal: 16,
-    marginBottom: 16,
-  },
-  summaryItem: {
-    flex: 1,
-    backgroundColor: 'white',
-    borderRadius: 12,
-    padding: 12,
-    marginHorizontal: 4,
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 2,
-  },
-  summaryStatusPresent: {
-    fontSize: 16,
-    fontFamily: 'LexendDeca_500Medium',
-    color: '#4CAF50',
-    marginBottom: 4,
-  },
-  summaryStatusHalfDay: {
-    fontSize: 16,
-    fontFamily: 'LexendDeca_500Medium',
-    color: '#FFC107',
-    marginBottom: 4,
-  },
-  summaryStatusAbsent: {
-    fontSize: 16,
-    fontFamily: 'LexendDeca_500Medium',
-    color: '#FF5252',
-    marginBottom: 4,
-  },
-  summaryCount: {
-    fontSize: 14,
-    fontFamily: 'LexendDeca_400Regular',
-    color: '#666',
-  },
-  historyCard: {
-    backgroundColor: 'white',
-    borderRadius: 12,
-    padding: 16,
-    marginHorizontal: 16,
-    marginBottom: 8,
-    flexDirection: 'row',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 2,
-  },
-  dateColumn: {
-    alignItems: 'center',
-    width: 40,
-    marginRight: 12,
-  },
-  dateNumber: {
-    fontSize: 18,
-    fontFamily: 'LexendDeca_600SemiBold',
-    color: '#333',
-  },
-  dateDay: {
-    fontSize: 12,
-    color: '#666',
-    fontFamily: 'LexendDeca_400Regular',
-  },
-  punchDetails: {
-    flex: 1,
-    flexDirection: 'column',
-    marginRight: 8,
-  },
-  punchTimeContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 4,
-  },
-  punchTime: {
-    fontSize: 14,
-    color: '#333',
-    fontFamily: 'LexendDeca_500Medium',
-  },
-  punchType: {
-    fontSize: 12,
-    color: '#666',
-    fontFamily: 'LexendDeca_400Regular',
-  },
-  statusBadge: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 12,
-    justifyContent: 'center',
-    alignItems: 'center',
-    minWidth: 80,
-  },
-  presentStatus: {
-    backgroundColor: '#E8F5E9',
-  },
-  halfDayStatus: {
-    backgroundColor: '#FFF3E0',
-  },
-  leaveStatus: {
-    backgroundColor: '#FFEBEE',
-  },
-  presentText: {
-    color: '#4CAF50',
-    fontSize: 12,
-    fontFamily: 'LexendDeca_500Medium',
-  },
-  halfDayText: {
-    color: '#FFC107',
-    fontSize: 12,
-    fontFamily: 'LexendDeca_500Medium',
-  },
-  leaveText: {
-    color: '#FF5252',
-    fontSize: 12,
-    fontFamily: 'LexendDeca_500Medium',
-  },
-  statusText: {
-    fontSize: 12,
-    fontFamily: 'LexendDeca_500Medium',
-  },
-  markerContainer: {
-    width: 36,
-    height: 36,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  emptyHistoryContainer: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 40,
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    margin: 16,
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.1,
-    shadowRadius: 3.84,
-    elevation: 3,
-  },
-  emptyHistoryText: {
-    fontSize: 16,
-    color: '#666',
-    fontFamily: 'LexendDeca_500Medium',
-    marginTop: 16,
-  },
-  emptyHistorySubText: {
-    fontSize: 14,
-    color: '#999',
-    fontFamily: 'LexendDeca_400Regular',
-    marginTop: 8,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    color: '#333',
-    fontFamily: 'LexendDeca_600SemiBold',
-    marginHorizontal: 16,
-    marginVertical: 8,
-  },
-  historySection: {
-    marginTop: 16,
-  },
-  loadingLocation: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#F5F5F5',
-  },
-  loadingText: {
-    marginTop: 12,
-    fontSize: 16,
-    fontFamily: 'LexendDeca_400Regular',
-    color: '#666',
-  },
-  punchButtonDisabled: {
-    backgroundColor: '#CCCCCC',
-    opacity: 0.7,
-  },
-  punchButtonTextDisabled: {
-    color: '#666',
-  },
-  nextPunchInfo: {
-    textAlign: 'center',
-    fontSize: 12,
-    fontFamily: 'LexendDeca_400Regular',
-    color: '#666',
-    marginTop: 8,
-    fontStyle: 'italic',
-  },
-  summaryItemBlurred: {
-    opacity: 0.5,
-  },
-  summaryItemActive: {
-    borderWidth: 2,
-    borderColor: '#FF8447',
-    transform: [{ scale: 1.05 }],
-  },
-  historyHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginHorizontal: 16,
-    marginVertical: 8,
-  },
-  clearFilterButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FFF5E6',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 16,
-  },
-  clearFilterText: {
-    fontSize: 12,
-    fontFamily: 'LexendDeca_400Regular',
-    color: '#FF8447',
-    marginRight: 4,
-  },
-  monthScrollContainer: {
-    marginVertical: 8,
-  },
-  monthScrollContent: {
-    paddingHorizontal: 16,
-  },
-  monthItem: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    marginRight: 8,
-    borderRadius: 20,
-    backgroundColor: '#F5F5F5',
-  },
-  selectedMonthItem: {
-    backgroundColor: '#FF8447',
-  },
-  pastMonthItem: {
-    opacity: 0.6,
-  },
-  monthText: {
-    fontSize: 14,
-    color: '#666',
-    fontFamily: 'LexendDeca_400Regular',
-  },
-  selectedMonthText: {
-    color: '#FFFFFF',
-    fontFamily: 'LexendDeca_500Medium',
-  },
-  pastMonthText: {
-    color: '#999',
-  },
-  skeletonContainer: {
-    padding: 16,
-  },
-  skeletonMap: {
-    borderRadius: 12,
-    marginBottom: 16,
-  },
-  skeletonPunchCard: {
-    borderRadius: 12,
-    marginBottom: 16,
-  },
-  skeletonWeekCard: {
-    borderRadius: 12,
-    marginBottom: 16,
-  },
-  skeletonSummary: {
-    borderRadius: 12,
-    marginBottom: 16,
-  },
-  skeletonHistory: {
-    borderRadius: 12,
-  },
-  absentHistoryContainer: {
-    backgroundColor: 'white',
-    borderRadius: 12,
-    padding: 16,
-    margin: 16,
-    marginTop: 8,
-  },
-  absentHistoryTitle: {
-    fontSize: 18,
-    fontFamily: 'LexendDeca_600SemiBold',
-    color: '#333',
-    marginBottom: 12,
-  },
-  absentHistoryItem: {
-    marginBottom: 12,
-    paddingBottom: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F0F0F0',
-  },
-  absentDate: {
-    fontSize: 14,
-    fontFamily: 'LexendDeca_500Medium',
-    color: '#666',
-    marginBottom: 4,
-  },
-  absentMessage: {
-    fontSize: 14,
-    fontFamily: 'LexendDeca_400Regular',
-    color: '#333',
-    lineHeight: 20,
-  },
-  syncStatusContainer: {
-    padding: 16,
-    alignItems: 'center',
-    // backgroundColor: 'white',
-    marginHorizontal: 16,
-    marginBottom: 16,
-    // borderRadius: 8,
-    // shadowColor: '#000',
-    // shadowOffset: { width: 0, height: 1 },
-    // shadowOpacity: 0.1,
-    // shadowRadius: 2,
-    // elevation: 2,
-  },
-  syncStatusRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  syncIcon: {
-    marginRight: 8,
-  },
-  syncingIcon: {
-    transform: [{ rotate: '0deg' }],
-  },
-  syncStatusText: {
-    fontSize: 14,
-    fontFamily: 'LexendDeca_400Regular',
-    color: '#666',
-  },
-  offlineText: {
-    fontSize: 12,
-    fontFamily: 'LexendDeca_400Regular',
-    color: '#999',
-    marginTop: 4,
-    textAlign: 'center',
-  },
-  inactiveText: {
-    color: '#BBB',
-  },
-});
 
 export default BDMAttendanceScreen; 

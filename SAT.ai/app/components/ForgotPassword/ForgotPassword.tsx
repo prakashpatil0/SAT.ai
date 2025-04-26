@@ -1,17 +1,16 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, StyleSheet, KeyboardAvoidingView, Platform, Alert, ActivityIndicator } from 'react-native';
 import { Text, TextInput, Snackbar } from 'react-native-paper';
 import { useNavigation } from '@react-navigation/native';
 import { doc, setDoc, getFirestore, serverTimestamp } from 'firebase/firestore';
-import { getFunctions, httpsCallable } from 'firebase/functions';
-import { sendPasswordResetEmail, sendEmailVerification, createUserWithEmailAndPassword, signInWithEmailAndPassword } from 'firebase/auth';
+import { getFunctions, httpsCallable, HttpsCallableResult } from 'firebase/functions';
+import { sendPasswordResetEmail, signInWithPhoneNumber, RecaptchaVerifier } from 'firebase/auth';
 import { auth } from '@/firebaseConfig';
 import AppGradient from '@/app/components/AppGradient';
 import { TouchableOpacity } from 'react-native';
 
 interface OTPRequest {
-  email: string;
-  otp: string;
+  phoneNumber: string;
   type: string;
 }
 
@@ -20,13 +19,8 @@ interface OTPResponse {
   message?: string;
 }
 
-const generateOTP = () => {
-  // Generate a 6-digit OTP for better security
-  return Math.floor(100000 + Math.random() * 900000).toString();
-};
-
 const ForgotPassword = () => {
-  const [email, setEmail] = useState('');
+  const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [showSnackbar, setShowSnackbar] = useState(false);
   const [snackbarMessage, setSnackbarMessage] = useState('');
@@ -38,49 +32,47 @@ const ForgotPassword = () => {
     return emailRegex.test(email);
   };
 
+  const validatePhoneNumber = (phone: string) => {
+    // Remove any non-digit characters
+    const cleanedPhone = phone.replace(/\D/g, '');
+    // Check if it's a valid length (10 digits for US numbers, adjust as needed)
+    return cleanedPhone.length >= 10;
+  };
+
+  const formatPhoneNumber = (phone: string) => {
+    // Remove any non-digit characters
+    const cleaned = phone.replace(/\D/g, '');
+    // Format as +1XXXXXXXXXX (US format, adjust as needed)
+    return `+1${cleaned}`;
+  };
+
   const handleSendOTP = async () => {
-    if (!validateEmail(email)) {
-      Alert.alert('Error', 'Please enter a valid email address');
+    if (!validatePhoneNumber(input)) {
+      Alert.alert('Error', 'Please enter a valid phone number');
       return;
     }
 
     setLoading(true);
     try {
-      const db = getFirestore();
+      const formattedPhone = formatPhoneNumber(input);
       
-      // Generate OTP
-      const otp = generateOTP();
-      
-      // Store OTP in Firestore
-      await setDoc(doc(db, 'otps', email), {
-        otp,
-        email,
-        createdAt: serverTimestamp(),
-        attempts: 0,
-        isUsed: false,
-        expiresAt: new Date(Date.now() + 5 * 60 * 1000), // 5 minutes from now
-        lastSentAt: serverTimestamp(),
-        status: 'pending'
-      });
-
-      // Call the Firebase Cloud Function to send OTP
+      // Call Firebase Cloud Function to send OTP
       const functions = getFunctions();
-      const sendOTPEmail = httpsCallable<OTPRequest, OTPResponse>(functions, 'sendOTPEmail');
-      const result = await sendOTPEmail({ 
-        email, 
-        otp,
+      const sendOTP = httpsCallable<OTPRequest, OTPResponse>(functions, 'sendOTP');
+      
+      const result = await sendOTP({
+        phoneNumber: formattedPhone,
         type: 'FORGOT_PASSWORD'
       });
 
       if (result.data.success) {
-        setSnackbarMessage('OTP sent successfully! Please check your email');
+        setSnackbarMessage('OTP sent successfully! Please check your phone');
         setShowSnackbar(true);
 
         // Navigate to verification screen
         setTimeout(() => {
           navigation.navigate('VerifyEmail', { 
-            email,
-            expectedOtp: otp 
+            phoneNumber: formattedPhone
           });
         }, 1500);
       } else {
@@ -91,10 +83,10 @@ const ForgotPassword = () => {
       console.error('Error in OTP process:', error);
       let message = 'Failed to process your request';
       
-      if (error.code === 'auth/too-many-requests') {
+      if (error.code === 'auth/invalid-phone-number') {
+        message = 'Please enter a valid phone number';
+      } else if (error.code === 'auth/too-many-requests') {
         message = 'Too many attempts. Please try again later';
-      } else if (error.code === 'auth/invalid-email') {
-        message = 'Please provide valid email address';
       } else if (error.message) {
         message = error.message;
       }
@@ -106,15 +98,19 @@ const ForgotPassword = () => {
   };
 
   const handleSendResetLink = async () => {
-    if (!validateEmail(email)) {
+    if (!validateEmail(input)) {
       Alert.alert('Error', 'Please enter a valid email address');
       return;
     }
 
     setLoading(true);
     try {
-      await sendPasswordResetEmail(auth, email);
-      setSnackbarMessage('Password reset link sent successfully! Please check your email');
+      console.log('Sending password reset email to:', input);
+      await sendPasswordResetEmail(auth, input);
+      
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      
+      setSnackbarMessage('Password reset link sent successfully! Please check your email (including spam folder)');
       setShowSnackbar(true);
       
       setTimeout(() => {
@@ -130,6 +126,8 @@ const ForgotPassword = () => {
         message = 'Please provide valid email address';
       } else if (error.code === 'auth/too-many-requests') {
         message = 'Too many attempts. Please try again later';
+      } else if (error.code === 'auth/network-request-failed') {
+        message = 'Network error. Please check your internet connection';
       } else if (error.message) {
         message = error.message;
       }
@@ -183,15 +181,15 @@ const ForgotPassword = () => {
           </View>
 
           <TextInput
-            label="Email"
-            value={email}
-            onChangeText={setEmail}
+            label={selectedOption === 'otp' ? "Enter your phone number" : "Enter your email"}
+            value={input}
+            onChangeText={setInput}
             mode="outlined"
             style={styles.input}
-            keyboardType="email-address"
+            keyboardType={selectedOption === 'otp' ? "phone-pad" : "email-address"}
             autoCapitalize="none"
             disabled={loading}
-            left={<TextInput.Icon icon="email" color="#B1B1B1" />}
+            left={<TextInput.Icon icon={selectedOption === 'otp' ? "phone" : "email"} color="#B1B1B1" />}
             theme={{
               roundness: 10,
               colors: {

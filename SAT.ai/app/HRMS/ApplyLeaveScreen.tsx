@@ -1,4 +1,5 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
+import * as MailComposer from "expo-mail-composer";
 import {
   View,
   Text,
@@ -19,12 +20,32 @@ import AppGradient from "@/app/components/AppGradient";
 import * as Haptics from "expo-haptics";
 import * as DocumentPicker from "expo-document-picker";
 import { auth, db, storage } from "@/firebaseConfig";
-import { collection, addDoc, Timestamp } from "firebase/firestore";
+import {
+  collection,
+  addDoc,
+  Timestamp,
+  doc,
+  getDoc,
+  getDocs,
+  query,
+  where,
+} from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 
 const ApplyLeaveScreen = () => {
   const navigation = useNavigation();
-  const [leaveType, setLeaveType] = useState<string | null>("Earned Leave");
+
+  const [leaveTypeDropdownOpen, setLeaveTypeDropdownOpen] = useState(false);
+  const [leaveType, setLeaveType] = useState<string | null>(null);
+  const [leaveTypeOptions, setLeaveTypeOptions] = useState([
+    { label: "Earned Leave (20)", value: "Earned Leave", fontFamily: 'LexendDeca_400Regular' },
+    { label: "Sick Leave (13)", value: "Sick Leave", fontFamily: 'LexendDeca_400Regular' },
+    { label: "Casual Leave (08)", value: "Casual Leave", fontFamily: 'LexendDeca_400Regular' },
+    { label: "Emergency Leave (10)", value: "Emergency Leave", fontFamily: 'LexendDeca_400Regular' },
+    { label: "Maternity Leave (60)", value: "Maternity Leave", fontFamily: 'LexendDeca_400Regular' },
+    { label: "Other", value: "Other", fontFamily: 'LexendDeca_400Regular' },
+  ]);
+
   const [fromDate, setFromDate] = useState(new Date());
   const [toDate, setToDate] = useState(new Date());
   const [showFromDate, setShowFromDate] = useState(false);
@@ -32,24 +53,107 @@ const ApplyLeaveScreen = () => {
   const [reason, setReason] = useState("");
   const [uploadedFile, setUploadedFile] =
     useState<DocumentPicker.DocumentPickerAsset | null>(null);
-  const [fromLeavePeriodOpen, setFromLeavePeriodOpen] = useState(false);
-  const [fromLeavePeriod, setFromLeavePeriod] = useState(null);
-  const [toLeavePeriodOpen, setToLeavePeriodOpen] = useState(false);
-  const [toLeavePeriod, setToLeavePeriod] = useState(null);
   const [fromDateSelected, setFromDateSelected] = useState(false);
   const [toDateSelected, setToDateSelected] = useState(false);
 
-  const leavePeriodItems = [
-    { label: "First Half", value: "First Half" },
-    { label: "Second Half", value: "Second Half" },
-  ];
+  const [lineDropdownOpen, setLineDropdownOpen] = useState(false);
+  const [selectedLineManager, setSelectedLineManager] = useState(null);
+  const [lineManagerOptions, setLineManagerOptions] = useState([
+    { label: "John Smith", value: "john_smith" },
+    { label: "Priya Mehta", value: "priya_mehta" },
+    { label: "Amit Kumar", value: "amit_kumar" },
+  ]);
+  const grantedLeaves = {
+    "Earned Leave": 20,
+    "Sick Leave": 25,
+    "Casual Leave": 20,
+    "Emergency Leave": 25,
+    "Maternity Leave": 80,
+  };
+  useEffect(() => {
+    const userId = auth.currentUser?.uid;
+    if (!userId) return;
+  
+    const fetchLeaveBalances = async () => {
+      const q = query(
+        collection(db, "leave_applications"),
+        where("userId", "==", userId),
+        where("status", "==", "approved")
+      );
+  
+      const snapshot = await getDocs(q);
+      const taken: Record<string, number> = {};
+  
+      snapshot.forEach((doc) => {
+        const data = doc.data();
+        const type = data.leaveType;
+        const duration = parseFloat(data.duration?.replace(/[^\d.]/g, "") || "0");
+        taken[type] = (taken[type] || 0) + duration;
+      });
+  
+      const updatedOptions = Object.entries(grantedLeaves).map(
+        ([type, granted]) => {
+          const used = taken[type] || 0;
+          const available = granted - used;
+          return {
+            label: `${type} (${available})`,
+            value: type,
+            fontFamily: "LexendDeca_400Regular",
+          };
+        }
+      );
+  
+      // Add "Other" as a static option
+      updatedOptions.push({
+        label: "Other",
+        value: "Other",
+        fontFamily: "LexendDeca_400Regular",
+      });
+  
+      setLeaveTypeOptions(updatedOptions);
+    };
+  
+    fetchLeaveBalances();
+  }, []);
+  
+  const [hrDropdownOpen, setHrDropdownOpen] = useState(false);
+  const [selectedHrManager, setSelectedHrManager] = useState(null);
+  const [hrManagerOptions, setHrManagerOptions] = useState([]);
+
+  useEffect(() => {
+    fetchHrManagers();
+  }, []);
+
+  const fetchHrManagers = async () => {
+    try {
+      const q = query(
+        collection(db, "users"),
+        where("role", "==", "hrmanager")
+      );
+      const querySnapshot = await getDocs(q);
+      const hrList: { label: string; value: string }[] = [];
+
+      querySnapshot.forEach((docSnap) => {
+        const data = docSnap.data();
+        if (data?.name) {
+          hrList.push({
+            label: data.name,
+            value: docSnap.id, // 🔥 use document ID instead of formatting the name
+          });
+        }
+      });
+
+      setHrManagerOptions(hrList);
+    } catch (error) {
+      console.error("Error fetching HR managers:", error);
+    }
+  };
 
   const handleFileUpload = async () => {
     try {
       const result = await DocumentPicker.getDocumentAsync({ type: "*/*" });
       if (!result.canceled) {
         const file = result.assets[0];
-        console.log("📄 File details:", file);
         setUploadedFile(file);
       }
     } catch (error) {
@@ -57,50 +161,21 @@ const ApplyLeaveScreen = () => {
     }
   };
 
-  // ✅ NEW: Total Days Logic
-  const calculateTotalDays = () => {
-    if (!fromLeavePeriod || !toLeavePeriod) return 0;
-
-    const fromTime = fromDate.setHours(0, 0, 0, 0);
-    const toTime = toDate.setHours(0, 0, 0, 0);
-
-    // Same day cases
-    if (fromTime === toTime) {
-      if (fromLeavePeriod === "First Half" && toLeavePeriod === "First Half") {
-        return 0.5;
-      }
-      if (fromLeavePeriod === "First Half" && toLeavePeriod === "Second Half") {
-        return 0.5;
-      }
-      if (fromLeavePeriod === "Second Half" && toLeavePeriod === "Second Half") {
-        return 0.5;
-      }
-      if (fromLeavePeriod === "Second Half" && toLeavePeriod === "First Half") {
-        return 0; // invalid case
-      }
-    }
-
-    // Multi-day cases
-    let dayDiff = Math.floor((toTime - fromTime) / (1000 * 60 * 60 * 24));
-    let total = dayDiff;
-
-    if (fromLeavePeriod === "First Half") total += 0.5;
-    else if (fromLeavePeriod === "Second Half") total += 0;
-
-    if (toLeavePeriod === "First Half") total += 0;
-    else if (toLeavePeriod === "Second Half") total += 0.5;
-
-    return total;
+  const calculateLeaveDuration = (start: Date, end: Date) => {
+    const oneDay = 24 * 60 * 60 * 1000;
+    const startDate = new Date(start.setHours(0, 0, 0, 0));
+    const endDate = new Date(end.setHours(0, 0, 0, 0));
+    const diffDays =
+      Math.round((endDate.getTime() - startDate.getTime()) / oneDay) + 1;
+    return diffDays <= 1 ? "1 day" : `${diffDays} days`;
   };
 
+ 
   const handleSubmit = async () => {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    console.log("🧾 File to Upload:", uploadedFile?.name);
-    console.log("📎 Auth User UID:", auth.currentUser);
+
     try {
       const userId = auth.currentUser?.uid;
-      console.log("✅ Logged-in User UID:", userId);
-
       if (!userId) {
         Alert.alert(
           "Authentication Error",
@@ -108,6 +183,16 @@ const ApplyLeaveScreen = () => {
         );
         return;
       }
+
+      const userDocRef = doc(db, "users", userId);
+      const userDocSnap = await getDoc(userDocRef);
+      if (!userDocSnap.exists()) {
+        Alert.alert("Error", "User not found.");
+        return;
+      }
+
+      const userData = userDocSnap.data();
+      const employeeName = userData?.name || "Unknown";
 
       let fileUrl = "";
       if (uploadedFile) {
@@ -118,37 +203,81 @@ const ApplyLeaveScreen = () => {
           storage,
           `leave_documents/${Date.now()}_${cleanFileName}`
         );
-
         await uploadBytes(storageRef, blob, {
           contentType: uploadedFile.mimeType || "application/pdf",
         });
-
         fileUrl = await getDownloadURL(storageRef);
       }
 
-      const totalDays = calculateTotalDays();
+      const duration = calculateLeaveDuration(fromDate, toDate);
 
       const dataToSend = {
         userId,
-        leaveType: leaveType?.replace(/[0-9]/g, "").trim() || "Not Selected",
+        name: employeeName,
+        leaveType: leaveType || "Not Selected",
         fromDate: Timestamp.fromDate(fromDate),
-        fromLeavePeriod,
         toDate: Timestamp.fromDate(toDate),
-        toLeavePeriod,
-        totalDays,
+        duration,
         reason,
+        lineManager: selectedLineManager,
+        hrManager: selectedHrManager,
         uploadedFileName: uploadedFile?.name || "",
         uploadedFileURL: fileUrl,
         status: "pending",
         createdAt: Timestamp.now(),
       };
 
-      console.log("📤 Sending Data to Firestore:", dataToSend);
-
       await addDoc(collection(db, "leave_applications"), dataToSend);
+      console.log("✅ Leave application saved");
 
-      console.log("✅ Data successfully added to Firestore");
-      Alert.alert("Success", "Leave submitted successfully!");
+      // ✅ Fetch HR Manager Email
+      console.log("🔍 Selected HR Manager UID:", selectedHrManager);
+      const hrDocRef = doc(db, "users", selectedHrManager);
+      const hrDocSnap = await getDoc(hrDocRef);
+
+      if (!hrDocSnap.exists()) {
+        console.warn("⚠️ HR manager document not found");
+        return;
+      }
+
+      const hrEmail = hrDocSnap.data().email;
+      console.log("📧 HR Email:", hrEmail);
+
+      // ✅ Send Email via MailComposer
+      const isAvailable = await MailComposer.isAvailableAsync();
+      if (isAvailable) {
+        await MailComposer.composeAsync({
+          recipients: [], // No direct recipient
+          // ccRecipients: [], // ← Replace with actual Line Manager email
+          bccRecipients: [hrEmail], // HR gets BCC
+          subject: `New Leave Request from ${employeeName}`,
+          body: `
+        Hi ${hrDocSnap.data().name},
+        
+        Employee ${employeeName} has requested a leave.
+        
+        Leave Type: ${leaveType}
+        From: ${fromDate.toDateString()}
+        To: ${toDate.toDateString()}
+        Duration: ${duration}
+        Reason: ${reason}
+        
+        Best regards,
+        SAT.ai App
+          `.trim(),
+          // attachments: [uploadedFile?.uri] // optional
+        });
+      } else {
+        Alert.alert(
+          "Mail not available",
+          "Email service is not available on this device."
+        );
+      }
+
+      Alert.alert(
+        "Success",
+        "Leave submitted! Review and send the email from your mail app."
+      );
       navigation.goBack();
     } catch (error) {
       console.error("❌ Error submitting leave application:", error);
@@ -156,7 +285,6 @@ const ApplyLeaveScreen = () => {
     }
   };
 
-  // Function to remove the selected file
   const handleRemoveFile = () => {
     setUploadedFile(null);
   };
@@ -165,8 +293,8 @@ const ApplyLeaveScreen = () => {
     <AppGradient>
       <TelecallerMainLayout
         showDrawer
-        showBackButton={true}
-        showBottomTabs={true}
+        showBackButton
+        showBottomTabs
         title={"Apply for a Leave"}
       >
         <KeyboardAvoidingView
@@ -178,49 +306,23 @@ const ApplyLeaveScreen = () => {
             showsVerticalScrollIndicator={false}
             contentContainerStyle={{ paddingBottom: 100 }}
           >
-            <Text style={styles.label}>Select Leave Type</Text>
+            <View style={{ zIndex: 5000, marginBottom: 20 }}>
+              <Text style={styles.label}>Select Leave Type</Text>
+              <DropDownPicker
+                open={leaveTypeDropdownOpen}
+                value={leaveType}
+                items={leaveTypeOptions}
+                setOpen={setLeaveTypeDropdownOpen}
+                setValue={setLeaveType}
+                setItems={setLeaveTypeOptions}
+                placeholder="Choose Leave Type"
+                style={styles.dropdownFull}
+                dropDownContainerStyle={{ borderColor: "#ddd" }}
+              />
+            </View>
 
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              style={{ marginBottom: 20 }}
-            >
-              <View style={styles.leaveTypeContainer}>
-                {leaveType && (
-                  <View
-                    style={[styles.leaveTypeBtn, styles.activeLeaveTypeBtn]}
-                  >
-                    <Text style={styles.activeText}>
-                      {leaveType.replace(/[0-9]/g, "").trim()}
-                    </Text>
-                    <TouchableOpacity onPress={() => setLeaveType(null)}>
-                      <Text style={styles.closeIcon}>✕</Text>
-                    </TouchableOpacity>
-                  </View>
-                )}
-                {[
-                  "Earned Leave 20",
-                  "Sick Leave 13",
-                  "Casual Leave 08",
-                  "Emergency Leave 10",
-                  "Maternity Leave 60",
-                  "Other",
-                ]
-                  .filter((type) => type !== leaveType)
-                  .map((type) => (
-                    <TouchableOpacity
-                      key={type}
-                      style={styles.leaveTypeBtn}
-                      onPress={() => setLeaveType(type)}
-                    >
-                      <Text style={styles.text}>{type}</Text>
-                    </TouchableOpacity>
-                  ))}
-              </View>
-            </ScrollView>
-
-            {/* From Date */}
-            <View style={styles.dateContainer}>
+            <Text style={styles.label}>Leave Period</Text>
+            <View style={styles.fromToRow}>
               <TouchableOpacity
                 style={styles.dateInput}
                 onPress={() => setShowFromDate(true)}
@@ -235,14 +337,8 @@ const ApplyLeaveScreen = () => {
                       })}-${fromDate.getFullYear()}`
                     : "From"}
                 </Text>
-                <MaterialIcons
-                  name="calendar-month"
-                  size={18}
-                  color="#000"
-                  style={{ marginLeft: 8 }}
-                />
+                <MaterialIcons name="calendar-month" size={18} color="#000" />
               </TouchableOpacity>
-
               {showFromDate && (
                 <DateTimePicker
                   value={fromDate}
@@ -252,33 +348,12 @@ const ApplyLeaveScreen = () => {
                     setShowFromDate(false);
                     if (selectedDate) {
                       setFromDate(selectedDate);
-                      setFromDateSelected(true); // ✅ flag set
+                      setFromDateSelected(true);
                     }
                   }}
                 />
               )}
 
-              <DropDownPicker
-                open={fromLeavePeriodOpen}
-                value={fromLeavePeriod}
-                items={leavePeriodItems}
-                setOpen={setFromLeavePeriodOpen}
-                setValue={setFromLeavePeriod}
-                setItems={() => {}}
-                style={styles.dropdown}
-                containerStyle={{ width: "100%", zIndex: 1000 }}
-                dropDownContainerStyle={{
-                  width: "55%",
-                  borderWidth: 1,
-                  borderColor: "#ddd",
-                  zIndex: 1000,
-                }}
-                placeholder={fromLeavePeriodOpen ? "" : "Select Leave Period"}
-              />
-            </View>
-
-            {/* To Date */}
-            <View style={styles.dateContainer}>
               <TouchableOpacity
                 style={styles.dateInput}
                 onPress={() => setShowToDate(true)}
@@ -293,14 +368,8 @@ const ApplyLeaveScreen = () => {
                       })}-${toDate.getFullYear()}`
                     : "To"}
                 </Text>
-                <MaterialIcons
-                  name="calendar-month"
-                  size={18}
-                  color="#000"
-                  style={{ marginLeft: 8 }}
-                />
+                <MaterialIcons name="calendar-month" size={18} color="#000" />
               </TouchableOpacity>
-
               {showToDate && (
                 <DateTimePicker
                   value={toDate}
@@ -310,40 +379,48 @@ const ApplyLeaveScreen = () => {
                     setShowToDate(false);
                     if (selectedDate) {
                       setToDate(selectedDate);
-                      setToDateSelected(true); // ✅ flag set
+                      setToDateSelected(true);
                     }
                   }}
                 />
               )}
-
-              <DropDownPicker
-                open={toLeavePeriodOpen}
-                value={toLeavePeriod}
-                items={leavePeriodItems}
-                setOpen={setToLeavePeriodOpen}
-                setValue={setToLeavePeriod}
-                setItems={() => {}}
-                style={styles.dropdown}
-                containerStyle={{ width: "100%", zIndex: 500 }}
-                dropDownContainerStyle={{
-                  width: "55%",
-                  borderWidth: 1,
-                  borderColor: "#ddd",
-                  zIndex: 500,
-                }}
-                placeholder={toLeavePeriodOpen ? "" : "Select Leave Period"}
-              />
             </View>
 
-            {/* Total Days */}
-            <Text style={styles.label}>Total Number of Days</Text>
-            <View style={styles.daysCountBox}>
-              <Text style={styles.daysCountText}>
-                {calculateTotalDays()} Days
-              </Text>
+            <View style={{ zIndex: 4000 }}>
+              <View style={styles.dropdownRow}>
+                <Text style={styles.dropdownLabel}>To</Text>
+                <DropDownPicker
+                  open={lineDropdownOpen}
+                  value={selectedLineManager}
+                  items={lineManagerOptions}
+                  setOpen={setLineDropdownOpen}
+                  setValue={setSelectedLineManager}
+                  setItems={setLineManagerOptions}
+                  placeholder="Select Line Manager"
+                  style={styles.dropdownHalf}
+                  dropDownContainerStyle={{ borderColor: "#ddd" }}
+                />
+              </View>
             </View>
 
-            {/* Reason */}
+            <View style={{ zIndex: 3000 }}>
+              <View style={styles.dropdownRow}>
+                <Text style={styles.dropdownLabel}>To (BCC)</Text>
+                <DropDownPicker
+                  open={hrDropdownOpen}
+                  value={selectedHrManager}
+                  items={hrManagerOptions}
+                  setOpen={setHrDropdownOpen}
+                  setValue={setSelectedHrManager}
+                  setItems={setHrManagerOptions}
+                  placeholder="Select HR Manager"
+                  style={styles.dropdownHalf}
+                  dropDownContainerStyle={{ borderColor: "#ddd" }}
+                />
+                
+              </View>
+            </View>
+
             <View style={styles.notesContainer}>
               <TextInput
                 style={styles.textarea}
@@ -353,7 +430,6 @@ const ApplyLeaveScreen = () => {
                 value={reason}
                 onChangeText={setReason}
               />
-
               {uploadedFile && (
                 <View style={styles.filePreview}>
                   <MaterialIcons
@@ -365,18 +441,11 @@ const ApplyLeaveScreen = () => {
                     {uploadedFile.name}
                   </Text>
                   <MaterialIcons name="verified" size={20} color="#00C566" />
-                  {/* Remove file (X button) */}
                   <TouchableOpacity onPress={handleRemoveFile}>
-                    <MaterialIcons
-                      name="cancel"
-                      size={20}
-                      color="#FF0000"
-                      style={{ marginLeft: 8 }}
-                    />
+                    <MaterialIcons name="cancel" size={20} color="#FF0000" />
                   </TouchableOpacity>
                 </View>
               )}
-
               <View style={styles.bottomArea}>
                 <Text style={styles.charCount}>{reason.length}/120</Text>
                 <TouchableOpacity onPress={handleFileUpload}>
@@ -385,11 +454,8 @@ const ApplyLeaveScreen = () => {
               </View>
             </View>
 
-            {/* Submit */}
             <TouchableOpacity style={styles.submitBtn} onPress={handleSubmit}>
-              <Text style={{ color: "white", fontWeight: "bold" }}>
-                {"  "}Submit
-              </Text>
+              <Text style={{ color: "white", fontFamily: 'LexendDeca_600SemiBold', fontSize: 16 }}>Submit</Text>
             </TouchableOpacity>
           </ScrollView>
         </KeyboardAvoidingView>
@@ -398,59 +464,18 @@ const ApplyLeaveScreen = () => {
   );
 };
 
-export default ApplyLeaveScreen;
+
 
 const styles = StyleSheet.create({
   container: { padding: 16 },
-  label: { fontSize: 16, marginBottom: 10, fontWeight: "500", gap: 10 },
-  leaveTypeContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-  },
-
-  leaveTypeBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 10,
-    backgroundColor: "#fff",
-    borderWidth: 1,
-    borderColor: "#ddd",
-    marginRight: 10,
-  },
-
-  activeLeaveTypeBtn: {
-    backgroundColor: "#E6FAEC",
-    borderColor: "green",
-  },
-
-  text: {
-    fontSize: 14,
-    color: "#000",
-  },
-
-  activeText: {
-    fontSize: 14,
-    color: "#000",
-    fontWeight: "600",
-  },
-
-  closeIcon: {
-    marginLeft: 8,
-    color: "#333",
-    fontSize: 14,
-  },
-
-  dateContainer: {
+  label: { fontSize: 16, marginBottom: 10, fontFamily: 'LexendDeca_500Medium' },
+  fromToRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     marginBottom: 20,
-    gap: 10, // Add this for space between both inputs (From & To)
+    gap: 10,
   },
-
   dateInput: {
     flexDirection: "row",
     alignItems: "center",
@@ -459,23 +484,50 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     borderWidth: 1,
     borderColor: "#ddd",
-    width: "40%", // Reduced width for equal gap
+    width: "48%",
   },
-
-  dropdown: {
-    width: "55%", // Same as above for perfect symmetry
+  dropdownRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 20,
+    gap: 12,
+  },
+  dropdownLabel: { fontSize: 16, fontFamily: 'LexendDeca_500Medium', width: "30%" },
+  dropdownHalf: { borderColor: "#ddd", backgroundColor: "#fff", width: "68%" },
+  dropdownFull: { borderColor: "#ddd", backgroundColor: "#fff" },
+  notesContainer: {
+    backgroundColor: "white",
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 20,
     borderWidth: 1,
     borderColor: "#ddd",
   },
-  daysCountBox: {
-    backgroundColor: "white",
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 20,
-    borderWidth: 1, // Add this
-    borderColor: "#ddd",
+  textarea: {
+    fontSize: 16,
+    fontFamily: 'LexendDeca_500Medium',
+    color: "#333",
+    minHeight: 120,
+    textAlignVertical: "top",
   },
-  daysCountText: { fontSize: 16, color: "#333" },
+  filePreview: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#F9F9F9",
+    borderRadius: 12,
+    padding: 10,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: "#eee",
+  },
+  fileName: { flex: 1, marginHorizontal: 8, fontSize: 14, color: "#333", fontFamily: 'LexendDeca_400Regular' },
+  bottomArea: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  charCount: { fontSize: 12, color: "#999", fontFamily: 'LexendDeca_400Regular' },
   submitBtn: {
     flexDirection: "row",
     backgroundColor: "#ff914d",
@@ -487,73 +539,5 @@ const styles = StyleSheet.create({
     alignSelf: "center",
     marginTop: 10,
   },
-  notesContainer: {
-    backgroundColor: "white",
-    borderRadius: 12,
-    padding: 12,
-    marginBottom: 20,
-    borderWidth: 1,
-    borderColor: "#ddd",
-  },
-  inputWithIcon: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    backgroundColor: "white",
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    borderWidth: 1, // Add this
-    borderColor: "#ddd",
-  },
-
-  textarea: {
-    fontSize: 16,
-    color: "#333",
-    minHeight: 120,
-    textAlignVertical: "top", // for android
-  },
-
-  reasonCard: {
-    backgroundColor: "#fff",
-    borderRadius: 16,
-    padding: 12,
-    marginVertical: 10,
-    elevation: 2,
-  },
-
-  reasonText: {
-    fontSize: 14,
-    color: "#333",
-    marginBottom: 10,
-  },
-
-  filePreview: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#F9F9F9",
-    borderRadius: 12,
-    padding: 10,
-    marginBottom: 10,
-    borderWidth: 1,
-    borderColor: "#eee",
-  },
-
-  fileName: {
-    flex: 1,
-    marginHorizontal: 8,
-    fontSize: 14,
-    color: "#333",
-  },
-
-  bottomArea: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-
-  charCount: {
-    fontSize: 12,
-    color: "#999",
-  },
 });
+export default ApplyLeaveScreen;

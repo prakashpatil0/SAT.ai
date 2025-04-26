@@ -86,8 +86,10 @@ const SignUpScreen = () => {
   const [roleModalVisible, setRoleModalVisible] = useState(false);
   const roles = [
     { label: 'Telecaller', value: 'telecaller' },
-    { label: 'BDM', value: 'bdm' }
+    { label: 'BDM', value: 'bdm' },
+    { label: 'HR Manager', value: 'hrmanager' } // ✅ Added
   ];
+  
   const [errors, setErrors] = useState({
     email: '',
     password: '',
@@ -111,7 +113,14 @@ const SignUpScreen = () => {
         email: formData.email.trim().toLowerCase(),
         phoneNumber: formData.phoneNumber.trim(),
         role: formData.role.toLowerCase(),
-        designation: formData.role.toLowerCase() === 'bdm' ? 'Business Development Manager' : 'Telecaller',
+        designation: 
+        formData.role.toLowerCase() === 'bdm'
+          ? 'Business Development Manager'
+          : formData.role.toLowerCase() === 'telecaller'
+          ? 'Telecaller'
+          : formData.role.toLowerCase() === 'hrmanager'
+          ? 'HR Manager'
+          : '',
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
         isActive: true
@@ -135,7 +144,13 @@ const SignUpScreen = () => {
           index: 0,
           routes: [{ name: 'MainApp' }],
         });
+      } else if (formData.role.toLowerCase() === 'hrmanager') {
+        navigation.reset({
+          index: 0,
+          routes: [{ name: 'HRHome' }], // ✅ Add this route if you have an HR dashboard
+        });
       }
+      
 
     } catch (error: any) {
       console.error('Signup error:', error);

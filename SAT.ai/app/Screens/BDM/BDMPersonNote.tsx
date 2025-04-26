@@ -15,16 +15,16 @@ type RootStackParamList = {
     name: string;
     time: string;
     duration: string;
-    type: string;
+    status: string;
     notes: string[];
     phoneNumber?: string;
-    date?: string;
     contactInfo: {
       name: string;
       phoneNumber?: string;
       timestamp: Date;
       duration: string;
     };
+    contactIdentifier: string;
   };
   BDMCreateFollowUp: {
     contactName?: string;
@@ -46,39 +46,53 @@ type RootStackParamList = {
 };
 
 type PersonNoteScreenProps = {
-  route: RouteProp<RootStackParamList, 'BDMPersonNote'>;
+  route: {
+    params: {
+      name: string;
+      time: string;
+      duration: string;
+      status: string;
+      notes: string[];
+      phoneNumber?: string;
+      contactInfo: {
+        name: string;
+        phoneNumber?: string;
+        timestamp: Date;
+        duration: string;
+      };
+      contactIdentifier: string;
+    };
+  };
 };
 
 type NavigationProp = StackNavigationProp<RootStackParamList>;
 
-interface Note {
+type Note = {
   id: string;
-  contactName: string;
+  contactIdentifier: string;
   phoneNumber?: string;
-  date: string;
-  time: string;
-  duration: string;
+  contactName?: string;
   notes: string;
+  timestamp: string;
   status: string;
   followUp: boolean;
   userId: string;
   createdAt: number;
   userName?: string;
-  timestamp: Date;
-}
+};
 
 // Define AsyncStorage key (same as in BDMCallNoteDetailsScreen)
 const CALL_NOTES_STORAGE_KEY = 'bdm_call_notes';
 
 const BDMPersonNote: React.FC<PersonNoteScreenProps> = ({ route }) => {
   const navigation = useNavigation<NavigationProp>();
-  const { name, time, duration, type, notes: initialNotes, phoneNumber, date, contactInfo } = route.params;
+  const { name, time, duration, status, notes: initialNotes, phoneNumber, contactInfo, contactIdentifier } = route.params;
   const [savedNotes, setSavedNotes] = useState<Note[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     fetchSavedNotes();
-  }, []);
+  }, [contactIdentifier]);
 
   const fetchSavedNotes = async () => {
     try {
@@ -88,23 +102,15 @@ const BDMPersonNote: React.FC<PersonNoteScreenProps> = ({ route }) => {
       const storedNotes = await AsyncStorage.getItem(CALL_NOTES_STORAGE_KEY);
       
       if (storedNotes) {
-        const allNotes: Note[] = JSON.parse(storedNotes);
+        const allNotes = JSON.parse(storedNotes);
         
-        // Filter notes by phone number or contact name with proper null checks
-        const contactNotes = allNotes.filter(note => {
-          const notePhoneNumber = note.phoneNumber || '';
-          const noteContactName = note.contactName || '';
-          const currentPhoneNumber = phoneNumber || '';
-          const currentName = name || '';
-
-          return (
-            (currentPhoneNumber && notePhoneNumber === currentPhoneNumber) || 
-            (noteContactName.toLowerCase() === currentName.toLowerCase())
-          );
-        });
+        // Get notes for this specific contact
+        const contactNotes = allNotes[contactIdentifier] || [];
         
-        // Sort by creation date (newest first)
-        contactNotes.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+        // Sort by timestamp (newest first)
+        contactNotes.sort((a: Note, b: Note) => 
+          new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+        );
         
         setSavedNotes(contactNotes);
       }
@@ -112,19 +118,6 @@ const BDMPersonNote: React.FC<PersonNoteScreenProps> = ({ route }) => {
       console.error('Error fetching notes:', error);
     } finally {
       setIsLoading(false);
-    }
-  };
-
-  const getStatusColor = (status: string) => {
-    switch(status.toLowerCase()) {
-      case 'prospect':
-        return '#FFD700'; // Gold
-      case 'suspect':
-        return '#87CEEB'; // Sky blue
-      case 'closing':
-        return '#32CD32'; // Lime green
-      default:
-        return '#FF8447'; // Default orange
     }
   };
 
@@ -170,7 +163,32 @@ const BDMPersonNote: React.FC<PersonNoteScreenProps> = ({ route }) => {
       }
     });
   };
-
+  
+  // Replace your current getStatusColor function with this:
+const getStatusColor = (status?: string) => {
+  // Handle undefined/null status
+  if (!status) return '#FF8447'; // Default orange
+  
+  // Convert to lowercase and trim whitespace
+  const normalizedStatus = status.toString().toLowerCase().trim();
+  
+  switch(normalizedStatus) {
+    case 'prospect':
+      return '#FFD700'; // Gold
+    case 'suspect':
+      return '#87CEEB'; // Sky blue
+    case 'closing':
+      return '#32CD32'; // Lime green
+    case 'present':
+      return '#4CAF50'; // Green
+    case 'half day':
+      return '#FFC107'; // Amber
+    case 'absent':
+      return '#FF5252'; // Red
+    default:
+      return '#FF8447'; // Default orange
+  }
+};
   return (
     <AppGradient>
     <BDMMainLayout title={name} showBackButton showDrawer={true} showBottomTabs={true}>
@@ -179,7 +197,7 @@ const BDMPersonNote: React.FC<PersonNoteScreenProps> = ({ route }) => {
           <View style={styles.contactInfo}>
             <Text style={styles.name}>{name}</Text>
             <View style={styles.callDetails}>
-              <Text style={styles.time}>{date ? `${date} • ` : ''}{time}</Text>
+              <Text style={styles.time}>{time}</Text>
               <Text style={styles.duration}>{duration}</Text>
             </View>
             {phoneNumber && (
@@ -189,10 +207,10 @@ const BDMPersonNote: React.FC<PersonNoteScreenProps> = ({ route }) => {
           <View 
             style={[
               styles.statusBadge, 
-              { backgroundColor: getStatusColor(type) }
+              { backgroundColor: getStatusColor(status) }
             ]}
           >
-            <Text style={styles.statusText}>{type}</Text>
+            <Text style={styles.statusText}>{status}</Text>
           </View>
         </View>
 
@@ -209,10 +227,10 @@ const BDMPersonNote: React.FC<PersonNoteScreenProps> = ({ route }) => {
                 <Text style={styles.sectionTitle}>Notes</Text>
                 <TouchableOpacity 
                   style={styles.addNoteButton}
-                  onPress={navigateToCreateFollowUp}
+                  onPress={handleAddNote}
                 >
                   <MaterialIcons name="add" size={20} color="#FFF" />
-                  <Text style={styles.addNoteText}>Follow Up</Text>
+                  <Text style={styles.addNoteText}>Add Note</Text>
                 </TouchableOpacity>
               </View>
               

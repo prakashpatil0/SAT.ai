@@ -297,7 +297,7 @@ const CreateFollowUpScreen = () => {
 
           {/* Calendar */}
           <View style={styles.calendarContainer}>
-            <Text style={styles.sectionTitle}>Select Date</Text>
+            <Text style={styles.sectionTitle}></Text>
             <Calendar
               style={styles.calendar}
               theme={{

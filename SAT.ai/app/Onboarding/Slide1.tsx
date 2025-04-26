@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { View, Text, StyleSheet, Image, TouchableOpacity, Dimensions, Animated, Platform, Linking } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { View, Text, StyleSheet, Image, TouchableOpacity, Dimensions, Animated, Platform, Linking, Alert } from 'react-native';
+import { useNavigation, NavigationProp } from '@react-navigation/native';
 import Swiper from 'react-native-swiper';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -8,7 +8,17 @@ import { storage } from '@/firebaseConfig';
 import { ref, getDownloadURL } from 'firebase/storage';
 import * as FileSystem from 'expo-file-system';
 import { Asset } from 'expo-asset';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+// import { RootStackParamList } from '../navigation/types';
 
+
+export type RootStackParamList = {
+  Onboarding: undefined;
+  Login: undefined;
+  Register: undefined;
+  Home: undefined;
+  // Add other screen names and their params as needed
+};
 const { width, height } = Dimensions.get('window');
 
 const slides = [
@@ -45,7 +55,7 @@ const slides = [
 ];
 
 const OnboardingScreen = () => {
-  const navigation = useNavigation();
+  const navigation = useNavigation<NavigationProp<RootStackParamList>>();
   const [currentIndex, setCurrentIndex] = useState(0);
   const [slideImages, setSlideImages] = useState<{ [key: number]: string }>({});
   const [isLoading, setIsLoading] = useState(true);
@@ -54,6 +64,25 @@ const OnboardingScreen = () => {
   const slideAnim = useRef(new Animated.Value(0)).current;
   const scaleAnim = useRef(new Animated.Value(1)).current;
   const rotateAnim = useRef(new Animated.Value(0)).current;
+
+  const openDocument = async (documentType: 'terms' | 'privacy') => {
+    try {
+      setIsLoading(true);
+      const documentRef = ref(storage, `documents/${documentType === 'terms' ? 'Terms_and_Conditions.pdf' : 'privacy_policy.pdf'}`);
+      const url = await getDownloadURL(documentRef);
+      
+      // Open the document URL in the device's default PDF viewer
+      await Linking.openURL(url);
+    } catch (error) {
+      console.error(`Error opening ${documentType} document:`, error);
+      Alert.alert(
+        'Error',
+        `Could not open ${documentType === 'terms' ? 'Terms & Conditions' : 'Privacy Policy'} document. Please try again later.`
+      );
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   // Preload and cache images
   const preloadImages = useCallback(async () => {
@@ -157,6 +186,18 @@ const OnboardingScreen = () => {
     inputRange: [0, 1],
     outputRange: ['0deg', '5deg']
   });
+
+  const handleGetStarted = async () => {
+    try {
+      // Mark that user has seen onboarding
+      await AsyncStorage.setItem('hasSeenOnboarding', 'true');
+      // Navigate to login screen
+      navigation.navigate('Login');
+    } catch (error) {
+      console.error('Error saving onboarding status:', error);
+      navigation.navigate('Login');
+    }
+  };
 
   return (
     <Swiper
@@ -273,7 +314,7 @@ const OnboardingScreen = () => {
                   <>
                     <TouchableOpacity 
                       style={[styles.getStartedButton, styles.buttonShadow]} 
-                      onPress={() => navigation.navigate('Login' as never)}
+                      onPress={handleGetStarted}
                     >
                       <Text style={styles.getStartedText}>Get Started</Text>
                     </TouchableOpacity>
@@ -284,14 +325,14 @@ const OnboardingScreen = () => {
                         By continuing you accept to our{' '}
                         <Text 
                           style={styles.linkText} 
-                          // onPress={() => Linking.openURL('')}
+                          onPress={() => openDocument('terms')}
                         >
                           Terms & Conditions
                         </Text>{' '}
                         and{' '}
                         <Text 
                           style={styles.linkText} 
-                          // onPress={() => Linking.openURL('')}
+                          onPress={() => openDocument('privacy')}
                         >
                           Privacy Policy
                         </Text>.

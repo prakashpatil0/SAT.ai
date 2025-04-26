@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, memo } from 'react';
+import React, { useCallback, useMemo, memo, useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, FlatList, ScrollView } from 'react-native';
 import { useNavigation, RouteProp } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
@@ -6,6 +6,45 @@ import { MaterialIcons } from '@expo/vector-icons';
 import BDMMainLayout from '@/app/components/BDMMainLayout';
 import AppGradient from '@/app/components/AppGradient';
 import { BDMStackParamList } from '@/app/index';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+// Status and Call Type Configuration
+const STATUS_CONFIG = {
+  prospect: { color: '#4CAF50', icon: 'check-circle' },
+  suspect: { color: '#FF9800', icon: 'help-outline' },
+  closing: { color: '#2196F3', icon: 'check' },
+  missed: { color: '#F44336', icon: 'close' },
+  default: { color: '#999999', icon: 'info' }
+};
+
+const CALL_TYPE_CONFIG = {
+  incoming: { color: '#4CAF50', icon: 'call-received' },
+  outgoing: { color: '#2196F3', icon: 'call-made' },
+  missed: { color: '#F44336', icon: 'call-missed' },
+  default: { color: '#999999', icon: 'call' }
+};
+
+// Unified Helper Functions
+const getStatusColor = (status?: string): string => {
+  if (!status) return STATUS_CONFIG.default.color;
+  const normalizedStatus = status.toLowerCase();
+  return STATUS_CONFIG[normalizedStatus as keyof typeof STATUS_CONFIG]?.color || STATUS_CONFIG.default.color;
+};
+
+const getCallTypeIcon = (type?: string): React.ReactNode => {
+  if (!type) return null;
+  const normalizedType = type.toLowerCase();
+  const config = CALL_TYPE_CONFIG[normalizedType as keyof typeof CALL_TYPE_CONFIG] || CALL_TYPE_CONFIG.default;
+  
+  return (
+    <MaterialIcons 
+      name={config.icon as any} 
+      size={20} 
+      color={config.color} 
+      style={styles.callIcon} 
+    />
+  );
+};
 
 type Meeting = {
   date: string;
@@ -14,6 +53,9 @@ type Meeting = {
   notes?: string[];
   status?: string;
   type?: 'incoming' | 'outgoing' | 'missed';
+  id?: string;
+  phoneNumber?: string;
+  name?: string;
 };
 
 type Company = {
@@ -82,47 +124,67 @@ const MeetingItem = memo(({
   onPress: () => void;
   getCallTypeIcon: (type?: string) => React.ReactNode;
   getStatusColor: (status?: string) => string;
-}) => (
-  <TouchableOpacity
-    style={styles.meetingItem}
-    onPress={onPress}
-  >
-    <View style={styles.timeContainer}>
-      <Text style={styles.meetingTime}>{meeting.time}</Text>
-      <Text style={styles.meetingDuration}>{meeting.duration}</Text>
-    </View>
-    
-    <View style={styles.meetingDetails}>
-      <View style={styles.meetingTypeContainer}>
-        {getCallTypeIcon(meeting.type)}
-        <View style={styles.statusIndicator}>
-          <View 
-            style={[
-              styles.statusDot, 
-              { backgroundColor: getStatusColor(meeting.status) }
-            ]} 
-          />
-        </View>
+}) => {
+  // Calculate if this meeting has notes
+  const hasNotes = meeting.notes && meeting.notes.length > 0;
+  
+  return (
+    <TouchableOpacity
+      style={[
+        styles.meetingItem,
+        hasNotes && styles.hasNotesItem
+      ]}
+      onPress={onPress}
+      activeOpacity={0.7}
+    >
+      <View style={styles.timeContainer}>
+        <Text style={styles.meetingTime}>{meeting.time}</Text>
+        <Text style={styles.meetingDuration}>{meeting.duration}</Text>
+        
+        {hasNotes && (
+          <View style={styles.noteIndicator}>
+            <MaterialIcons name="notes" size={16} color="#FF8447" />
+            <Text style={styles.noteIndicatorText}>
+              {meeting.notes?.length} note{meeting.notes?.length !== 1 ? 's' : ''}
+            </Text>
+          </View>
+        )}
       </View>
       
-      <View style={styles.chevronContainer}>
-        <MaterialIcons name="chevron-right" size={24} color="#CCCCCC" />
+      <View style={styles.meetingDetails}>
+        <View style={styles.meetingTypeContainer}>
+          {getCallTypeIcon(meeting.type)}
+          <View style={styles.statusIndicator}>
+            <View 
+              style={[
+                styles.statusDot, 
+                { backgroundColor: getStatusColor(meeting.status) }
+              ]} 
+            />
+          </View>
+        </View>
+        
+        <View style={styles.chevronContainer}>
+          <MaterialIcons name="chevron-right" size={24} color="#CCCCCC" />
+        </View>
       </View>
-    </View>
-  </TouchableOpacity>
-));
+    </TouchableOpacity>
+  );
+});
+
+interface DateGroupProps {
+  group: { date: string; meetings: Meeting[] };
+  onPressMeeting: (meeting: Meeting) => void;
+  getCallTypeIcon: (type?: string) => React.ReactNode;
+  getStatusColor: (status?: string) => string;
+}
 
 const DateGroup = memo(({ 
   group, 
   onPressMeeting,
   getCallTypeIcon,
   getStatusColor
-}: { 
-  group: { date: string; meetings: Meeting[] };
-  onPressMeeting: (meeting: Meeting) => void;
-  getCallTypeIcon: (type?: string) => React.ReactNode;
-  getStatusColor: (status?: string) => string;
-}) => (
+}: DateGroupProps) => (
   <View style={styles.dateGroup}>
     <View style={styles.dateHeaderContainer}>
       <Text style={styles.dateHeader}>{group.date}</Text>
@@ -156,68 +218,80 @@ const CallHistoryScreen: React.FC<CallHistoryScreenProps> = ({ route }) => {
     meetings: []
   };
 
+  // Create contact ID
+  const contactId = useMemo(() => 
+    createContactId(customerName, phoneNumber), 
+    [customerName, phoneNumber]
+  );
+
+  // State for loaded meetings with notes
+  const [loadedMeetings, setLoadedMeetings] = useState<Meeting[]>(meetings);
+
+  // Load saved notes when component mounts
+  useEffect(() => {
+    const loadNotes = async () => {
+      const savedMeetings = await loadContactNotes(contactId);
+      if (savedMeetings.length > 0) {
+        setLoadedMeetings(savedMeetings);
+      }
+    };
+    loadNotes();
+  }, [contactId]);
+
+  // Save notes when meetings change
+  useEffect(() => {
+    if (loadedMeetings.length > 0) {
+      saveContactNotes(contactId, loadedMeetings);
+    }
+  }, [loadedMeetings, contactId]);
+
+  // Update your navigateToPersonNote to save notes
   const navigateToPersonNote = useCallback((meeting: Meeting) => {
     if (!meeting) return;
     
+    // Create contact identifier using phone number or name
+    const contactIdentifier = meeting.phoneNumber 
+      ? `phone_${meeting.phoneNumber.replace(/[^0-9]/g, '')}`
+      : `name_${(meeting.name || customerName).toLowerCase().replace(/\s+/g, '_')}`;
+
+    // Navigate to person notes screen with all necessary parameters
     navigation.navigate('BDMPersonNote', {
       name: customerName,
       time: meeting.time || '',
       duration: meeting.duration || '0 mins',
-      type: meeting.status?.toLowerCase() || 'prospect',
-      notes: meeting.notes || []
+      status: meeting.status || 'No Status',
+      notes: meeting.notes || [],
+      phoneNumber: meeting.phoneNumber,
+      contactInfo: {
+        name: customerName,
+        phoneNumber: meeting.phoneNumber,
+        timestamp: new Date(),
+        duration: meeting.duration || '0 mins'
+      },
+      contactIdentifier
     });
   }, [customerName, navigation]);
 
-  const getStatusColor = useCallback((status?: string) => {
-    if (!status) return '#999';
-    
-    switch (status.toLowerCase()) {
-      case 'prospect':
-        return '#4CAF50';
-      case 'suspect':
-        return '#FF9800';
-      case 'closing':
-        return '#2196F3';
-      case 'missed':
-        return '#F44336';
-      default:
-        return '#999';
-    }
-  }, []);
-
-  const getCallTypeIcon = useCallback((type?: string) => {
-    if (!type) return null;
-    
-    switch (type.toLowerCase()) {
-      case 'incoming':
-        return <MaterialIcons name="call-received" size={20} color="#4CAF50" style={styles.callIcon} />;
-      case 'outgoing':
-        return <MaterialIcons name="call-made" size={20} color="#2196F3" style={styles.callIcon} />;
-      case 'missed':
-        return <MaterialIcons name="call-missed" size={20} color="#F44336" style={styles.callIcon} />;
-      default:
-        return null;
-    }
-  }, []);
-
-  const groupedMeetings = useMemo(() => groupMeetingsByDate(meetings), [meetings]);
+  // Rest of your component remains the same...
+  const groupedMeetings = useMemo(() => 
+    groupMeetingsByDate(loadedMeetings), 
+    [loadedMeetings]
+  );
 
   return (
-    
-    <AppGradient>
-      <BDMMainLayout
-        title={customerName}
-        showBackButton
-        showDrawer={true}
-        showBottomTabs={true}
-      >
+  <AppGradient>
+    <BDMMainLayout
+      title={customerName}
+      showBackButton
+      showDrawer={true}
+      showBottomTabs={true}
+    >
       <ScrollView>
         <View style={styles.container}>
-
           <View style={styles.meetingHistoryContainer}>
             <Text style={styles.sectionTitle}>Meeting History</Text>
             
-            {meetings.length > 0 ? (
+            {loadedMeetings.length > 0 ? (
               <>
                 {groupedMeetings.map((group, groupIndex) => (
                   <DateGroup
@@ -234,10 +308,10 @@ const CallHistoryScreen: React.FC<CallHistoryScreenProps> = ({ route }) => {
             )}
           </View>
         </View>
-        </ScrollView>
-      </BDMMainLayout>
-    </AppGradient>
-  );
+      </ScrollView>
+    </BDMMainLayout>
+  </AppGradient>
+);
 };
 
 // Helper functions
@@ -306,7 +380,49 @@ const calculateTotalDuration = (meetings: Meeting[]): string => {
     return `${seconds}s`;
   }
 };
+// Add these helper functions at the bottom of your file (before styles)
 
+// Helper to create unique contact ID
+const createContactId = (name: string, phoneNumber?: string) => {
+  // Use phone number if available (best unique identifier)
+  if (phoneNumber) {
+    return `phone_${phoneNumber.replace(/[^0-9]/g, '')}`;
+  }
+  
+  // Fallback to sanitized name
+  const sanitizedName = name
+    .toLowerCase()
+    .replace(/\s+/g, '_')
+    .replace(/[^a-z0-9_]/g, '');
+  return `name_${sanitizedName}`;
+};
+
+// Helper to save notes for a contact
+const saveContactNotes = async (contactId: string, meetings: Meeting[]) => {
+  try {
+    const existingData = await AsyncStorage.getItem('contact_notes');
+    const allContacts = existingData ? JSON.parse(existingData) : {};
+    
+    // Update notes for this contact
+    allContacts[contactId] = meetings;
+    
+    await AsyncStorage.setItem('contact_notes', JSON.stringify(allContacts));
+  } catch (error) {
+    console.error('Error saving contact notes:', error);
+  }
+};
+
+// Helper to load notes for a contact
+const loadContactNotes = async (contactId: string) => {
+  try {
+    const existingData = await AsyncStorage.getItem('contact_notes');
+    const allContacts = existingData ? JSON.parse(existingData) : {};
+    return allContacts[contactId] || [];
+  } catch (error) {
+    console.error('Error loading contact notes:', error);
+    return [];
+  }
+};
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -462,6 +578,37 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     maxWidth: 200,
     marginTop: 8,
+  },
+  // noteIndicator: {
+  //   flexDirection: 'row',
+  //   alignItems: 'center',
+  //   marginTop: 4,
+  // },
+  // noteIndicatorText: {
+  //   fontSize: 12,
+  //   fontFamily: 'LexendDeca_400Regular',
+  //   color: '#FF8447',
+  //   marginLeft: 4,
+  // },
+  hasNotesItem: {
+    borderLeftWidth: 4,
+    borderLeftColor: '#FF8447',
+  },
+  noteIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 4,
+    backgroundColor: '#FFF5E6',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 10,
+    alignSelf: 'flex-start',
+  },
+  noteIndicatorText: {
+    fontSize: 12,
+    fontFamily: 'LexendDeca_400Regular',
+    color: '#FF8447',
+    marginLeft: 4,
   },
 });
 

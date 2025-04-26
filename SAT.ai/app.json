@@ -52,6 +52,12 @@
         {
           "locationAlwaysAndWhenInUsePermission": "Allow SAT.ai to use your location."
         }
+      ],
+      [
+        "expo-contacts",
+        {
+          "contactsPermission": "Allow SAT.ai to access your contacts."
+        }
       ]
     ],
     "experiments": {

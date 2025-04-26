@@ -17,7 +17,8 @@ import { auth, db } from "@/firebaseConfig";
 import TelecallerMainLayout from "@/app/components/TelecallerMainLayout";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import AppGradient from "@/app/components/AppGradient";
-import PDFViewer from '@/app/components/PDFViewer';
+
+
 interface SettingsData {
   notificationsEnabled: boolean;
   darkModeEnabled: boolean;
@@ -54,14 +55,6 @@ const TelecallerSettings = () => {
     setShowPdfViewer(true);
   };
 
-  if (showPdfViewer) {
-    return (
-      <PDFViewer 
-        pdfPath="assets/privacy_policy.pdf"
-        onClose={() => setShowPdfViewer(false)}
-      />
-    );
-  }
   // Load settings from Firestore
   useEffect(() => {
     fetchSettings();

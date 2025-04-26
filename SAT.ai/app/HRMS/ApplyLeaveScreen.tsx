@@ -63,7 +63,59 @@ const ApplyLeaveScreen = () => {
     { label: "Priya Mehta", value: "priya_mehta" },
     { label: "Amit Kumar", value: "amit_kumar" },
   ]);
-
+  const grantedLeaves = {
+    "Earned Leave": 20,
+    "Sick Leave": 25,
+    "Casual Leave": 20,
+    "Emergency Leave": 25,
+    "Maternity Leave": 80,
+  };
+  useEffect(() => {
+    const userId = auth.currentUser?.uid;
+    if (!userId) return;
+  
+    const fetchLeaveBalances = async () => {
+      const q = query(
+        collection(db, "leave_applications"),
+        where("userId", "==", userId),
+        where("status", "==", "approved")
+      );
+  
+      const snapshot = await getDocs(q);
+      const taken: Record<string, number> = {};
+  
+      snapshot.forEach((doc) => {
+        const data = doc.data();
+        const type = data.leaveType;
+        const duration = parseFloat(data.duration?.replace(/[^\d.]/g, "") || "0");
+        taken[type] = (taken[type] || 0) + duration;
+      });
+  
+      const updatedOptions = Object.entries(grantedLeaves).map(
+        ([type, granted]) => {
+          const used = taken[type] || 0;
+          const available = granted - used;
+          return {
+            label: `${type} (${available})`,
+            value: type,
+            fontFamily: "LexendDeca_400Regular",
+          };
+        }
+      );
+  
+      // Add "Other" as a static option
+      updatedOptions.push({
+        label: "Other",
+        value: "Other",
+        fontFamily: "LexendDeca_400Regular",
+      });
+  
+      setLeaveTypeOptions(updatedOptions);
+    };
+  
+    fetchLeaveBalances();
+  }, []);
+  
   const [hrDropdownOpen, setHrDropdownOpen] = useState(false);
   const [selectedHrManager, setSelectedHrManager] = useState(null);
   const [hrManagerOptions, setHrManagerOptions] = useState([]);

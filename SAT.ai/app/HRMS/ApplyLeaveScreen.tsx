@@ -263,7 +263,7 @@ const ApplyLeaveScreen = () => {
                 setOpen={setLeaveTypeDropdownOpen}
                 setValue={setLeaveType}
                 setItems={setLeaveTypeOptions}
-                placeholder="Choose Leave Type"
+                placeholder="Choose Leave Type" 
                 style={styles.dropdownFull}
                 dropDownContainerStyle={{ borderColor: "#ddd" }}
               />
@@ -365,7 +365,7 @@ const ApplyLeaveScreen = () => {
                   style={styles.dropdownHalf}
                   dropDownContainerStyle={{ borderColor: "#ddd" }}
                 />
-                
+
               </View>
             </View>
 

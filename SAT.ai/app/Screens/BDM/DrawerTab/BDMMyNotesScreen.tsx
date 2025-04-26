@@ -89,11 +89,28 @@ const BDMMyNotesScreen = () => {
       createdAt: new Date(),
       isPinned: true,
       userId: 'default',
+      isDefault: true,
     },
     {
       id: 'health-001',
       title: 'Health Insurance',
-      content: `Hello, I'm calling from Policy Planner Insurance Brokers Pvt Ltd... [full content]`,
+      content: `Health Insurance
+Hello, I'm calling from Policy Planner Insurance Brokers Pvt Ltd. Are you and your family protected against unexpected medical expenses? Our health insurance plans offer comprehensive coverage, including hospitalization expenses, surgeries, and doctor consultations.
+
+Benefits:
+
+- Comprehensive coverage for hospitalization expenses, surgeries, and doctor consultations
+- Option to choose from various plans, including individual and family floater plans
+- No claim bonus and lifetime renewal available
+- Tax benefits under Section 80D
+
+Attractive Offer: Get a free health check-up package worth ₹2,000 with your policy purchase.
+
+Claim Support: Our claims process is designed to be quick and hassle-free. We have a dedicated team to assist you with your claims.
+
+Immediate Closing Request: If you're interested, I can help you purchase a plan immediately and guide you through the application process.
+
+Would you like to know more about our health insurance plans?`,
       date: formatDate(new Date()),
       createdAt: new Date(),
       isPinned: false,
@@ -103,7 +120,23 @@ const BDMMyNotesScreen = () => {
     {
       id: 'motor-001',
       title: 'Motor Insurance',
-      content: `Hello, I'm calling from Policy Planner Insurance Brokers Pvt Ltd... [full content]`,
+      content: `Motor Insurance
+Hello, I'm calling from Policy Planner Insurance Brokers Pvt Ltd. Is your vehicle insured against accidents, theft, or damage? Our motor insurance plans offer comprehensive coverage, including third-party liability, own damage, and personal accident cover.
+
+Benefits:
+
+- Comprehensive coverage for third-party liability, own damage, and personal accident cover
+- Option to choose from various plans, including two-wheeler and four-wheeler insurance
+- No claim bonus and lifetime renewal available
+- 24x7 claim support
+
+Attractive Offer: Get a 5% discount on your premium if you purchase a plan within the next 48 hours.
+
+Claim Support: Our claims process is designed to be quick and hassle-free. We have a dedicated team to assist you with your claims.
+
+Immediate Closing Request: If you're interested, I can help you purchase a plan immediately and guide you through the application process.
+
+Would you like to know more about our motor insurance plans?`,
       date: formatDate(new Date()),
       createdAt: new Date(),
       isPinned: false,
@@ -113,7 +146,22 @@ const BDMMyNotesScreen = () => {
     {
       id: 'sme-001',
       title: 'SME Insurance',
-      content: `Hello, I'm calling from Policy Planner Insurance Brokers Pvt Ltd... [full content]`,
+      content: `Hello, I'm calling from Policy Planner Insurance Brokers Pvt Ltd. As a business owner, do you want to protect your business against unexpected risks and losses? Our SME insurance plans offer comprehensive coverage, including property damage, liability, and business interruption.
+
+Benefits:
+
+- Comprehensive coverage for property damage, liability, and business interruption
+- Option to choose from various plans, including package policies and customized solutions
+- Tax benefits under Section 80C and 10(10D)
+- 24x7 claim support
+
+Attractive Offer: Get a 10% discount on your premium if you purchase a plan within the next 48 hours.
+
+Claim Support: Our claims process is designed to be quick and hassle-free. We have a dedicated team to assist you with your claims.
+
+Immediate Closing Request: If you're interested, I can help you purchase a plan immediately and guide you through the application process.
+
+Would you like to know more about our SME insurance plans?`,
       date: formatDate(new Date()),
       createdAt: new Date(),
       isPinned: false,
@@ -139,23 +187,33 @@ const BDMMyNotesScreen = () => {
         return;
       }
   
-      // Fetch stored notes from AsyncStorage
-      const storedNotes = await AsyncStorage.getItem(NOTES_STORAGE_KEY + "_" + userId);
+      const storageKey = NOTES_STORAGE_KEY + "_" + userId;
+  
+      // Get stored notes
+      const storedNotes = await AsyncStorage.getItem(storageKey);
       const parsedNotes: Note[] = storedNotes ? JSON.parse(storedNotes) : [];
+  
+      // Get IDs of saved notes
       const userNoteIds = parsedNotes.map(note => note.id);
-      
-      // Only add default notes that aren't already in the saved notes
+  
+      // Only include default notes not already saved
       const filteredDefaults = DEFAULT_SCRIPTS.filter(defaultNote => !userNoteIds.includes(defaultNote.id));
-      const combinedNotes = [...filteredDefaults, ...parsedNotes];
-      
-      const sortedNotes = combinedNotes.sort((a, b) => {
+  
+      // Merge and update AsyncStorage if needed
+      let mergedNotes = [...parsedNotes];
+  
+      if (filteredDefaults.length > 0) {
+        mergedNotes = [...filteredDefaults, ...parsedNotes];
+        await AsyncStorage.setItem(storageKey, JSON.stringify(mergedNotes));
+      }
+  
+      const sortedNotes = mergedNotes.sort((a, b) => {
         if (a.isPinned && !b.isPinned) return -1;
         if (!a.isPinned && b.isPinned) return 1;
         return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
       });
-      
+  
       setNotes(sortedNotes);
-      
   
     } catch (err) {
       console.error("Error fetching notes:", err);
@@ -165,6 +223,7 @@ const BDMMyNotesScreen = () => {
       setRefreshing(false);
     }
   };
+  
   
   
   // Save notes to AsyncStorage
@@ -376,10 +435,13 @@ const BDMMyNotesScreen = () => {
           >
            {notes.map((item) => (
   <TouchableOpacity 
-    key={item.id} 
-    onPress={() => navigateToNoteDetails(item)}  // ✅ correct item passed
-    style={styles.cardContainer}
-  >
+    key={item.id}
+  onPress={() => {
+    console.log("Opening Note:", item.title); // ✅ Check which one is clicked
+    navigateToNoteDetails(item);
+  }}
+  style={styles.cardContainer}
+>
                <View style={[styles.card, item.isPinned && styles.pinnedCard]}>
       <View style={styles.cardHeader}>
         <Text style={styles.title}>{item.title}</Text>
@@ -394,33 +456,24 @@ const BDMMyNotesScreen = () => {
                           color={item.isPinned ? "#FF8447" : "#555"}
                         />
                       </TouchableOpacity>
-                      <TouchableOpacity 
-                        onPress={() => handleDeleteNote(item.id)}
-                        style={styles.actionButton}
-                      >
-                        <MaterialIcons name="delete-outline" size={22} color="#FF5252" />
-                      </TouchableOpacity>
+                      {!item.isDefault && (
+  <TouchableOpacity 
+    onPress={() => handleDeleteNote(item.id)}
+    style={styles.actionButton}
+  >
+    <MaterialIcons name="delete-outline" size={22} color="#FF5252" />
+  </TouchableOpacity>
+)}
+
+
                     </View>
                   </View>
                   <Text style={styles.content}>{truncateContent(item.content)}</Text>
                   <Text style={styles.date}>{item.date}</Text>
                 </View>
                 <View style={styles.cardActions}>
-{!item.isDefault && (
-  <>
-    <TouchableOpacity onPress={() => togglePinStatus(item.id, item.isPinned)}>
-      <MaterialCommunityIcons name={item.isPinned ? 'pin' : 'pin-outline'} size={22} />
-    </TouchableOpacity>
-    <TouchableOpacity onPress={() => handleDeleteNote(item.id)}>
-      <MaterialIcons name="delete-outline" size={22} />
-    </TouchableOpacity>
-  </>
-)}
-                  {item.isPinned && (
-                    <View style={styles.pinnedBadge}>
-                      <MaterialCommunityIcons name="pin" size={14} color="#FFF" />
-                    </View>
-                  )}
+
+                 
                 </View>
               </TouchableOpacity>
             ))}

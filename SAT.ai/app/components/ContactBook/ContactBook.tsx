@@ -10,23 +10,26 @@ import {
   Platform,
   ActionSheetIOS,
   Share,
-  Animated,Modal, KeyboardAvoidingView,     // add this
-  Keyboard  
+  Animated,
+  Modal,
+  KeyboardAvoidingView,
+  Keyboard
 } from 'react-native';
 import { Text } from 'react-native-paper';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { MaterialIcons } from '@expo/vector-icons';
 import TelecallerMainLayout from "@/app/components/TelecallerMainLayout";
 import AppGradient from '../AppGradient';
+import * as Contacts from 'expo-contacts'; // <-- important for device contacts
+
 type AddContactModalProps = {
     visible: boolean;
     onClose?: () => void;
     phoneNumber: string;
     onContactSaved?: (contact: Contact) => void;
     editingContact?: Contact | null;
-    
-  };
-  
+};
+
 interface Contact {
   id: string;
   firstName: string;
@@ -39,15 +42,11 @@ interface Contact {
 const ALPHABETS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
 
 const ContactBook = () => {
-    
-    const [firstName, setFirstName] = useState('');
-    const [lastName, setLastName] = useState('');
-    const [phoneNumber, setPhoneNumber] = useState('');
-    const [email, setEmail] = useState('');
-    const [errors, setErrors] = useState({
-      firstName: '',
-      phoneNumber: ''
-    });
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
+  const [phoneNumber, setPhoneNumber] = useState('');
+  const [email, setEmail] = useState('');
+  const [errors, setErrors] = useState({ firstName: '', phoneNumber: '' });
   const [contacts, setContacts] = useState<{ [key: string]: Contact[] }>({});
   const [searchQuery, setSearchQuery] = useState('');
   const [searchHistory, setSearchHistory] = useState<string[]>([]);
@@ -63,6 +62,7 @@ const ContactBook = () => {
   const [activeLetters, setActiveLetters] = useState<string[]>([]);
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
+  // 👇 Load contacts from AsyncStorage + Device on load
   useEffect(() => {
     loadContacts();
     loadSearchHistory();
@@ -72,38 +72,72 @@ const ContactBook = () => {
     filterContacts();
   }, [searchQuery, contacts, showFavoritesOnly]);
 
+  // 🔥 New Merge Logic
+  const mergeContacts = (existingContacts: Contact[], deviceContacts: Contact[]) => {
+    const phoneSet = new Set(existingContacts.map(c => c.phoneNumber.replace(/\s+/g, '')));
+    const newContacts = deviceContacts.filter(c => {
+      const normalizedPhone = c.phoneNumber.replace(/\s+/g, '');
+      return !phoneSet.has(normalizedPhone);
+    });
+    return [...existingContacts, ...newContacts];
+  };
+
+  // 🛜 Updated loadContacts() with device sync
   const loadContacts = async () => {
     try {
-      // Correct Storage Key
       const storedContacts = await AsyncStorage.getItem('telecaller_contacts');
-      
-      if (storedContacts) {
-        const parsedContacts = JSON.parse(storedContacts);
-        organizeContactsByAlphabet(parsedContacts);
-  
-        const lettersWithContacts = parsedContacts.reduce((letters: string[], contact: Contact) => {
-          const firstLetter = contact.firstName[0].toUpperCase();
-          if (!letters.includes(firstLetter)) {
-            letters.push(firstLetter);
-          }
-          return letters;
-        }, []);
-  
-        setActiveLetters(lettersWithContacts.sort());
+      let parsedContacts: Contact[] = storedContacts ? JSON.parse(storedContacts) : [];
+
+      // Fetch from device
+      const { status } = await Contacts.requestPermissionsAsync();
+      if (status === 'granted') {
+        const { data } = await Contacts.getContactsAsync({
+          fields: [Contacts.Fields.PhoneNumbers, Contacts.Fields.Emails],
+        });
+
+        if (data.length > 0) {
+          const deviceContacts: Contact[] = data.map((contact) => ({
+            id: contact.id ? contact.id : Date.now().toString() + Math.random().toString(),
+            firstName: contact.firstName || '',
+            lastName: contact.lastName || '',
+            phoneNumber: contact.phoneNumbers?.[0]?.number || '',
+            email: contact.emails?.[0]?.email || '',
+            favorite: false,
+          })).filter(c => c.phoneNumber);
+          
+
+          const mergedContacts = mergeContacts(parsedContacts, deviceContacts);
+
+          // Save merged
+          await AsyncStorage.setItem('telecaller_contacts', JSON.stringify(mergedContacts));
+
+          parsedContacts = mergedContacts;
+        }
+      } else {
+        Alert.alert('Permission Denied', 'Please allow contacts access to sync.');
       }
+
+      // Organize contacts
+      organizeContactsByAlphabet(parsedContacts);
+
+      const lettersWithContacts = parsedContacts.reduce((letters: string[], contact) => {
+        const firstLetter = contact.firstName[0]?.toUpperCase() || '#';
+        if (!letters.includes(firstLetter)) {
+          letters.push(firstLetter);
+        }
+        return letters;
+      }, []);
+      setActiveLetters(lettersWithContacts.sort());
     } catch (error) {
       console.error('Error loading contacts:', error);
       Alert.alert('Error', 'Failed to load contacts');
     }
   };
-  
 
   const loadSearchHistory = async () => {
     try {
       const storedHistory = await AsyncStorage.getItem('contactSearchHistory');
-      if (storedHistory) {
-        setSearchHistory(JSON.parse(storedHistory));
-      }
+      if (storedHistory) setSearchHistory(JSON.parse(storedHistory));
     } catch (error) {
       console.error('Error loading search history:', error);
     }
@@ -111,7 +145,6 @@ const ContactBook = () => {
 
   const saveSearchToHistory = async (query: string) => {
     if (!query.trim() || query.length < 3) return;
-    
     try {
       const newHistory = [query, ...searchHistory.filter(item => item !== query)].slice(0, 5);
       setSearchHistory(newHistory);
@@ -121,36 +154,10 @@ const ContactBook = () => {
     }
   };
 
-  const handleSearch = (query: string) => {
-    setSearchQuery(query);
-    saveSearchToHistory(query);
-    setShowSearchHistory(false);
-  };
-
-  const clearSearchHistory = async () => {
-    try {
-      setSearchHistory([]);
-      await AsyncStorage.removeItem('contactSearchHistory');
-    } catch (error) {
-      console.error('Error clearing search history:', error);
-    }
-  };
-
-  const handleScroll = (event: any) => {
-    const yOffset = event.nativeEvent.contentOffset.y;
-    setShowScrollToTop(yOffset > 300);
-  };
-
-  const scrollToTop = () => {
-    scrollViewRef.current?.scrollTo({ y: 0, animated: true });
-  };
-
   const organizeContactsByAlphabet = (contactsList: Contact[]) => {
     const organized = contactsList.reduce((acc: { [key: string]: Contact[] }, contact) => {
-      const firstLetter = contact.firstName[0].toUpperCase();
-      if (!acc[firstLetter]) {
-        acc[firstLetter] = [];
-      }
+      const firstLetter = contact.firstName[0]?.toUpperCase() || '#';
+      if (!acc[firstLetter]) acc[firstLetter] = [];
       acc[firstLetter].push(contact);
       return acc;
     }, {});
@@ -171,7 +178,6 @@ const ContactBook = () => {
       setFilteredContacts(contacts);
       return;
     }
-
     const query = searchQuery.toLowerCase();
     const filtered: { [key: string]: Contact[] } = {};
 
@@ -192,6 +198,12 @@ const ContactBook = () => {
     setFilteredContacts(filtered);
   }, [searchQuery, contacts, showFavoritesOnly]);
 
+
+   // 👇 Place it here
+   const handleScroll = (event: any) => {
+    const yOffset = event.nativeEvent.contentOffset.y;
+    setShowScrollToTop(yOffset > 300);
+  };
   const handleContactSaved = (newContact: Contact) => {
     loadContacts();
   };
@@ -276,7 +288,9 @@ const ContactBook = () => {
     );
   };
   
-
+  const scrollToTop = () => {
+    scrollViewRef.current?.scrollTo({ y: 0, animated: true });
+  };
  
 
   const handleDelete = (contact: Contact) => {

@@ -351,7 +351,7 @@ const WeeklyTargetScreen = () => {
       }
     };
     
-    fetchData(); // Initial fetch with loading
+    fetchData();
 
     // Set up interval to update every 10 seconds without loading
     const interval = setInterval(() => fetchData(false), 10000);

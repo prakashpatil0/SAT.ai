@@ -117,50 +117,51 @@ const handleDeleteScript = async () => {
 
   return (
     <AppGradient>
-    <ScrollView>
-     <TelecallerMainLayout title="My Script" showBackButton={true} showBottomTabs={true}>
-        <ScrollView style={styles.container}>
-          <View style={styles.card}>
-            <View style={styles.cardHeader}>
-              <Text style={styles.title}>{script.title}</Text>
-              <TouchableOpacity onPress={() => setShowOptions(!showOptions)} style={styles.threeDotsButton}>
-                <Ionicons name="ellipsis-vertical" size={24} color="#000" />
+    <TelecallerMainLayout title="My Script" showBackButton={true} showBottomTabs={true}>
+      <ScrollView 
+        style={styles.container} 
+        contentContainerStyle={{ paddingBottom: 120 }} // add extra padding bottom
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.card}>
+          <View style={styles.cardHeader}>
+            <Text style={styles.title}>{script.title}</Text>
+            <TouchableOpacity onPress={() => setShowOptions(!showOptions)} style={styles.threeDotsButton}>
+              <Ionicons name="ellipsis-vertical" size={24} color="#000" />
+            </TouchableOpacity>
+          </View>
+  
+          <Text style={styles.date}>{script.date}</Text>
+  
+          <Text style={styles.content}>
+            {showFullContent ? script.content : truncateContent(script.content, 250)}
+          </Text>
+  
+          {/* See More / See Less button */}
+          {script.content.length > 250 && (
+            <TouchableOpacity onPress={() => setShowFullContent(!showFullContent)}>
+              <Text style={styles.seeMoreText}>
+                {showFullContent ? 'See Less ▲' : 'See More ▼'}
+              </Text>
+            </TouchableOpacity>
+          )}
+  
+          {/* Options popup */}
+          {showOptions && (
+            <View style={styles.optionsPopup}>
+              <TouchableOpacity onPress={handlePinScript} style={styles.optionButton}>
+                <Text style={styles.optionText}>{script.isPinned ? 'Unpin' : 'Pin'}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={handleDeleteScript} style={styles.optionButton}>
+                <Text style={[styles.optionText, { color: 'red' }]}>Delete</Text>
               </TouchableOpacity>
             </View>
-
-            <Text style={styles.date}>{script.date}</Text>
-
-            {/* Show partial or full content */}
-            <ScrollView style={{ marginTop: 15 }}>
-    <Text style={styles.content}>
-      {script.content}
-    </Text>
-  </ScrollView>
-            {/* See More / See Less button */}
-            {script.content.length > 250 && (
-              <TouchableOpacity onPress={() => setShowFullContent(!showFullContent)}>
-                <Text style={styles.seeMoreText}>
-                  {showFullContent ? 'See Less ▲' : 'See More ▼'}
-                </Text>
-              </TouchableOpacity>
-            )}
-
-            {/* Options popup */}
-            {showOptions && (
-              <View style={styles.optionsPopup}>
-                <TouchableOpacity onPress={handlePinScript} style={styles.optionButton}>
-                  <Text style={styles.optionText}>{script.isPinned ? 'Unpin' : 'Pin'}</Text>
-                </TouchableOpacity>
-                <TouchableOpacity onPress={handleDeleteScript} style={styles.optionButton}>
-                  <Text style={[styles.optionText, { color: 'red' }]}>Delete</Text>
-                </TouchableOpacity>
-              </View>
-            )}
-          </View>
-        </ScrollView>
-      </TelecallerMainLayout>
-    </ScrollView>
-    </AppGradient>
+          )}
+        </View>
+      </ScrollView>
+    </TelecallerMainLayout>
+  </AppGradient>
+  
   );
 };
 

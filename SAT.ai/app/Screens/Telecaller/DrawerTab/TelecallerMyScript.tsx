@@ -125,22 +125,22 @@ Would you like to know more about our motor insurance plans?`,
     {
       id: 'sme-001',
       title: 'SME Insurance',
-      content: `Hello, I'm calling from Policy Planner Insurance Brokers Pvt Ltd. We've got an exciting offer on our term insurance plans that can secure your family's future. Our plans offer high coverage at affordable premiums, with options starting from ₹500 per month. You can choose from various plans, including those with critical illness cover and accidental death benefit.
+      content: `Hello, I'm calling from Policy Planner Insurance Brokers Pvt Ltd. As a business owner, do you want to protect your business against unexpected risks and losses? Our SME insurance plans offer comprehensive coverage, including property damage, liability, and business interruption.
 
 Benefits:
 
-- High coverage at affordable premiums
-- Option to choose from various plans
-- Critical illness cover and accidental death benefit available
+- Comprehensive coverage for property damage, liability, and business interruption
+- Option to choose from various plans, including package policies and customized solutions
 - Tax benefits under Section 80C and 10(10D)
+- 24x7 claim support
 
-Attractive Offer: Get 10% discount on your first-year premium if you purchase a plan within the next 48 hours.
+Attractive Offer: Get a 10% discount on your premium if you purchase a plan within the next 48 hours.
 
-Claim Support: Our claims process is hassle-free and transparent. We ensure that your claims are settled quickly and efficiently.
+Claim Support: Our claims process is designed to be quick and hassle-free. We have a dedicated team to assist you with your claims.
 
-Immediate Closing Request: If you're interested, I can guide you through the application process and help you purchase a plan immediately.
+Immediate Closing Request: If you're interested, I can help you purchase a plan immediately and guide you through the application process.
 
-Would you like to know more about our term insurance plans?`,
+Would you like to know more about our SME insurance plans?`,
       date: formatDate(new Date()),
       // createdAt: new Date(),
       isPinned: false,
@@ -165,19 +165,16 @@ Would you like to know more about our term insurance plans?`,
         id: doc.id,
         ...doc.data()
       })) as Script[];
-    
-      // Filter out any Firestore scripts that have the same title as default ones
-      const filteredDbScripts = dbScripts.filter(
-        dbScript => !DEFAULT_SCRIPTS.some(defaultScript => defaultScript.title === dbScript.title)
-      );
-      const combined = [...DEFAULT_SCRIPTS, ...filteredDbScripts];
-      
-      setScripts(combined);
+  
+      setScripts(dbScripts); // Only set USER scripts (NO default here)
       setLoading(false);
     });
-    
+  
     return () => unsubscribe();
   }, []);
+  
+  
+  
   
 
   const handleBackPress = () => {
@@ -197,7 +194,7 @@ Would you like to know more about our term insurance plans?`,
   const fetchScripts = async () => {
     const userId = auth.currentUser?.uid;
     if (!userId) return;
-
+  
     try {
       setLoading(true);
       const scriptsRef = collection(db, 'scripts');
@@ -208,17 +205,20 @@ Would you like to know more about our term insurance plans?`,
         orderBy('createdAt', 'desc')
       );
       const querySnapshot = await getDocs(q);
-      const scriptData = querySnapshot.docs.map(doc => ({
+      const dbScripts = querySnapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
       })) as Script[];
-      setScripts(scriptData);
+  
+      setScripts(dbScripts);
     } catch (error) {
       console.error('Error fetching scripts:', error);
     } finally {
       setLoading(false);
     }
   };
+  
+  
 
   const handleAddScript = async () => {
     try {
@@ -259,29 +259,33 @@ Would you like to know more about our term insurance plans?`,
   showsVerticalScrollIndicator={false}
   keyboardShouldPersistTaps="handled"
 >
-            {loading ? (
-              <ActivityIndicator size="large" color="#FF8447" style={styles.loader} />
-            ) : scripts.length === 0 ? (
-              <Text style={styles.emptyText}>No scripts found</Text>
-            ) : (
-              scripts.map((script) => (
-                <TouchableOpacity 
-                  key={script.id} 
-                  onPress={() => navigateToDetails(script)}
-                >
-                  <View style={styles.card}>
-                    <View style={styles.cardHeader}>
-                      <Text style={styles.title}>{script.title}</Text>
-                      {script.isPinned && (
-                        <MaterialCommunityIcons name='pin-outline' size={25} color="black" />
-                      )}
-                    </View>
-                    <Text style={styles.date}>{script.date}</Text>
-                  </View>
-                </TouchableOpacity>
-              ))
-              
-            )}
+{loading ? (
+  <ActivityIndicator size="large" color="#FF8447" style={styles.loader} />
+) : (
+  [
+    ...DEFAULT_SCRIPTS,
+    ...scripts.filter(
+      (script) => !DEFAULT_SCRIPTS.some((defaultScript) => defaultScript.title === script.title)
+    )
+  ].map((script) => (
+    <TouchableOpacity 
+      key={script.id} 
+      onPress={() => navigateToDetails(script)}
+    >
+      <View style={styles.card}>
+        <View style={styles.cardHeader}>
+          <Text style={styles.title}>{script.title}</Text>
+          {script.isPinned && (
+            <MaterialCommunityIcons name='pin-outline' size={25} color="black" />
+          )}
+        </View>
+        <Text style={styles.date}>{script.date}</Text>
+      </View>
+    </TouchableOpacity>
+  ))
+)}
+
+
           </ScrollView>
 
           {/* Floating Action Button (FAB) */}

@@ -193,21 +193,32 @@ Would you like to know more about our SME insurance plans?`,
       const storedNotes = await AsyncStorage.getItem(storageKey);
       const parsedNotes: Note[] = storedNotes ? JSON.parse(storedNotes) : [];
   
-      // Get IDs of saved notes
-      const userNoteIds = parsedNotes.map(note => note.id);
+      // Remove duplicate titles manually first
+      const uniqueNotesMap = new Map<string, Note>();
+      parsedNotes.forEach(note => {
+        const titleKey = note.title.trim().toLowerCase();
+        if (!uniqueNotesMap.has(titleKey)) {
+          uniqueNotesMap.set(titleKey, note);
+        }
+      });
   
-      // Only include default notes not already saved
-      const filteredDefaults = DEFAULT_SCRIPTS.filter(defaultNote => !userNoteIds.includes(defaultNote.id));
+      let cleanedNotes = Array.from(uniqueNotesMap.values());
   
-      // Merge and update AsyncStorage if needed
-      let mergedNotes = [...parsedNotes];
+      // Now prepare list of existing titles
+      const existingTitles = cleanedNotes.map(note => note.title.trim().toLowerCase());
   
-      if (filteredDefaults.length > 0) {
-        mergedNotes = [...filteredDefaults, ...parsedNotes];
-        await AsyncStorage.setItem(storageKey, JSON.stringify(mergedNotes));
-      }
+      // Add missing default notes
+      const missingDefaults = DEFAULT_SCRIPTS.filter(defaultNote => 
+        !existingTitles.includes(defaultNote.title.trim().toLowerCase())
+      );
   
-      const sortedNotes = mergedNotes.sort((a, b) => {
+      cleanedNotes = [...cleanedNotes, ...missingDefaults];
+  
+      // Save cleaned + merged notes back
+      await AsyncStorage.setItem(storageKey, JSON.stringify(cleanedNotes));
+  
+      // Sort notes
+      const sortedNotes = cleanedNotes.sort((a, b) => {
         if (a.isPinned && !b.isPinned) return -1;
         if (!a.isPinned && b.isPinned) return 1;
         return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
@@ -223,6 +234,8 @@ Would you like to know more about our SME insurance plans?`,
       setRefreshing(false);
     }
   };
+  
+  
   
   
   

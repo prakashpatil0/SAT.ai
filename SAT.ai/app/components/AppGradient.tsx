@@ -16,12 +16,12 @@ const AppGradient = ({ children, style }: AppGradientProps) => {
         '#E6F9F1',
         '#B8ECD7',
         '#DED3FF',
-        // '#C4B5FF'
+        '#C4B5FF' // Uncommented to match locations count
       ]}
       style={[styles.gradient, style]}
       start={{ x: 0, y: 0 }}
       end={{ x: 0, y: 2 }}
-      locations={[0, 0.2, 0.4, 0.6, 0.8, 1]}
+      locations={[0, 0.2, 0.4, 0.6, 0.8, 1]} // 6 locations
     >
       {children}
     </LinearGradient>
@@ -34,4 +34,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default AppGradient; 
+export default AppGradient;

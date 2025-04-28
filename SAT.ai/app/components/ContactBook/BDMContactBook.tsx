@@ -8,24 +8,21 @@ import {
   Alert,
   Linking,
   Platform,
-  ActionSheetIOS,
+  Modal,
+  KeyboardAvoidingView,
+  Keyboard,
+  Animated,
+  NativeSyntheticEvent,
+  NativeScrollEvent,
   Share,
-  Animated,Modal, KeyboardAvoidingView,     // add this
-  Keyboard  
 } from 'react-native';
 import { Text } from 'react-native-paper';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { MaterialIcons } from '@expo/vector-icons';
+import * as Contacts from 'expo-contacts'; // ✅ auto-sync contacts
 import BDMMainLayout from "@/app/components/BDMMainLayout";
 import AppGradient from '../AppGradient';
-type AddContactModalProps = {
-    visible: boolean;
-    onClose?: () => void;
-    phoneNumber: string;
-    onContactSaved?: (contact: Contact) => void;
-    editingContact?: Contact | null;
-  };
-  
+
 interface Contact {
   id: string;
   firstName: string;
@@ -38,15 +35,11 @@ interface Contact {
 const ALPHABETS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
 
 const BDMContactBook = () => {
-    
-    const [firstName, setFirstName] = useState('');
-    const [lastName, setLastName] = useState('');
-    const [phoneNumber, setPhoneNumber] = useState('');
-    const [email, setEmail] = useState('');
-    const [errors, setErrors] = useState({
-      firstName: '',
-      phoneNumber: ''
-    });
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
+  const [phoneNumber, setPhoneNumber] = useState('');
+  const [email, setEmail] = useState('');
+  const [errors, setErrors] = useState({ firstName: '', phoneNumber: '' });
   const [contacts, setContacts] = useState<{ [key: string]: Contact[] }>({});
   const [searchQuery, setSearchQuery] = useState('');
   const [searchHistory, setSearchHistory] = useState<string[]>([]);
@@ -57,6 +50,7 @@ const BDMContactBook = () => {
   const [filteredContacts, setFilteredContacts] = useState<{ [key: string]: Contact[] }>({});
   const [editingContact, setEditingContact] = useState<Contact | null>(null);
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
+
   const scrollViewRef = useRef<ScrollView>(null);
   const sectionRefs = useRef<{ [key: string]: number }>({});
   const [activeLetters, setActiveLetters] = useState<string[]>([]);
@@ -74,80 +68,64 @@ const BDMContactBook = () => {
   const loadContacts = async () => {
     try {
       const storedContacts = await AsyncStorage.getItem('contacts');
-      if (storedContacts) {
-        const parsedContacts = JSON.parse(storedContacts);
-        organizeContactsByAlphabet(parsedContacts);
-        
-        // Find which letters have contacts
-        const lettersWithContacts = parsedContacts.reduce((letters: string[], contact: Contact) => {
-          const firstLetter = contact.firstName[0].toUpperCase();
-          if (!letters.includes(firstLetter)) {
-            letters.push(firstLetter);
-          }
-          return letters;
-        }, []);
-        
-        setActiveLetters(lettersWithContacts.sort());
+      let parsedContacts: Contact[] = storedContacts ? JSON.parse(storedContacts) : [];
+
+      const { status } = await Contacts.requestPermissionsAsync();
+      if (status === 'granted') {
+        const { data } = await Contacts.getContactsAsync({
+          fields: [Contacts.Fields.PhoneNumbers, Contacts.Fields.Emails],
+        });
+
+        if (data.length > 0) {
+          const deviceContacts: Contact[] = data.map((contact) => ({
+            id: contact.id || `id-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
+            firstName: contact.firstName || '',
+            lastName: contact.lastName || '',
+            phoneNumber: contact.phoneNumbers?.[0]?.number || '',
+            email: contact.emails?.[0]?.email || '',
+            favorite: false,
+          })).filter(c => c.phoneNumber);
+
+          // Merge and avoid duplicates
+          const phoneSet = new Set(parsedContacts.map(c => c.phoneNumber.replace(/\s+/g, '')));
+          const newDeviceContacts = deviceContacts.filter(c => !phoneSet.has(c.phoneNumber.replace(/\s+/g, '')));
+
+          const finalContacts = [...parsedContacts, ...newDeviceContacts];
+          await AsyncStorage.setItem('contacts', JSON.stringify(finalContacts));
+          parsedContacts = finalContacts;
+        }
+      } else {
+        Alert.alert('Permission Denied', 'Please allow Contacts access.');
       }
+
+      organizeContactsByAlphabet(parsedContacts);
+
+      const letters = parsedContacts.reduce((acc: string[], contact) => {
+        const firstLetter = contact.firstName[0]?.toUpperCase() || '#';
+        if (!acc.includes(firstLetter)) acc.push(firstLetter);
+        return acc;
+      }, []);
+      setActiveLetters(letters.sort());
+
     } catch (error) {
       console.error('Error loading contacts:', error);
-      Alert.alert('Error', 'Failed to load contacts');
+      Alert.alert('Error', 'Failed to sync contacts.');
     }
   };
 
   const loadSearchHistory = async () => {
     try {
-      const storedHistory = await AsyncStorage.getItem('contactSearchHistory');
-      if (storedHistory) {
-        setSearchHistory(JSON.parse(storedHistory));
-      }
+      const history = await AsyncStorage.getItem('contactSearchHistory');
+      if (history) setSearchHistory(JSON.parse(history));
     } catch (error) {
-      console.error('Error loading search history:', error);
+      console.error('Error loading history:', error);
     }
-  };
-
-  const saveSearchToHistory = async (query: string) => {
-    if (!query.trim() || query.length < 3) return;
-    
-    try {
-      const newHistory = [query, ...searchHistory.filter(item => item !== query)].slice(0, 5);
-      setSearchHistory(newHistory);
-      await AsyncStorage.setItem('contactSearchHistory', JSON.stringify(newHistory));
-    } catch (error) {
-      console.error('Error saving search history:', error);
-    }
-  };
-
-  const handleSearch = (query: string) => {
-    setSearchQuery(query);
-    saveSearchToHistory(query);
-    setShowSearchHistory(false);
-  };
-
-  const clearSearchHistory = async () => {
-    try {
-      setSearchHistory([]);
-      await AsyncStorage.removeItem('contactSearchHistory');
-    } catch (error) {
-      console.error('Error clearing search history:', error);
-    }
-  };
-
-  const handleScroll = (event: any) => {
-    const yOffset = event.nativeEvent.contentOffset.y;
-    setShowScrollToTop(yOffset > 300);
-  };
-
-  const scrollToTop = () => {
-    scrollViewRef.current?.scrollTo({ y: 0, animated: true });
   };
 
   const organizeContactsByAlphabet = (contactsList: Contact[]) => {
     const organized = contactsList.reduce((acc: { [key: string]: Contact[] }, contact) => {
-      const firstLetter = contact.firstName[0].toUpperCase();
-      if (!acc[firstLetter]) {
-        acc[firstLetter] = [];
-      }
+      const firstLetter = contact.firstName[0]?.toUpperCase() || '#';
+      if (!acc[firstLetter]) acc[firstLetter] = [];
       acc[firstLetter].push(contact);
       return acc;
     }, {});
@@ -168,51 +146,42 @@ const BDMContactBook = () => {
       setFilteredContacts(contacts);
       return;
     }
-
     const query = searchQuery.toLowerCase();
     const filtered: { [key: string]: Contact[] } = {};
 
     Object.keys(contacts).forEach(letter => {
-      let matchingContacts = contacts[letter].filter(contact => 
+      const matches = contacts[letter].filter(contact =>
         (contact.firstName.toLowerCase().includes(query) ||
         contact.lastName.toLowerCase().includes(query) ||
         contact.phoneNumber.includes(query) ||
         (contact.email && contact.email.toLowerCase().includes(query))) &&
         (!showFavoritesOnly || contact.favorite)
       );
-
-      if (matchingContacts.length > 0) {
-        filtered[letter] = matchingContacts;
-      }
+      if (matches.length > 0) filtered[letter] = matches;
     });
 
     setFilteredContacts(filtered);
   }, [searchQuery, contacts, showFavoritesOnly]);
 
-  const handleContactSaved = (newContact: Contact) => {
-    loadContacts();
+  const handleScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const yOffset = event.nativeEvent.contentOffset.y;
+    setShowScrollToTop(yOffset > 300);
+  };
+
+  const scrollToTop = () => {
+    scrollViewRef.current?.scrollTo({ y: 0, animated: true });
   };
 
   const scrollToLetter = (letter: string) => {
     if (!activeLetters.includes(letter)) return;
-    
     setSelectedLetter(letter);
-    
-    // Fade in animation
+
     Animated.sequence([
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 150,
-        useNativeDriver: true,
-      }),
+      Animated.timing(fadeAnim, { toValue: 1, duration: 150, useNativeDriver: true }),
       Animated.delay(800),
-      Animated.timing(fadeAnim, {
-        toValue: 0,
-        duration: 300,
-        useNativeDriver: true,
-      })
+      Animated.timing(fadeAnim, { toValue: 0, duration: 300, useNativeDriver: true }),
     ]).start();
-    
+
     const yOffset = sectionRefs.current[letter] || 0;
     scrollViewRef.current?.scrollTo({ y: yOffset, animated: true });
   };
@@ -243,13 +212,8 @@ const BDMContactBook = () => {
       `${contact.firstName} ${contact.lastName}`,
       'Choose an action',
       [
-        {
-          text: 'Call',
-          onPress: () => handleCall(contact.phoneNumber)
-        },
-        {
-          text: 'Edit',
-          onPress: () => {
+        { text: 'Call', onPress: () => handleCall(contact.phoneNumber) },
+        { text: 'Edit', onPress: () => {
             setEditingContact(contact);
             setFirstName(contact.firstName || '');
             setLastName(contact.lastName || '');
@@ -257,24 +221,13 @@ const BDMContactBook = () => {
             setEmail(contact.email || '');
             setModalVisible(true);
           }
-          
         },
-        {
-          text: 'Delete',
-          onPress: () => handleDelete(contact),
-          style: 'destructive'
-        },
-        {
-          text: 'Cancel',
-          style: 'cancel'
-        }
+        { text: 'Delete', onPress: () => handleDelete(contact), style: 'destructive' },
+        { text: 'Cancel', style: 'cancel' },
       ],
       { cancelable: true }
     );
   };
-  
-
-
 
   const handleDelete = (contact: Contact) => {
     Alert.alert(
@@ -289,10 +242,10 @@ const BDMContactBook = () => {
             try {
               const storedContacts = await AsyncStorage.getItem('contacts');
               if (storedContacts) {
-                const contacts = JSON.parse(storedContacts);
-                const updatedContacts = contacts.filter((c: Contact) => c.id !== contact.id);
+                const contactsArray = JSON.parse(storedContacts) as Contact[];
+                const updatedContacts = contactsArray.filter(c => c.id !== contact.id);
                 await AsyncStorage.setItem('contacts', JSON.stringify(updatedContacts));
-                loadContacts(); // Reload contacts to reflect changes
+                loadContacts(); 
               }
             } catch (error) {
               console.error('Error deleting contact:', error);
@@ -303,6 +256,34 @@ const BDMContactBook = () => {
       ]
     );
   };
+  const saveSearchToHistory = async (query: string) => {
+    if (!query.trim() || query.length < 3) return;
+  
+    try {
+      const storedHistory = await AsyncStorage.getItem('contactSearchHistory');
+      const historyArray = storedHistory ? JSON.parse(storedHistory) : [];
+  
+      const newHistory = [query, ...historyArray.filter((item: string) => item !== query)].slice(0, 5);
+      setSearchHistory(newHistory);
+      await AsyncStorage.setItem('contactSearchHistory', JSON.stringify(newHistory));
+    } catch (error) {
+      console.error('Error saving search history:', error);
+    }
+  };
+  const clearSearchHistory = async () => {
+    try {
+      setSearchHistory([]); // Clear from UI
+      await AsyncStorage.removeItem('contactSearchHistory'); // Clear from local storage
+    } catch (error) {
+      console.error('Error clearing search history:', error);
+    }
+  };
+  const handleSearch = (query: string) => {
+    setSearchQuery(query);             // Set the query text inside the search box
+    saveSearchToHistory(query);         // Save to search history
+    setShowSearchHistory(false);        // Hide search history box after selecting
+  };
+  
 
   const renderContact = (contact: Contact) => (
     <TouchableOpacity

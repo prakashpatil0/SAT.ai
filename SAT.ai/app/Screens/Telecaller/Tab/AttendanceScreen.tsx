@@ -398,26 +398,39 @@ const AttendanceScreen = () => {
   const updateWeekDays = () => {
     const today = new Date();
     const startOfWeek = new Date(today);
-    startOfWeek.setDate(today.getDate() - today.getDay() + 1); // Start from Monday
-
-    const updatedWeekDays = weekDays.map((day, index) => {
+    // Set Monday as start of week
+    const day = startOfWeek.getDay();
+    const diff = startOfWeek.getDate() - day + (day === 0 ? -6 : 1);
+    startOfWeek.setDate(diff);
+  
+    const updatedWeekDays = weekDays.map((dayObj, index) => {
       const currentDate = new Date(startOfWeek);
       currentDate.setDate(startOfWeek.getDate() + index);
-      
-      // Find attendance record for this date
+  
       const dateStr = format(currentDate, 'dd');
+  
       const attendanceRecord = attendanceHistory.find(record => record.date === dateStr);
-      
-      return {
-        day: day.day,
-        date: dateStr,
-        status: attendanceRecord ? attendanceRecord.status : 'On Leave' as AttendanceStatus
-      };
+  
+      if (currentDate > today) {
+        // 🔥 Future dates → Always On Leave
+        return {
+          day: dayObj.day,
+          date: dateStr,
+          status: 'On Leave' as AttendanceStatus,
+        };
+      } else {
+        // 🔥 Today or Past
+        return {
+          day: dayObj.day,
+          date: dateStr,
+          status: attendanceRecord ? attendanceRecord.status : 'On Leave' as AttendanceStatus,
+        };
+      }
     });
-
+  
     setWeekDays(updatedWeekDays);
   };
-
+  
   const renderStatusBadge = (status: AttendanceStatus) => {
     const isSelected = selectedStatus === status;
     return (
@@ -605,7 +618,7 @@ const AttendanceScreen = () => {
             </View>
 
             {/* Calendar Card */}
-            {/* {!isNewUser && (
+            {!isNewUser && (
               <View style={styles.calendarCard}>
                 <Text style={styles.dateHeader}>
                   {format(currentDate, 'dd MMMM (EEEE)')}
@@ -636,7 +649,7 @@ const AttendanceScreen = () => {
                   ))}
                 </View>
               </View>
-            )} */}
+            )}
 
             {/* Month Selector */}
             {!isNewUser && (

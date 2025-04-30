@@ -10,26 +10,25 @@ import {
   Platform,
   ActionSheetIOS,
   Share,
-  Animated,
-  Modal,
-  KeyboardAvoidingView,
-  Keyboard
+  Animated,Modal, KeyboardAvoidingView,     // add this
+  Keyboard  
 } from 'react-native';
 import { Text } from 'react-native-paper';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { MaterialIcons } from '@expo/vector-icons';
 import TelecallerMainLayout from "@/app/components/TelecallerMainLayout";
-import AppGradient from '../AppGradient';
-import * as Contacts from 'expo-contacts'; // <-- important for device contacts
+import * as ExpoContacts from 'expo-contacts';
 
+import AppGradient from '../AppGradient';
 type AddContactModalProps = {
     visible: boolean;
     onClose?: () => void;
     phoneNumber: string;
     onContactSaved?: (contact: Contact) => void;
     editingContact?: Contact | null;
-};
-
+    
+  };
+  
 interface Contact {
   id: string;
   firstName: string;
@@ -42,11 +41,15 @@ interface Contact {
 const ALPHABETS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
 
 const ContactBook = () => {
-  const [firstName, setFirstName] = useState('');
-  const [lastName, setLastName] = useState('');
-  const [phoneNumber, setPhoneNumber] = useState('');
-  const [email, setEmail] = useState('');
-  const [errors, setErrors] = useState({ firstName: '', phoneNumber: '' });
+    
+    const [firstName, setFirstName] = useState('');
+    const [lastName, setLastName] = useState('');
+    const [phoneNumber, setPhoneNumber] = useState('');
+    const [email, setEmail] = useState('');
+    const [errors, setErrors] = useState({
+      firstName: '',
+      phoneNumber: ''
+    });
   const [contacts, setContacts] = useState<{ [key: string]: Contact[] }>({});
   const [searchQuery, setSearchQuery] = useState('');
   const [searchHistory, setSearchHistory] = useState<string[]>([]);
@@ -61,83 +64,101 @@ const ContactBook = () => {
   const sectionRefs = useRef<{ [key: string]: number }>({});
   const [activeLetters, setActiveLetters] = useState<string[]>([]);
   const fadeAnim = useRef(new Animated.Value(0)).current;
+  const cleanPhoneNumber = (phone?: string) => (phone || '').replace(/\D/g, '');
 
-  // 👇 Load contacts from AsyncStorage + Device on load
+
+  const importDeviceContacts = async () => {
+    try {
+      const { status } = await ExpoContacts.requestPermissionsAsync();
+      if (status === 'granted') {
+        const { data } = await ExpoContacts.getContactsAsync({
+          fields: [ExpoContacts.Fields.PhoneNumbers, ExpoContacts.Fields.Emails],
+        });
+  
+        if (data.length > 0) {
+  
+          // 📍 MOVE THIS FUNCTION INSIDE
+          const cleanPhoneNumber = (phone?: string) => (phone || '').replace(/\D/g, '');
+  
+          const formattedContacts = data.map((contact) => ({
+            id: contact.id,
+            firstName: contact.firstName || '',
+            lastName: contact.lastName || '',
+            phoneNumber: contact.phoneNumbers && contact.phoneNumbers.length > 0 ? contact.phoneNumbers[0].number : '',
+            email: contact.emails && contact.emails.length > 0 ? contact.emails[0].email : '',
+            favorite: false,
+          })).filter(c => c.phoneNumber);
+  
+          const storedContacts = await AsyncStorage.getItem('telecaller_contacts');
+          let existingContacts = storedContacts ? JSON.parse(storedContacts) : [];
+  
+          const mergedContacts = [...existingContacts];
+  
+          formattedContacts.forEach(newContact => {
+            const newPhone = cleanPhoneNumber(newContact.phoneNumber);
+            const exists = existingContacts.some(c => cleanPhoneNumber(c.phoneNumber) === newPhone);
+            if (!exists && newPhone) {
+              mergedContacts.push(newContact);
+            }
+          });
+  
+          await AsyncStorage.setItem('telecaller_contacts', JSON.stringify(mergedContacts));
+          loadContacts();
+          Alert.alert('Success', 'Device contacts synced successfully.');
+        }
+      } else {
+        Alert.alert('Permission Denied', 'We need access to your contacts to sync them.');
+      }
+    } catch (error) {
+      console.error('Error syncing contacts:', error);
+      Alert.alert('Error', 'Failed to sync contacts');
+    }
+  };
+  
+  
+
   useEffect(() => {
     loadContacts();
     loadSearchHistory();
+    importDeviceContacts();   // ➡️ Auto sync on screen load
   }, []);
 
   useEffect(() => {
     filterContacts();
   }, [searchQuery, contacts, showFavoritesOnly]);
 
-  // 🔥 New Merge Logic
-  const mergeContacts = (existingContacts: Contact[], deviceContacts: Contact[]) => {
-    const phoneSet = new Set(existingContacts.map(c => c.phoneNumber.replace(/\s+/g, '')));
-    const newContacts = deviceContacts.filter(c => {
-      const normalizedPhone = c.phoneNumber.replace(/\s+/g, '');
-      return !phoneSet.has(normalizedPhone);
-    });
-    return [...existingContacts, ...newContacts];
-  };
-
-  // 🛜 Updated loadContacts() with device sync
   const loadContacts = async () => {
     try {
       const storedContacts = await AsyncStorage.getItem('telecaller_contacts');
-      let parsedContacts: Contact[] = storedContacts ? JSON.parse(storedContacts) : [];
+if (storedContacts) {
+  const parsedContacts: Contact[] = JSON.parse(storedContacts);
+  organizeContactsByAlphabet(parsedContacts);
 
-      // Fetch from device
-      const { status } = await Contacts.requestPermissionsAsync();
-      if (status === 'granted') {
-        const { data } = await Contacts.getContactsAsync({
-          fields: [Contacts.Fields.PhoneNumbers, Contacts.Fields.Emails],
-        });
+  const lettersWithContacts = parsedContacts.reduce((letters: string[], contact: Contact) => {
+    const firstLetter = (contact.firstName?.[0] || '#').toUpperCase();
 
-        if (data.length > 0) {
-          const deviceContacts: Contact[] = data.map((contact) => ({
-            id: contact.id ? contact.id : Date.now().toString() + Math.random().toString(),
-            firstName: contact.firstName || '',
-            lastName: contact.lastName || '',
-            phoneNumber: contact.phoneNumbers?.[0]?.number || '',
-            email: contact.emails?.[0]?.email || '',
-            favorite: false,
-          })).filter(c => c.phoneNumber);
-          
+    if (!letters.includes(firstLetter)) {
+      letters.push(firstLetter);
+    }
+    return letters;
+  }, []);
 
-          const mergedContacts = mergeContacts(parsedContacts, deviceContacts);
+  setActiveLetters(lettersWithContacts.sort());
+}
 
-          // Save merged
-          await AsyncStorage.setItem('telecaller_contacts', JSON.stringify(mergedContacts));
-
-          parsedContacts = mergedContacts;
-        }
-      } else {
-        Alert.alert('Permission Denied', 'Please allow contacts access to sync.');
-      }
-
-      // Organize contacts
-      organizeContactsByAlphabet(parsedContacts);
-
-      const lettersWithContacts = parsedContacts.reduce((letters: string[], contact) => {
-        const firstLetter = contact.firstName[0]?.toUpperCase() || '#';
-        if (!letters.includes(firstLetter)) {
-          letters.push(firstLetter);
-        }
-        return letters;
-      }, []);
-      setActiveLetters(lettersWithContacts.sort());
     } catch (error) {
       console.error('Error loading contacts:', error);
       Alert.alert('Error', 'Failed to load contacts');
     }
   };
+  
 
   const loadSearchHistory = async () => {
     try {
       const storedHistory = await AsyncStorage.getItem('contactSearchHistory');
-      if (storedHistory) setSearchHistory(JSON.parse(storedHistory));
+      if (storedHistory) {
+        setSearchHistory(JSON.parse(storedHistory));
+      }
     } catch (error) {
       console.error('Error loading search history:', error);
     }
@@ -145,6 +166,7 @@ const ContactBook = () => {
 
   const saveSearchToHistory = async (query: string) => {
     if (!query.trim() || query.length < 3) return;
+    
     try {
       const newHistory = [query, ...searchHistory.filter(item => item !== query)].slice(0, 5);
       setSearchHistory(newHistory);
@@ -154,30 +176,59 @@ const ContactBook = () => {
     }
   };
 
+  const handleSearch = (query: string) => {
+    setSearchQuery(query);
+    saveSearchToHistory(query);
+    setShowSearchHistory(false);
+  };
+
+  const clearSearchHistory = async () => {
+    try {
+      setSearchHistory([]);
+      await AsyncStorage.removeItem('contactSearchHistory');
+    } catch (error) {
+      console.error('Error clearing search history:', error);
+    }
+  };
+
+  const handleScroll = (event: any) => {
+    const yOffset = event.nativeEvent.contentOffset.y;
+    setShowScrollToTop(yOffset > 300);
+  };
+
+  const scrollToTop = () => {
+    scrollViewRef.current?.scrollTo({ y: 0, animated: true });
+  };
+
   const organizeContactsByAlphabet = (contactsList: Contact[]) => {
-    const organized = contactsList.reduce((acc: { [key: string]: Contact[] }, contact) => {
-      const firstLetter = contact.firstName[0]?.toUpperCase() || '#';
-      if (!acc[firstLetter]) acc[firstLetter] = [];
+    const organized = contactsList.reduce((acc: { [key: string]: Contact[] }, contact: Contact) => {
+      const firstLetter = (contact.firstName?.[0] || '#').toUpperCase();
+
+      if (!acc[firstLetter]) {
+        acc[firstLetter] = [];
+      }
       acc[firstLetter].push(contact);
       return acc;
     }, {});
-
+  
     Object.keys(organized).forEach(letter => {
       organized[letter].sort((a, b) => {
         if (a.favorite && !b.favorite) return -1;
         if (!a.favorite && b.favorite) return 1;
-        return a.firstName.localeCompare(b.firstName);
+        return (a.firstName || '').localeCompare(b.firstName || '');
       });
     });
-
+  
     setContacts(organized);
   };
+  
 
   const filterContacts = useCallback(() => {
     if (!searchQuery.trim() && !showFavoritesOnly) {
       setFilteredContacts(contacts);
       return;
     }
+
     const query = searchQuery.toLowerCase();
     const filtered: { [key: string]: Contact[] } = {};
 
@@ -198,12 +249,6 @@ const ContactBook = () => {
     setFilteredContacts(filtered);
   }, [searchQuery, contacts, showFavoritesOnly]);
 
-
-   // 👇 Place it here
-   const handleScroll = (event: any) => {
-    const yOffset = event.nativeEvent.contentOffset.y;
-    setShowScrollToTop(yOffset > 300);
-  };
   const handleContactSaved = (newContact: Contact) => {
     loadContacts();
   };
@@ -288,9 +333,7 @@ const ContactBook = () => {
     );
   };
   
-  const scrollToTop = () => {
-    scrollViewRef.current?.scrollTo({ y: 0, animated: true });
-  };
+
  
 
   const handleDelete = (contact: Contact) => {
@@ -299,30 +342,43 @@ const ContactBook = () => {
       `Are you sure you want to delete ${contact.firstName} ${contact.lastName}?`,
       [
         { text: 'Cancel', style: 'cancel' },
-        { 
-          text: 'Delete', 
+        {
+          text: 'Delete',
           style: 'destructive',
           onPress: async () => {
             try {
               const storedContacts = await AsyncStorage.getItem('telecaller_contacts');
               if (storedContacts) {
-                const contacts = JSON.parse(storedContacts);
-                const updatedContacts = contacts.filter((c: Contact) => c.id !== contact.id);
+                const parsedContacts: Contact[] = JSON.parse(storedContacts);
+  
+                // ❌ Remove the contact
+                const updatedContacts = parsedContacts.filter(c => c.id !== contact.id);
+  
+                // ✅ Save updated list
                 await AsyncStorage.setItem('telecaller_contacts', JSON.stringify(updatedContacts));
-                loadContacts(); // Reload contacts to reflect changes
-                filterContacts(); // Immediately update UI with filtered results
-                
-                
+  
+                // ✅ Refresh UI
+                organizeContactsByAlphabet(updatedContacts);
+                filterContacts(); // Refresh filtered view
+                const lettersWithContacts = updatedContacts.reduce((letters: string[], contact: Contact) => {
+                  const firstLetter = (contact.firstName?.[0] || '#').toUpperCase();
+                  if (!letters.includes(firstLetter)) letters.push(firstLetter);
+                  return letters;
+                }, []);
+                setActiveLetters(lettersWithContacts.sort());
+  
+                Alert.alert('Deleted', 'Contact has been removed.');
               }
             } catch (error) {
-              console.error('Error deleting contact:', error);
-              Alert.alert('Error', 'Failed to delete contact');
+              console.error('Delete Error:', error);
+              Alert.alert('Error', 'Failed to delete contact.');
             }
           }
         }
       ]
     );
   };
+  
 
   const renderContact = (contact: Contact) => (
     <TouchableOpacity
@@ -333,7 +389,8 @@ const ContactBook = () => {
     >
       <View style={styles.avatarContainer}>
         <Text style={styles.avatarText}>
-          {contact.firstName[0].toUpperCase()}
+        {(contact.firstName?.[0] || '#').toUpperCase()}
+
         </Text>
       </View>
   
@@ -391,57 +448,62 @@ const ContactBook = () => {
   
     try {
       const storedContacts = await AsyncStorage.getItem('telecaller_contacts');
-      const currentContacts: Contact[] = storedContacts ? JSON.parse(storedContacts) : [];
-  
-      const updatedContact: Contact = {
-        id: editingContact?.id || Date.now().toString(),
-        firstName: firstName.trim(),
-        lastName: lastName.trim(),
-        phoneNumber: phoneNumber.trim(),
-        email: email.trim(),
-        favorite: editingContact?.favorite || false
-      };
+      let currentContacts: Contact[] = storedContacts ? JSON.parse(storedContacts) : [];
   
       let updatedContacts: Contact[];
   
       if (editingContact) {
-        updatedContacts = currentContacts.map(contact =>
-          contact.id === editingContact.id ? updatedContact : contact
+        // Edit Mode: Update only this contact
+        updatedContacts = currentContacts.map((contact) =>
+          contact.id === editingContact.id
+            ? {
+                ...contact,
+                firstName: firstName.trim(),
+                lastName: lastName.trim(),
+                phoneNumber: phoneNumber.trim(),
+                email: email.trim(),
+              }
+            : contact
         );
       } else {
-        updatedContacts = [...currentContacts, updatedContact];
+        // Add New Contact Mode
+        const newContact: Contact = {
+          id: Date.now().toString(),
+          firstName: firstName.trim(),
+          lastName: lastName.trim(),
+          phoneNumber: phoneNumber.trim(),
+          email: email.trim(),
+          favorite: false,
+        };
+        updatedContacts = [...currentContacts, newContact];
       }
   
       await AsyncStorage.setItem('telecaller_contacts', JSON.stringify(updatedContacts));
   
-      // 🔄 Refresh data from localStorage → state → UI
-      organizeContactsByAlphabet(updatedContacts);
+      organizeContactsByAlphabet(updatedContacts); // Reload updated contacts in view
       const lettersWithContacts = updatedContacts.reduce((letters: string[], contact: Contact) => {
-        const firstLetter = contact.firstName[0].toUpperCase();
-        if (!letters.includes(firstLetter)) {
-          letters.push(firstLetter);
-        }
+        const firstLetter = (contact.firstName?.[0] || '#').toUpperCase();
+        if (!letters.includes(firstLetter)) letters.push(firstLetter);
         return letters;
       }, []);
       setActiveLetters(lettersWithContacts.sort());
-      setSearchQuery(''); // Reset search to show full updated list
+      setSearchQuery('');
       filterContacts();
   
-      Alert.alert('Success', `Contact ${editingContact ? 'updated' : 'saved'} successfully!`, [
-        {
-          text: 'OK',
-          onPress: () => {
-            setFirstName('');
-            setLastName('');
-            setPhoneNumber('');
-            setEmail('');
-            setErrors({ firstName: '', phoneNumber: '' });
-            setEditingContact(null);
-            setModalVisible(false);
-            Keyboard.dismiss();
-          }
-        }
-      ]);
+      // Clear form
+      setFirstName('');
+      setLastName('');
+      setPhoneNumber('');
+      setEmail('');
+      setEditingContact(null);
+  
+      // ✅ Close modal first
+      setModalVisible(false);
+  
+      // ✅ Then show popup after a small delay
+      setTimeout(() => {
+        Alert.alert('Success', editingContact ? 'Contact updated successfully!' : 'Contact saved successfully!');
+      }, 300);
   
     } catch (error) {
       console.error('Error saving contact:', error);
@@ -535,8 +597,8 @@ const ContactBook = () => {
           {/* Add some padding at the bottom for better scrolling */}
           <View style={{height: 100}} />
         </ScrollView>
-
-        <View style={styles.alphabetList}>
+       
+        <View style={styles.alphabetList}>  
           <ScrollView 
             showsVerticalScrollIndicator={false}
             contentContainerStyle={{paddingVertical: 4}}
@@ -651,21 +713,24 @@ const ContactBook = () => {
         </View>
 
         <View style={styles.inputGroup}>
-          <Text style={styles.label}>Phone Number <Text style={styles.required}>*</Text></Text>
-          <TextInput
-            style={[styles.input, errors.phoneNumber ? styles.inputError : null]}
-            placeholder="Enter Phone Number"
-            value={phoneNumber}
-            onChangeText={setPhoneNumber}
-            keyboardType="phone-pad"
-            editable={editingContact ? false : true}
-            selectTextOnFocus={false}
-            returnKeyType="next"
-          />
-          {errors.phoneNumber ? (
-            <Text style={styles.errorText}>{errors.phoneNumber}</Text>
-          ) : null}
-        </View>
+  <Text style={styles.label}>
+    Phone Number <Text style={styles.required}>*</Text>
+  </Text>
+  <TextInput
+    style={[styles.input, errors.phoneNumber ? styles.inputError : null]}
+    placeholder="Enter Phone Number"
+    value={phoneNumber}
+    onChangeText={setPhoneNumber}
+    keyboardType="phone-pad"
+    editable={true} 
+    selectTextOnFocus={true}  
+    returnKeyType="next"
+  />
+  {errors.phoneNumber ? (
+    <Text style={styles.errorText}>{errors.phoneNumber}</Text>
+  ) : null}
+</View>
+
 
         <View style={styles.inputGroup}>
           <Text style={styles.label}>Email ID</Text>
@@ -700,6 +765,8 @@ const ContactBook = () => {
 };
 
 const styles = StyleSheet.create({
+ 
+  
   searchContainer: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1054,5 +1121,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default ContactBook;  
- 
+export default ContactBook;   

@@ -59,11 +59,59 @@ const BDMContactBook = () => {
   useEffect(() => {
     loadContacts();
     loadSearchHistory();
+    importDeviceContacts(); // ➡️ This line to Auto Sync device contacts
   }, []);
+  
 
   useEffect(() => {
     filterContacts();
   }, [searchQuery, contacts, showFavoritesOnly]);
+  const importDeviceContacts = async () => {
+    try {
+      const { status } = await Contacts.requestPermissionsAsync();
+      if (status === 'granted') {
+        const { data } = await Contacts.getContactsAsync({
+          fields: [Contacts.Fields.PhoneNumbers, Contacts.Fields.Emails],
+        });
+  
+        if (data.length > 0) {
+          const cleanPhoneNumber = (phone?: string) => (phone || '').replace(/\D/g, '');
+  
+          const formattedContacts = data.map((contact) => ({
+            id: contact.id || `id-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
+            firstName: contact.firstName || '',
+            lastName: contact.lastName || '',
+            phoneNumber: contact.phoneNumbers?.[0]?.number || '',
+            email: contact.emails?.[0]?.email || '',
+            favorite: false,
+          })).filter(c => c.phoneNumber);
+  
+          const storedContacts = await AsyncStorage.getItem('contacts'); // 🟰 your BDM storage
+          let existingContacts = storedContacts ? JSON.parse(storedContacts) : [];
+  
+          const mergedContacts = [...existingContacts];
+  
+          formattedContacts.forEach(newContact => {
+            const newPhone = cleanPhoneNumber(newContact.phoneNumber);
+            const exists = existingContacts.some(c => cleanPhoneNumber(c.phoneNumber) === newPhone);
+            if (!exists && newPhone) {
+              mergedContacts.push(newContact);
+            }
+          });
+  
+          await AsyncStorage.setItem('contacts', JSON.stringify(mergedContacts));
+          loadContacts(); // Refresh
+          Alert.alert('Success', 'Device contacts synced successfully.');
+        }
+      } else {
+        Alert.alert('Permission Denied', 'We need access to your contacts to sync them.');
+      }
+    } catch (error) {
+      console.error('Error syncing contacts:', error);
+      Alert.alert('Error', 'Failed to sync contacts');
+    }
+  };
+  
 
   const loadContacts = async () => {
     try {
@@ -101,7 +149,8 @@ const BDMContactBook = () => {
       organizeContactsByAlphabet(parsedContacts);
 
       const letters = parsedContacts.reduce((acc: string[], contact) => {
-        const firstLetter = contact.firstName[0]?.toUpperCase() || '#';
+        const firstLetter = (contact.firstName?.[0] || '#').toUpperCase();
+
         if (!acc.includes(firstLetter)) acc.push(firstLetter);
         return acc;
       }, []);
@@ -294,7 +343,8 @@ const BDMContactBook = () => {
     >
       <View style={styles.avatarContainer}>
         <Text style={styles.avatarText}>
-          {contact.firstName[0].toUpperCase()}
+        {(contact.firstName?.[0] || '#').toUpperCase()}
+
         </Text>
       </View>
   

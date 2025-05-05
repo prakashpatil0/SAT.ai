@@ -212,7 +212,7 @@ const CustomDrawer = (props: DrawerContentComponentProps) => {
         <View style={styles.sectionContainer}>
         <Text style={styles.sectionTitle}>EMPLOYEE SERVICES</Text>
         <DrawerItem
-          label="HR-Leave (under development)"
+          label="HR-Leave"
           icon={({ color, size }) => <MaterialCommunityIcons name="calendar-star" size={size} color="#09142D" />}
           labelStyle={styles.menuText}
           style={styles.drawerItem}

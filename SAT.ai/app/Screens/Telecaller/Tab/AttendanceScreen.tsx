@@ -7,11 +7,11 @@ import TelecallerMainLayout from "@/app/components/TelecallerMainLayout";
 import { MaterialIcons } from '@expo/vector-icons';
 import { Camera } from "expo-camera";
 import AppGradient from "@/app/components/AppGradient";
-import { collection, addDoc, getDocs, query, where, Timestamp, updateDoc } from 'firebase/firestore';
+import { collection, addDoc, getDocs, query, where, Timestamp, updateDoc, doc, getDoc } from 'firebase/firestore';
 import { db, auth } from '@/firebaseConfig';
 import { format } from 'date-fns';
 
-type AttendanceStatus = 'Present' | 'Half Day' | 'On Leave';
+type AttendanceStatus = 'Present' | 'Half Day' | 'On Leave' | 'Absent';
 
 type CameraScreenParams = {
   photo: { uri: string };
@@ -32,12 +32,19 @@ type RootStackParamList = {
 type AttendanceScreenNavigationProp = StackNavigationProp<RootStackParamList>;
 
 interface AttendanceRecord {
+  userId: string;
+  name: string;
+  designation: string;
+  email: string;
+  phoneNumber: string;
   date: string;
   day: string;
+  status: AttendanceStatus;
   punchIn: string;
   punchOut: string;
-  status: AttendanceStatus;
-  userId: string;
+  totalHours: string;
+  location: any;
+  workMode: string;
   timestamp: Date;
 }
 
@@ -70,7 +77,8 @@ const AttendanceScreen = () => {
   const [statusCounts, setStatusCounts] = useState({
     Present: 0,
     'Half Day': 0,
-    'On Leave': 0
+    'On Leave': 0,
+    Absent: 0,
   });
   const [isPunchButtonDisabled, setIsPunchButtonDisabled] = useState(false);
   const [isNewUser, setIsNewUser] = useState(true);
@@ -90,6 +98,7 @@ const AttendanceScreen = () => {
     'Present': '#4CAF50',
     'Half Day': '#FF9800',
     'On Leave': '#F44336',
+    'Absent': '#9E9E9E',
   };
 
   const checkPunchAvailability = () => {
@@ -203,12 +212,19 @@ const AttendanceScreen = () => {
         const status = calculateStatus(data.punchIn, data.punchOut);
         
         history.push({
+          userId: data.userId,
+          name: data.name || '',
+          designation: data.designation || data.role || '',
+          email: data.email || auth.currentUser?.email || '',
+          phoneNumber: data.phoneNumber || '',
           date: data.date,
           day: data.day,
+          status,
           punchIn: data.punchIn,
           punchOut: data.punchOut,
-          status,
-          userId: data.userId,
+          totalHours: data.totalHours || '',
+          location: data.location,
+          workMode: data.workMode || '',
           timestamp: data.timestamp.toDate()
         });
 
@@ -238,7 +254,8 @@ const AttendanceScreen = () => {
     const counts = {
       Present: 0,
       'Half Day': 0,
-      'On Leave': 0
+      'On Leave': 0,
+      Absent: 0,
     };
 
     // If the user is new (no attendance history), return zero counts
@@ -295,6 +312,15 @@ const AttendanceScreen = () => {
         return;
       }
 
+      // Fetch user profile
+      const userDoc = await getDoc(doc(db, 'users', userId));
+      const userData = userDoc.exists() ? userDoc.data() : {};
+      const name = userData.name || '';
+      const designation = userData.designation || userData.role || '';
+      const email = userData.email || auth.currentUser?.email || '';
+      const phoneNumber = userData.phoneNumber || '';
+      const workMode = userData.workMode || '';
+
       const currentTime = new Date();
       const dateStr = format(currentTime, 'dd');
       const dayStr = format(currentTime, 'EEE').toUpperCase();
@@ -308,36 +334,69 @@ const AttendanceScreen = () => {
       );
 
       const querySnapshot = await getDocs(todayQuery);
-      
+
+      let punchIn = '';
+      let punchOut = '';
+      let status: AttendanceStatus = 'On Leave';
+      let totalHours = '';
+
       if (querySnapshot.empty) {
-        // Create new attendance record
-        const status = isPunchIn ? calculateStatus(timeStr, '') : 'On Leave';
+        // New record
+        if (isPunchIn) {
+          punchIn = timeStr;
+          status = calculateStatus(timeStr, '');
+        } else {
+          // If punch in not done and trying to punch out, mark as Absent
+          status = 'Absent';
+        }
         await addDoc(attendanceRef, {
+          userId,
+          name,
+          designation,
+          email,
+          phoneNumber,
           date: dateStr,
           day: dayStr,
-          punchIn: isPunchIn ? timeStr : '',
-          punchOut: !isPunchIn ? timeStr : '',
           status,
-          userId,
+          punchIn,
+          punchOut: '',
+          totalHours,
+          location,
+          workMode,
           timestamp: Timestamp.fromDate(currentTime),
           photoUri,
-          location
         });
       } else {
         // Update existing record
         const docRef = querySnapshot.docs[0].ref;
         const existingData = querySnapshot.docs[0].data();
-        const newPunchIn = isPunchIn ? timeStr : existingData.punchIn;
-        const newPunchOut = !isPunchIn ? timeStr : existingData.punchOut;
-        
-        const newStatus = calculateStatus(newPunchIn, newPunchOut);
-        
+        punchIn = isPunchIn ? timeStr : existingData.punchIn;
+        punchOut = !isPunchIn ? timeStr : existingData.punchOut;
+
+        // Calculate total hours if both punch in and out exist
+        if (punchIn && punchOut) {
+          const inTime = new Date(`2000-01-01T${punchIn}`);
+          const outTime = new Date(`2000-01-01T${punchOut}`);
+          const diffMs = outTime.getTime() - inTime.getTime();
+          const hours = Math.floor(diffMs / (1000 * 60 * 60));
+          const minutes = Math.floor((diffMs / (1000 * 60)) % 60);
+          totalHours = `${hours}h ${minutes}m`;
+        }
+
+        status = calculateStatus(punchIn, punchOut);
+
         await updateDoc(docRef, {
-          punchIn: newPunchIn,
-          punchOut: newPunchOut,
-          status: newStatus,
+          punchIn,
+          punchOut,
+          status,
+          totalHours,
           photoUri: !isPunchIn ? photoUri : existingData.photoUri,
-          location: !isPunchIn ? location : existingData.location
+          location: !isPunchIn ? location : existingData.location,
+          workMode,
+          name,
+          designation,
+          email,
+          phoneNumber,
         });
       }
 

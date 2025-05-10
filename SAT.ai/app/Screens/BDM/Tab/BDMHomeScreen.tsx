@@ -1408,15 +1408,15 @@ const BDMHomeScreen = () => {
               onScroll={handleScroll}
               onScrollEndDrag={handleScrollEnd}
               onMomentumScrollEnd={handleScrollEnd}
-              refreshControl={
-                <RefreshControl 
-                  refreshing={refreshing} 
-                  onRefresh={handleRefresh} 
-                  colors={['#FF8447']}
-                  tintColor="#FF8447"
-                  progressBackgroundColor="#FFF5E6"
-                />
-              }
+              // refreshControl={
+              //   <RefreshControl 
+              //     refreshing={refreshing} 
+              //     onRefresh={handleRefresh} 
+              //     colors={['#FF8447']}
+              //     tintColor="#FF8447"
+              //     progressBackgroundColor="#FFF5E6"
+              //   />
+              // }
             />
         )}
       </View>

@@ -1,5 +1,5 @@
 import React, { useCallback, useMemo, memo, useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, FlatList, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
 import { useNavigation, RouteProp } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -245,7 +245,7 @@ const CallHistoryScreen: React.FC<CallHistoryScreenProps> = ({ route }) => {
     }
   }, [loadedMeetings, contactId]);
 
-  // Update your navigateToPersonNote to save notes
+  // Update navigateToPersonNote to save notes
   const navigateToPersonNote = useCallback((meeting: Meeting) => {
     if (!meeting) return;
     
@@ -272,46 +272,45 @@ const CallHistoryScreen: React.FC<CallHistoryScreenProps> = ({ route }) => {
     });
   }, [customerName, navigation]);
 
-  // Rest of your component remains the same...
   const groupedMeetings = useMemo(() => 
     groupMeetingsByDate(loadedMeetings), 
     [loadedMeetings]
   );
 
   return (
-  <AppGradient>
-    <BDMMainLayout
-      title={customerName}
-      showBackButton
-      showDrawer={true}
-      showBottomTabs={true}
-    >
-      <ScrollView>
-        <View style={styles.container}>
-          <View style={styles.meetingHistoryContainer}>
-            <Text style={styles.sectionTitle}>Meeting History</Text>
-            
-            {loadedMeetings.length > 0 ? (
-              <>
-                {groupedMeetings.map((group, groupIndex) => (
-                  <DateGroup
-                    key={`group-${groupIndex}`}
-                    group={group}
-                    onPressMeeting={navigateToPersonNote}
-                    getCallTypeIcon={getCallTypeIcon}
-                    getStatusColor={getStatusColor}
-                  />
-                ))}
-              </>
-            ) : (
-              <EmptyState />
-            )}
+    <AppGradient>
+      <BDMMainLayout
+        title={customerName}
+        showBackButton
+        showDrawer={true}
+        showBottomTabs={true}
+      >
+        <ScrollView>
+          <View style={styles.container}>
+            <View style={styles.meetingHistoryContainer}>
+              <Text style={styles.sectionTitle}>Meeting History</Text>
+              
+              {loadedMeetings.length > 0 ? (
+                <>
+                  {groupedMeetings.map((group, groupIndex) => (
+                    <DateGroup
+                      key={`group-${groupIndex}`}
+                      group={group}
+                      onPressMeeting={navigateToPersonNote}
+                      getCallTypeIcon={getCallTypeIcon}
+                      getStatusColor={getStatusColor}
+                    />
+                  ))}
+                </>
+              ) : (
+                <EmptyState />
+              )}
+            </View>
           </View>
-        </View>
-      </ScrollView>
-    </BDMMainLayout>
-  </AppGradient>
-);
+        </ScrollView>
+      </BDMMainLayout>
+    </AppGradient>
+  );
 };
 
 // Helper functions
@@ -338,7 +337,7 @@ const groupMeetingsByDate = (meetings: Meeting[]) => {
 
 const calculateTotalDuration = (meetings: Meeting[]): string => {
   if (!meetings || meetings.length === 0) {
-    return '0 mins';
+    return '00:00:00';
   }
 
   let totalSeconds = 0;
@@ -370,17 +369,13 @@ const calculateTotalDuration = (meetings: Meeting[]): string => {
   const minutes = Math.floor((totalSeconds % 3600) / 60);
   const seconds = totalSeconds % 60;
   
-  if (hours > 0 && minutes > 0) {
-    return `${hours}h ${minutes}m`;
-  } else if (hours > 0) {
-    return `${hours}h`;
-  } else if (minutes > 0) {
-    return `${minutes}m ${seconds}s`;
-  } else {
-    return `${seconds}s`;
-  }
+  // Format as HH:MM:SS with leading zeros
+  const formattedHours = hours.toString().padStart(2, '0');
+  const formattedMinutes = minutes.toString().padStart(2, '0');
+  const formattedSeconds = seconds.toString().padStart(2, '0');
+  
+  return `${formattedHours}:${formattedMinutes}:${formattedSeconds}`;
 };
-// Add these helper functions at the bottom of your file (before styles)
 
 // Helper to create unique contact ID
 const createContactId = (name: string, phoneNumber?: string) => {
@@ -423,6 +418,7 @@ const loadContactNotes = async (contactId: string) => {
     return [];
   }
 };
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -503,6 +499,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontFamily: 'LexendDeca_400Regular',
     color: '#888',
+    fontVariant: ['tabular-nums'], // Ensures consistent number width
   },
   meetingItem: {
     flexDirection: 'row',
@@ -579,17 +576,6 @@ const styles = StyleSheet.create({
     maxWidth: 200,
     marginTop: 8,
   },
-  // noteIndicator: {
-  //   flexDirection: 'row',
-  //   alignItems: 'center',
-  //   marginTop: 4,
-  // },
-  // noteIndicatorText: {
-  //   fontSize: 12,
-  //   fontFamily: 'LexendDeca_400Regular',
-  //   color: '#FF8447',
-  //   marginLeft: 4,
-  // },
   hasNotesItem: {
     borderLeftWidth: 4,
     borderLeftColor: '#FF8447',
@@ -612,4 +598,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default memo(CallHistoryScreen);
+export default memo(CallHistoryScreen); 

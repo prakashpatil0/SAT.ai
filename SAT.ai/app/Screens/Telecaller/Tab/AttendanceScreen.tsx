@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
-import { View, Text, ScrollView, TouchableOpacity, Alert, StyleSheet, Animated, Easing, Dimensions } from "react-native";
+import { View, Text, ScrollView, TouchableOpacity, Alert, StyleSheet, Animated, Easing, Dimensions, Linking } from "react-native";
 import { Button } from "react-native-paper";
 import { useNavigation, RouteProp, useRoute } from "@react-navigation/native";
 import { StackNavigationProp } from '@react-navigation/stack';
@@ -10,6 +10,7 @@ import AppGradient from "@/app/components/AppGradient";
 import { collection, addDoc, getDocs, query, where, Timestamp, updateDoc, doc, getDoc } from 'firebase/firestore';
 import { db, auth } from '@/firebaseConfig';
 import { format } from 'date-fns';
+import * as Location from 'expo-location';
 
 type AttendanceStatus = 'Present' | 'Half Day' | 'On Leave' | 'Absent';
 
@@ -185,14 +186,64 @@ const AttendanceScreen = () => {
         return;
       }
 
-      const { status } = await Camera.requestCameraPermissionsAsync();
-      if (status === 'granted') {
-        navigation.navigate('CameraScreen', { isPunchIn });
-      } else {
-        Alert.alert('Permission Required', 'Camera permission is required to take attendance photos.');
+      // First check location permission
+      const { status: locationStatus } = await Location.requestForegroundPermissionsAsync();
+      if (locationStatus !== 'granted') {
+        Alert.alert(
+          'Location Permission Required',
+          'Please grant location permission to take attendance.',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            { 
+              text: 'Open Settings', 
+              onPress: () => Linking.openSettings() 
+            }
+          ]
+        );
+        return;
+      }
+
+      // Check if location services are enabled
+      const locationEnabled = await Location.hasServicesEnabledAsync();
+      if (!locationEnabled) {
+        Alert.alert(
+          'Location Services Disabled',
+          'Please enable location services to take attendance.',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            { 
+              text: 'Open Settings', 
+              onPress: () => Linking.openSettings() 
+            }
+          ]
+        );
+        return;
+      }
+
+      // Get current location before proceeding
+      try {
+        const location = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced,
+          timeInterval: 5000
+        });
+        
+        // If location is obtained successfully, proceed with camera permission
+        const { status: cameraStatus } = await Camera.requestCameraPermissionsAsync();
+        if (cameraStatus === 'granted') {
+          navigation.navigate('CameraScreen', { isPunchIn });
+        } else {
+          Alert.alert('Permission Required', 'Camera permission is required to take attendance photos.');
+        }
+      } catch (locationError) {
+        console.error('Location error:', locationError);
+        Alert.alert(
+          'Location Error',
+          'Unable to get your current location. Please make sure location services are enabled and try again.'
+        );
       }
     } catch (err) {
-      console.log('Error:', err);
+      console.error('Error:', err);
+      Alert.alert('Error', 'An unexpected error occurred. Please try again.');
     }
   };
 
@@ -326,6 +377,25 @@ const AttendanceScreen = () => {
       const dayStr = format(currentTime, 'EEE').toUpperCase();
       const timeStr = format(currentTime, 'HH:mm');
 
+      // Create attendance data object
+      const attendanceData = {
+        userId,
+        name,
+        designation,
+        email,
+        phoneNumber,
+        date: dateStr,
+        day: dayStr,
+        status: 'On Leave' as AttendanceStatus,
+        punchIn: '',
+        punchOut: '',
+        totalHours: '',
+        location,
+        workMode,
+        timestamp: Timestamp.fromDate(currentTime),
+        photoUri
+      };
+
       const attendanceRef = collection(db, 'users', userId, 'attendance');
       const todayQuery = query(
         attendanceRef,
@@ -335,69 +405,47 @@ const AttendanceScreen = () => {
 
       const querySnapshot = await getDocs(todayQuery);
 
-      let punchIn = '';
-      let punchOut = '';
-      let status: AttendanceStatus = 'On Leave';
-      let totalHours = '';
-
       if (querySnapshot.empty) {
         // New record
         if (isPunchIn) {
-          punchIn = timeStr;
-          status = calculateStatus(timeStr, '');
+          attendanceData.punchIn = timeStr;
+          attendanceData.status = calculateStatus(timeStr, '');
         } else {
-          // If punch in not done and trying to punch out, mark as Absent
-          status = 'Absent';
+          attendanceData.status = 'Absent';
         }
-        await addDoc(attendanceRef, {
-          userId,
-          name,
-          designation,
-          email,
-          phoneNumber,
-          date: dateStr,
-          day: dayStr,
-          status,
-          punchIn,
-          punchOut: '',
-          totalHours,
-          location,
-          workMode,
-          timestamp: Timestamp.fromDate(currentTime),
-          photoUri,
-        });
+        await addDoc(attendanceRef, attendanceData);
       } else {
         // Update existing record
         const docRef = querySnapshot.docs[0].ref;
         const existingData = querySnapshot.docs[0].data();
-        punchIn = isPunchIn ? timeStr : existingData.punchIn;
-        punchOut = !isPunchIn ? timeStr : existingData.punchOut;
+        
+        // Update punch times
+        attendanceData.punchIn = isPunchIn ? timeStr : existingData.punchIn;
+        attendanceData.punchOut = !isPunchIn ? timeStr : existingData.punchOut;
 
         // Calculate total hours if both punch in and out exist
-        if (punchIn && punchOut) {
-          const inTime = new Date(`2000-01-01T${punchIn}`);
-          const outTime = new Date(`2000-01-01T${punchOut}`);
+        if (attendanceData.punchIn && attendanceData.punchOut) {
+          const inTime = new Date(`2000-01-01T${attendanceData.punchIn}`);
+          const outTime = new Date(`2000-01-01T${attendanceData.punchOut}`);
           const diffMs = outTime.getTime() - inTime.getTime();
           const hours = Math.floor(diffMs / (1000 * 60 * 60));
           const minutes = Math.floor((diffMs / (1000 * 60)) % 60);
-          totalHours = `${hours}h ${minutes}m`;
+          attendanceData.totalHours = `${hours}h ${minutes}m`;
         }
 
-        status = calculateStatus(punchIn, punchOut);
+        // Calculate status
+        attendanceData.status = calculateStatus(attendanceData.punchIn, attendanceData.punchOut);
 
-        await updateDoc(docRef, {
-          punchIn,
-          punchOut,
-          status,
-          totalHours,
-          photoUri: !isPunchIn ? photoUri : existingData.photoUri,
-          location: !isPunchIn ? location : existingData.location,
-          workMode,
-          name,
-          designation,
-          email,
-          phoneNumber,
-        });
+        // Update photo and location only for punch out
+        if (!isPunchIn) {
+          attendanceData.photoUri = photoUri;
+          attendanceData.location = location;
+        } else {
+          attendanceData.photoUri = existingData.photoUri;
+          attendanceData.location = existingData.location;
+        }
+
+        await updateDoc(docRef, attendanceData);
       }
 
       // Update local state

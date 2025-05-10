@@ -1019,7 +1019,7 @@ const ViewFullReport = () => {
             {getPeriodLabel()}
 
             {/* Quick Stats */}
-            <View style={styles.quickStatsContainer}>
+            {/* <View style={styles.quickStatsContainer}>
               <View style={styles.quickStatCard}>
                 <MaterialIcons name="trending-up" size={24} color="#FF8447" />
                 <Text style={styles.quickStatValue}>{highestAchievement.toFixed(1)}%</Text>
@@ -1040,7 +1040,7 @@ const ViewFullReport = () => {
                   </Text>
                 )}
               </View>
-            </View>
+            </View> */}
 
             {/* Graph Section */}
             <View style={styles.graphCard}>

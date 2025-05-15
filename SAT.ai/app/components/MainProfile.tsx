@@ -11,14 +11,15 @@ import {
   Animated,
   ActivityIndicator,
   Dimensions,
-  TouchableWithoutFeedback
+  TouchableWithoutFeedback,
 } from "react-native";
 import DateTimePicker from "@react-native-community/datetimepicker";
-import { MaterialIcons, MaterialCommunityIcons } from "@expo/vector-icons";
+import { MaterialIcons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import * as ImagePicker from 'expo-image-picker';
 import { Camera } from 'expo-camera';
 import BDMMainLayout from "@/app/components/BDMMainLayout";
+import TelecallerMainLayout from "@/app/components/TelecallerMainLayout";
 import { auth, db, storage } from "@/firebaseConfig";
 import { doc, setDoc, getDoc, serverTimestamp } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
@@ -40,6 +41,7 @@ type ProfileImage = {
 interface User {
   id: string;
   name: string;
+  designation: string;
   email: string;
   phoneNumber: string;
   dateOfBirth: Date;
@@ -53,7 +55,6 @@ interface DateTimePickerEvent {
   };
 }
 
-// Add ProfileSkeleton component
 const ProfileSkeleton = () => {
   return (
     <View style={styles.skeletonContainer}>
@@ -97,52 +98,51 @@ const ProfileSkeleton = () => {
   );
 };
 
-const BDMProfile = () => {
+const ProfileScreen = () => {
   const navigation = useNavigation();
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const { profileImage: contextProfileImage, updateProfileImage } = useProfile();
+  const [role, setRole] = useState<'BDM' | 'Telecaller'>('BDM'); // Default to BDM, will fetch from Firestore
   const [formData, setFormData] = useState<User>({
     id: '',
-    name: "",
-    email: "",
-    phoneNumber: "",
+    name: '',
+    designation: '',
+    email: '',
+    phoneNumber: '',
     dateOfBirth: new Date(),
-    profileImageUrl: "",
+    profileImageUrl: '',
   });
   const [showDatePicker, setShowDatePicker] = useState(false);
-  const [profileImage, setProfileImage] = useState<ProfileImage>({ 
-    uri: '' 
-  });
+  const [profileImage, setProfileImage] = useState<ProfileImage>({ uri: '' });
   const [errors, setErrors] = useState({
     name: '',
-    mobileNumber: ''
+    phoneNumber: ''
   });
   const [touched, setTouched] = useState({
-    name: false, 
-    mobileNumber: false
+    name: false,
+    phoneNumber: false
   });
-  
+
   // Animation refs
   const scaleAnim = useRef(new Animated.Value(1)).current;
   const scrollY = useRef(new Animated.Value(0)).current;
-  
+
   // Calculated animation values
   const headerHeight = scrollY.interpolate({
     inputRange: [0, 100],
     outputRange: [250, 150],
     extrapolate: 'clamp'
   });
-  
+
   const headerOpacity = scrollY.interpolate({
     inputRange: [0, 100],
     outputRange: [1, 0.8],
     extrapolate: 'clamp'
   });
-  
 
-  // Fetch existing profile data
+  // Fetch user profile and role
   useEffect(() => {
     fetchUserProfile();
   }, []);
@@ -150,7 +150,6 @@ const BDMProfile = () => {
   // Update profile image when context changes
   useEffect(() => {
     if (contextProfileImage) {
-      console.log("Profile image updated from context:", contextProfileImage);
       setProfileImage({ uri: contextProfileImage });
     }
   }, [contextProfileImage]);
@@ -164,100 +163,63 @@ const BDMProfile = () => {
       const userDoc = await getDoc(doc(db, "users", userId));
       if (userDoc.exists()) {
         const data = userDoc.data();
+        const userRole = data.designation === 'BDM' ? 'BDM' : 'Telecaller';
+        setRole(userRole);
         setFormData({
           id: userId,
           name: data.name || "",
+          designation: data.designation || userRole,
           email: data.email || auth.currentUser?.email || "",
           phoneNumber: data.phoneNumber || "",
           dateOfBirth: data.dateOfBirth?.toDate() || new Date(),
           profileImageUrl: data.profileImageUrl || "",
         });
         if (data.profileImageUrl) {
-          console.log("Loading profile image from Firestore:", data.profileImageUrl);
           try {
-            // Verify the image URL is accessible
             const response = await fetch(data.profileImageUrl);
             if (response.ok) {
               setProfileImage({ uri: data.profileImageUrl });
               updateProfileImage?.(data.profileImageUrl);
-              console.log("Profile image loaded successfully");
             } else {
-              console.error("Profile image URL not accessible:", response.status);
-              // Try to load default image from Firebase Storage
-              try {
-                console.log("Attempting to load default profile image from Firebase Storage");
-                const defaultImageRef = ref(storage, 'assets/person.png');
-                const url = await getDownloadURL(defaultImageRef);
-                console.log("Successfully loaded default profile image URL:", url);
-                setProfileImage({ uri: url });
-              } catch (error) {
-                console.error("Error loading default profile image:", error);
-                setProfileImage({ uri: '' });
-              }
+              loadDefaultImage(userRole);
             }
           } catch (error) {
-            console.error("Error loading profile image:", error);
-            // Try to load default image from Firebase Storage
-            try {
-              console.log("Attempting to load default profile image from Firebase Storage");
-              const defaultImageRef = ref(storage, 'assets/person.png');
-              const url = await getDownloadURL(defaultImageRef);
-              console.log("Successfully loaded default profile image URL:", url);
-              setProfileImage({ uri: url });
-            } catch (error) {
-              console.error("Error loading default profile image:", error);
-              setProfileImage({ uri: '' });
-            }
+            loadDefaultImage(userRole);
           }
         } else {
-          // No profile image URL in Firestore, try to load default from Firebase Storage
-          try {
-            console.log("Attempting to load default profile image from Firebase Storage");
-            const defaultImageRef = ref(storage, 'assets/person.png');
-            const url = await getDownloadURL(defaultImageRef);
-            console.log("Successfully loaded default profile image URL:", url);
-            setProfileImage({ uri: url });
-          } catch (error) {
-            console.error("Error loading default profile image:", error);
-            setProfileImage({ uri: '' });
-          }
+          loadDefaultImage(userRole);
         }
       }
     } catch (error) {
       console.error("Error fetching profile:", error);
       Alert.alert("Error", "Failed to load profile data");
     } finally {
-      setTimeout(() => {
-        setIsLoading(false);
-      }, 1000);
+      setTimeout(() => setIsLoading(false), 1000);
+    }
+  };
+
+  const loadDefaultImage = async (userRole: 'BDM' | 'Telecaller') => {
+    try {
+      const defaultImagePath = userRole === 'BDM' ? 'assets/person.png' : 'assets/girl.png';
+      const defaultImageRef = ref(storage, defaultImagePath);
+      const url = await getDownloadURL(defaultImageRef);
+      setProfileImage({ uri: url });
+    } catch (error) {
+      console.error("Error loading default profile image:", error);
+      setProfileImage({ uri: '' });
     }
   };
 
   const uploadImage = async (uri: string): Promise<string> => {
     try {
-      console.log("Starting image upload to Firebase Storage");
       const userId = auth.currentUser?.uid;
-      if (!userId) {
-        throw new Error("User not authenticated");
-      }
+      if (!userId) throw new Error("User not authenticated");
 
-      // Convert image URI to blob
       const response = await fetch(uri);
       const blob = await response.blob();
-
-      // Create storage reference with user-specific path
       const storageRef = ref(storage, `profileImages/${userId}/profile_${Date.now()}.jpg`);
-
-      // Upload the image
-      console.log("Uploading image to Firebase Storage...");
       const uploadResult = await uploadBytes(storageRef, blob);
-
-      // Get the download URL
-      console.log("Getting download URL...");
-      const downloadURL = await getDownloadURL(uploadResult.ref);
-      console.log("Image uploaded successfully:", downloadURL);
-
-      return downloadURL;
+      return await getDownloadURL(uploadResult.ref);
     } catch (error) {
       console.error("Upload error:", error);
       throw error;
@@ -267,7 +229,7 @@ const BDMProfile = () => {
   const validateName = (text: string) => {
     setFormData(prev => ({ ...prev, name: text }));
     if (!touched.name) return true;
-    
+
     if (text.trim().length < 3) {
       setErrors(prev => ({ ...prev, name: "Name must be at least 3 characters" }));
       return false;
@@ -277,45 +239,32 @@ const BDMProfile = () => {
     }
   };
 
-  const validateMobileNumber = (text: string) => {
-    // Keep only numbers
+  const validatePhoneNumber = (text: string) => {
     const cleaned = text.replace(/\D/g, '');
     setFormData(prev => ({ ...prev, phoneNumber: cleaned }));
-    
-    if (!touched.mobileNumber) return true;
-    
+    if (!touched.phoneNumber) return true;
+
     if (cleaned.length < 10) {
-      setErrors(prev => ({ ...prev, mobileNumber: "Phone number must be at least 10 digits" }));
+      setErrors(prev => ({ ...prev, phoneNumber: "Phone number must be at least 10 digits" }));
       return false;
     } else {
-      setErrors(prev => ({ ...prev, mobileNumber: "" }));
+      setErrors(prev => ({ ...prev, phoneNumber: "" }));
       return true;
     }
   };
 
   const handleBlur = (field: keyof typeof touched) => {
-    setTouched(prev => ({
-      ...prev,
-      [field]: true
-    }));
-    
-    // Validate field on blur
-    if (field === 'name') {
-      validateName(formData.name);
-    } else if (field === 'mobileNumber') {
-      validateMobileNumber(formData.phoneNumber);
-    }
+    setTouched(prev => ({ ...prev, [field]: true }));
+    if (field === 'name') validateName(formData.name);
+    else if (field === 'phoneNumber') validatePhoneNumber(formData.phoneNumber);
   };
 
   const handleSaveChanges = async () => {
     try {
       const isNameValid = validateName(formData.name);
-      const isMobileValid = validateMobileNumber(formData.phoneNumber);
-      
-      if (!isNameValid || !isMobileValid) {
-        return;
-      }
-      
+      const isPhoneValid = validatePhoneNumber(formData.phoneNumber);
+      if (!isNameValid || !isPhoneValid) return;
+
       setIsSaving(true);
       const userId = auth.currentUser?.uid;
       if (!userId) {
@@ -324,26 +273,14 @@ const BDMProfile = () => {
       }
 
       let profileImageUrl = formData.profileImageUrl;
-
       if ('uri' in profileImage && profileImage.uri && profileImage.uri !== formData.profileImageUrl) {
-        try {
-          console.log("Uploading new profile image...");
-          profileImageUrl = await uploadImage(profileImage.uri);
-          console.log("New profile image uploaded:", profileImageUrl);
-        } catch (uploadError) {
-          console.error("Profile image upload failed:", uploadError);
-          Alert.alert(
-            "Upload Error",
-            "Failed to upload profile image. Please try again later."
-          );
-          return;
-        }
+        profileImageUrl = await uploadImage(profileImage.uri);
       }
 
       const userRef = doc(db, "users", userId);
       const updateData = {
         name: formData.name,
-        designation: "BDM",
+        designation: formData.designation,
         phoneNumber: formData.phoneNumber,
         dateOfBirth: formData.dateOfBirth,
         updatedAt: serverTimestamp(),
@@ -351,7 +288,6 @@ const BDMProfile = () => {
       };
 
       await setDoc(userRef, updateData, { merge: true });
-      
       if (profileImageUrl && updateProfileImage) {
         updateProfileImage(profileImageUrl);
       }
@@ -360,10 +296,7 @@ const BDMProfile = () => {
       Alert.alert("Success", "Profile updated successfully");
     } catch (error) {
       console.error("Save changes error:", error);
-      Alert.alert(
-        "Error",
-        "Failed to update profile. Please check your connection and try again."
-      );
+      Alert.alert("Error", "Failed to update profile. Please check your connection and try again.");
     } finally {
       setIsSaving(false);
     }
@@ -374,17 +307,11 @@ const BDMProfile = () => {
   };
 
   const handleDateChange = (event: DateTimePickerEvent, selectedDate?: Date) => {
-    if (Platform.OS === 'android') {
-      setShowDatePicker(false);
-    }
-    
+    setShowDatePicker(Platform.OS === 'android' ? false : showDatePicker);
     if (selectedDate) {
       setFormData(prev => ({ ...prev, dateOfBirth: selectedDate }));
     }
-    
-    if (Platform.OS === 'ios') {
-    setShowDatePicker(false);
-    }
+    if (Platform.OS === 'ios') setShowDatePicker(false);
   };
 
   const openImagePicker = () => {
@@ -401,42 +328,30 @@ const BDMProfile = () => {
       Alert.alert("Permission Denied", "You need to allow access to the gallery.");
       return;
     }
-  
+
     let result = await ImagePicker.launchImageLibraryAsync({
       allowsEditing: true,
       aspect: [4, 4],
       quality: 1,
       selectionLimit: 1,
     });
-  
+
     if (!result.canceled && result.assets.length > 0) {
       setProfileImage({ uri: result.assets[0].uri });
-      
-      // Animate the profile image
       Animated.sequence([
-        Animated.timing(scaleAnim, {
-          toValue: 1.1,
-          duration: 200,
-          useNativeDriver: true,
-        }),
-        Animated.timing(scaleAnim, {
-          toValue: 1,
-          duration: 200,
-          useNativeDriver: true,
-        }),
+        Animated.timing(scaleAnim, { toValue: 1.1, duration: 200, useNativeDriver: true }),
+        Animated.timing(scaleAnim, { toValue: 1, duration: 200, useNativeDriver: true }),
       ]).start();
     }
   };
 
   const handleOpenCamera = async () => {
-    // Request camera permission
     const { status } = await Camera.requestCameraPermissionsAsync();
     if (status !== "granted") {
       Alert.alert("Permission Denied", "You need to allow access to the camera.");
       return;
     }
-  
-    // Use Image Picker camera instead of navigating to camera screen
+
     let result = await ImagePicker.launchCameraAsync({
       allowsEditing: true,
       aspect: [4, 4],
@@ -445,19 +360,9 @@ const BDMProfile = () => {
 
     if (!result.canceled && result.assets.length > 0) {
       setProfileImage({ uri: result.assets[0].uri });
-      
-      // Animate the profile image
       Animated.sequence([
-        Animated.timing(scaleAnim, {
-      toValue: 1.1,
-          duration: 200,
-      useNativeDriver: true,
-        }),
-        Animated.timing(scaleAnim, {
-      toValue: 1,
-          duration: 200,
-      useNativeDriver: true,
-        }),
+        Animated.timing(scaleAnim, { toValue: 1.1, duration: 200, useNativeDriver: true }),
+        Animated.timing(scaleAnim, { toValue: 1, duration: 200, useNativeDriver: true }),
       ]).start();
     }
   };
@@ -471,31 +376,34 @@ const BDMProfile = () => {
     return date.toLocaleDateString(undefined, options);
   };
 
+  const Layout = role === 'BDM' ? BDMMainLayout : TelecallerMainLayout;
+
   if (isLoading) {
     return (
       <AppGradient>
-        <BDMMainLayout title="Profile" showBackButton showDrawer={true}>
+        <Layout title="Profile" showBackButton showDrawer={role === 'BDM'}>
           <ProfileSkeleton />
-        </BDMMainLayout>
+        </Layout>
       </AppGradient>
     );
   }
 
   return (
     <AppGradient>
-      <BDMMainLayout 
-        title="Profile" 
-        showBackButton 
-        showDrawer={true}
+      <Layout
+        title="Profile"
+        showBackButton
+        showDrawer={role === 'BDM'}
+        
         rightComponent={
-          <TouchableOpacity 
+          <TouchableOpacity
             onPress={() => setIsEditing(!isEditing)}
             style={styles.editButton}
           >
-            <MaterialIcons 
-              name={isEditing ? "close" : "edit"} 
-              size={24} 
-              color="#FF8447" 
+            <MaterialIcons
+              name={isEditing ? "close" : "edit"}
+              size={24}
+              color="#FF8447"
             />
           </TouchableOpacity>
         }
@@ -512,10 +420,7 @@ const BDMProfile = () => {
           {/* Profile Header */}
           <Animated.View style={[
             styles.headerContainer,
-            { 
-              height: headerHeight,
-              opacity: headerOpacity
-            }
+            { height: headerHeight, opacity: headerOpacity }
           ]}>
             <LinearGradient
               colors={['#FF8447', '#FF6D24']}
@@ -545,12 +450,11 @@ const BDMProfile = () => {
                   )}
                 </Animated.View>
               </TouchableWithoutFeedback>
-              
               <Text style={styles.profileName}>
                 {formData.name || 'Your Name'}
               </Text>
               <Text style={styles.profileRole}>
-                Business Development Manager
+                {formData.designation || (role === 'BDM' ? 'Business Development Manager' : 'Telecaller')}
               </Text>
             </LinearGradient>
           </Animated.View>
@@ -574,15 +478,13 @@ const BDMProfile = () => {
                       error={touched.name ? errors.name : undefined}
                       leftIcon="account"
                     />
-                    
                     <FormInput
                       label="Designation"
-                      value="BDM"
-                      onChangeText={() => {}}
+                      value={formData.designation}
+                      onChangeText={(text) => setFormData(prev => ({ ...prev, designation: text }))}
                       leftIcon="briefcase"
-                      disabled={true}
+                      disabled={role === 'BDM'}
                     />
-                    
                     <FormInput
                       label="Email"
                       value={formData.email}
@@ -591,21 +493,19 @@ const BDMProfile = () => {
                       autoCapitalize="none"
                       leftIcon="email"
                       autoComplete="email"
-                      disabled={true}
+                      disabled
                     />
-                    
                     <FormInput
                       label="Phone Number"
                       value={formData.phoneNumber}
-                      onChangeText={validateMobileNumber}
-                      onBlur={() => handleBlur('mobileNumber')}
-                      error={touched.mobileNumber ? errors.mobileNumber : undefined}
+                      onChangeText={validatePhoneNumber}
+                      onBlur={() => handleBlur('phoneNumber')}
+                      error={touched.phoneNumber ? errors.phoneNumber : undefined}
                       keyboardType="phone-pad"
                       leftIcon="phone"
                       autoComplete="tel"
                     />
-                    
-                    <TouchableOpacity 
+                    <TouchableOpacity
                       style={styles.datePickerButton}
                       onPress={handleShowDatePicker}
                     >
@@ -620,7 +520,6 @@ const BDMProfile = () => {
                         <MaterialIcons name="arrow-drop-down" size={24} color="#FF8447" />
                       </View>
                     </TouchableOpacity>
-
                     {showDatePicker && (
                       <DateTimePicker
                         value={formData.dateOfBirth}
@@ -641,15 +540,13 @@ const BDMProfile = () => {
                         <Text style={styles.infoValue}>{formData.name || 'Not provided'}</Text>
                       </View>
                     </View>
-                    
                     <View style={styles.infoRow}>
                       <MaterialIcons name="work" size={24} color="#FF8447" />
                       <View style={styles.infoContent}>
                         <Text style={styles.infoLabel}>Designation</Text>
-                        <Text style={styles.infoValue}>Business Development Manager</Text>
+                        <Text style={styles.infoValue}>{formData.designation || 'Not provided'}</Text>
                       </View>
                     </View>
-                    
                     <View style={styles.infoRow}>
                       <MaterialIcons name="email" size={24} color="#FF8447" />
                       <View style={styles.infoContent}>
@@ -657,7 +554,6 @@ const BDMProfile = () => {
                         <Text style={styles.infoValue}>{formData.email || 'Not provided'}</Text>
                       </View>
                     </View>
-                    
                     <View style={styles.infoRow}>
                       <MaterialIcons name="phone" size={24} color="#FF8447" />
                       <View style={styles.infoContent}>
@@ -665,7 +561,6 @@ const BDMProfile = () => {
                         <Text style={styles.infoValue}>{formData.phoneNumber || 'Not provided'}</Text>
                       </View>
                     </View>
-                    
                     <View style={styles.infoRow}>
                       <MaterialIcons name="calendar-today" size={24} color="#FF8447" />
                       <View style={styles.infoContent}>
@@ -679,8 +574,7 @@ const BDMProfile = () => {
                 )}
               </View>
             </View>
-            
-            {/* Save Button */}
+
             {isEditing && (
               <TouchableOpacity
                 style={styles.saveButton}
@@ -701,11 +595,11 @@ const BDMProfile = () => {
                 </LinearGradient>
               </TouchableOpacity>
             )}
-            
+
             <View style={styles.spacer} />
           </View>
         </Animated.ScrollView>
-      </BDMMainLayout>
+      </Layout>
     </AppGradient>
   );
 };
@@ -714,19 +608,7 @@ const styles = StyleSheet.create({
   scrollContainer: {
     flexGrow: 1,
   },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  loadingText: {
-    marginTop: 12,
-    fontSize: 16,
-    color: '#555',
-    fontFamily: 'LexendDeca_400Regular',
-  },
   headerContainer: {
-    height: 30,
     width: '100%',
     overflow: 'hidden',
   },
@@ -734,7 +616,7 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingTop: 10,
+    paddingTop: 20,
   },
   profileImageContainer: {
     width: 120,
@@ -873,10 +755,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFF5E6',
     borderRadius: 8,
   },
-  datePickerDisabled: {
-    opacity: 0.7,
-    backgroundColor: '#F5F5F5',
-  },
   skeletonContainer: {
     flex: 1,
   },
@@ -916,4 +794,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default BDMProfile;
+export default ProfileScreen;

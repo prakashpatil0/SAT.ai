@@ -33,9 +33,94 @@ export interface ReportPeriod {
   data: number[];
 }
 
-// Get weekly, monthly, quarterly targets (TODO: fetch from database)
-export const getTargets = (): TargetData => {
-  return TARGET_VALUES;
+// Interface for target data from Firebase
+interface FirebaseTargetData {
+  closingAmount: number;
+  createdAt: Timestamp;
+  dateOfJoining: string;
+  emailId: string;
+  employeeId: string;
+  employeeName: string;
+  meetingDuration: string;
+  month: number;
+  monthName: string;
+  numMeetings: number;
+  positiveLeads: number;
+  updatedAt: Timestamp;
+  year: number;
+}
+
+// Get weekly, monthly, quarterly targets from Firebase
+export const getTargets = async (): Promise<TargetData> => {
+  try {
+    if (!auth.currentUser) {
+      return TARGET_VALUES; // Fallback to default values if no user
+    }
+
+    const targetDataRef = collection(db, 'telecaller_target_data');
+    
+    // First try to get user data from users collection to get employeeId
+    const userDoc = await getDoc(doc(db, "users", auth.currentUser.uid));
+    let employeeId = null;
+    let userEmail = auth.currentUser.email;
+
+    if (userDoc.exists()) {
+      const userData = userDoc.data();
+      employeeId = userData.employeeId;
+      userEmail = userData.email || userEmail;
+    }
+
+    // Create query based on available identifiers
+    let q;
+    if (employeeId) {
+      // Query by employeeId if available
+      q = query(
+        targetDataRef,
+        where('employeeId', '==', employeeId),
+        orderBy('createdAt', 'desc'),
+        limit(1)
+      );
+    } else {
+      // Fallback to email if employeeId is not available
+      q = query(
+        targetDataRef,
+        where('emailId', '==', userEmail),
+        orderBy('createdAt', 'desc'),
+        limit(1)
+      );
+    }
+
+    const querySnapshot = await getDocs(q);
+    
+    if (querySnapshot.empty) {
+      console.log('No target data found, using default values');
+      return TARGET_VALUES;
+    }
+
+    const targetDoc = querySnapshot.docs[0].data() as FirebaseTargetData;
+    
+    // Log the found target data for debugging
+    console.log('Found target data:', {
+      employeeId: targetDoc.employeeId,
+      emailId: targetDoc.emailId,
+      targets: {
+        positiveLeads: targetDoc.positiveLeads,
+        numMeetings: targetDoc.numMeetings,
+        meetingDuration: targetDoc.meetingDuration,
+        closingAmount: targetDoc.closingAmount
+      }
+    });
+    
+    return {
+      positiveLeads: targetDoc.positiveLeads || TARGET_VALUES.positiveLeads,
+      numCalls: targetDoc.numMeetings || TARGET_VALUES.numCalls,
+      callDuration: parseInt(targetDoc.meetingDuration) || TARGET_VALUES.callDuration,
+      closingAmount: targetDoc.closingAmount || TARGET_VALUES.closingAmount
+    };
+  } catch (error) {
+    console.error('Error fetching target data:', error);
+    return TARGET_VALUES; // Fallback to default values on error
+  }
 };
 
 // Calculate achievements for the current week
@@ -79,19 +164,14 @@ export const getCurrentWeekAchievements = async (userId: string): Promise<Achiev
       totalClosingAmount += data.totalClosingAmount || 0;
     });
     
-    // Calculate percentage achieved for each metric
-    const targets = {
-      projectedMeetings: 30,
-      attendedMeetings: 30,
-      meetingDuration: 20, // hours
-      closing: 50000
-    };
+    // Get targets from Firebase
+    const targets = await getTargets();
 
     const progressPercentages = [
-      (totalNumMeetings / targets.projectedMeetings) * 100,
-      (totalPositiveLeads / targets.attendedMeetings) * 100,
-      (totalMeetingDuration / targets.meetingDuration) * 100,
-      (totalClosingAmount / targets.closing) * 100
+      (totalNumMeetings / targets.numCalls) * 100,
+      (totalPositiveLeads / targets.positiveLeads) * 100,
+      (totalMeetingDuration / targets.callDuration) * 100,
+      (totalClosingAmount / targets.closingAmount) * 100
     ];
 
     // Calculate average percentage, ensuring it doesn't exceed 100%
@@ -138,7 +218,6 @@ export const getPreviousWeekAchievement = async (userId: string): Promise<number
     
     const querySnapshot = await getDocs(q);
     
-    // Use the same calculation as getCurrentWeekAchievements
     let totalPositiveLeads = 0;
     let totalNumMeetings = 0;
     let totalMeetingDuration = 0;
@@ -160,7 +239,7 @@ export const getPreviousWeekAchievement = async (userId: string): Promise<number
       totalClosingAmount += data.totalClosingAmount || 0;
     });
     
-    const targets = getTargets();
+    const targets = await getTargets();
     const positiveLeadsPercentage = (totalPositiveLeads / targets.positiveLeads) * 100;
     const numCallsPercentage = (totalNumMeetings / targets.numCalls) * 100;
     const durationPercentage = (totalMeetingDuration / targets.callDuration) * 100;
@@ -226,7 +305,7 @@ export const getWeeklyReportData = async (userId: string): Promise<ReportPeriod>
           totalClosingAmount += docData.totalClosingAmount || 0;
         });
         
-        const targets = getTargets();
+        const targets = await getTargets();
         const positiveLeadsPercentage = (totalPositiveLeads / targets.positiveLeads) * 100;
         const numCallsPercentage = (totalNumMeetings / targets.numCalls) * 100;
         const durationPercentage = (totalMeetingDuration / targets.callDuration) * 100;
@@ -300,7 +379,7 @@ export const getQuarterlyReportData = async (userId: string): Promise<ReportPeri
         });
         
         // Monthly targets (4x weekly targets)
-        const weeklyTargets = getTargets();
+        const weeklyTargets = await getTargets();
         const monthlyTargets = {
           positiveLeads: weeklyTargets.positiveLeads * 4,
           numCalls: weeklyTargets.numCalls * 4,
@@ -381,7 +460,7 @@ export const getHalfYearlyReportData = async (userId: string): Promise<ReportPer
         });
         
         // Monthly targets (4x weekly targets)
-        const weeklyTargets = getTargets();
+        const weeklyTargets = await getTargets();
         const monthlyTargets = {
           positiveLeads: weeklyTargets.positiveLeads * 4,
           numCalls: weeklyTargets.numCalls * 4,

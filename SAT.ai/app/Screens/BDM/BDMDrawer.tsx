@@ -126,7 +126,7 @@ const BDMDrawer = (props: DrawerContentComponentProps) => {
         
         <TouchableOpacity 
           style={styles.profileContainer}
-          onPress={() => handleNavigate('BDMProfile')}
+          onPress={() => handleNavigate('Profile')}
         >
           {isImageLoading ? (
             <ActivityIndicator size="small" color="#FFF" style={styles.profileImage} />
@@ -181,7 +181,7 @@ const BDMDrawer = (props: DrawerContentComponentProps) => {
             icon={({ size }) => <MaterialCommunityIcons name="account-circle" size={size} color="#09142D" />}
             labelStyle={styles.menuText}
             style={styles.drawerItem}
-            onPress={() => handleNavigate("BDMProfile")}
+            onPress={() => handleNavigate("Profile")}
           />
           <DrawerItem
             label="Contact Book"
@@ -240,7 +240,7 @@ const BDMDrawer = (props: DrawerContentComponentProps) => {
             icon={({ size }) => <MaterialCommunityIcons name="podium" size={size} color="#09142D" />}
             labelStyle={styles.menuText}
             style={styles.drawerItem}
-            onPress={() => handleNavigate("BDMLeaderBoard")}
+            onPress={() => handleNavigate("LeaderBoard")}
           />
         </View>
                 <DrawerItem

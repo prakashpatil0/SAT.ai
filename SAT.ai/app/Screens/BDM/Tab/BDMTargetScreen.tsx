@@ -5,10 +5,20 @@ import { useNavigation } from '@react-navigation/native';
 import BDMMainLayout from '@/app/components/BDMMainLayout';
 import AppGradient from '@/app/components/AppGradient';
 import { auth, db } from '@/firebaseConfig';
-import { collection, query, where, getDocs, Timestamp, onSnapshot } from 'firebase/firestore';
+import { collection, query, where, getDocs, Timestamp, onSnapshot, getDoc, doc, orderBy, limit } from 'firebase/firestore';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSharedValue, withRepeat, withSequence, withTiming, withDelay, useAnimatedStyle } from 'react-native-reanimated';
 import AnimatedReanimated from 'react-native-reanimated';
+import * as Notifications from 'expo-notifications';
+
+// Configure notifications
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: true,
+    shouldSetBadge: true,
+  }),
+});
 
 interface TargetData {
   projectedMeetings: { achieved: number; target: number };
@@ -68,12 +78,68 @@ const BDMTargetScreen = () => {
   const [lastWeekProgress, setLastWeekProgress] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [waveAnimation] = useState(new Animated.Value(0));
+  const [error, setError] = useState<string | null>(null);
 
   const fetchTargetData = useCallback(async () => {
     try {
       setIsLoading(true);
+      setError(null);
       const userId = auth.currentUser?.uid;
-      if (!userId) return;
+      if (!userId) {
+        setError('User not authenticated');
+        return;
+      }
+
+      // First get user data to get employeeId
+      const userDoc = await getDoc(doc(db, "users", userId));
+      let employeeId = null;
+      let userEmail = auth.currentUser?.email;
+
+      if (userDoc.exists()) {
+        const userData = userDoc.data();
+        employeeId = userData.employeeId;
+        userEmail = userData.email || userEmail;
+      }
+
+      if (!userEmail) {
+        setError('User email not found');
+        return;
+      }
+
+      // Fetch target data from Firebase
+      const targetDataRef = collection(db, 'bdm_target_data');
+      let q;
+      if (employeeId) {
+        q = query(
+          targetDataRef,
+          where('employeeId', '==', employeeId),
+          orderBy('createdAt', 'desc'),
+          limit(1)
+        );
+      } else {
+        q = query(
+          targetDataRef,
+          where('emailId', '==', userEmail),
+          orderBy('createdAt', 'desc'),
+          limit(1)
+        );
+      }
+
+      const targetSnapshot = await getDocs(q);
+      
+      if (targetSnapshot.empty) {
+        console.log('No target data found, using default values');
+        // Continue with default values
+      } else {
+        const targetDoc = targetSnapshot.docs[0].data();
+        console.log('Found target data:', targetDoc);
+        
+        // Update target values from Firebase
+        targetData.projectedMeetings.target = targetDoc.numMeetings || 30;
+        targetData.attendedMeetings.target = targetDoc.positiveLeads || 30;
+        targetData.meetingDuration.target = `${targetDoc.meetingDuration || '20'}:00:00`;
+        targetData.closing.target = targetDoc.closingAmount || 50000;
+      }
 
       const now = new Date();
       const startOfWeek = new Date(now);
@@ -173,18 +239,30 @@ const BDMTargetScreen = () => {
       };
 
       const newTargetData = {
-        projectedMeetings: { achieved: totalMeetings, target: 30 },
-        attendedMeetings: { achieved: totalAttendedMeetings, target: 30 },
-        meetingDuration: { achieved: formatDuration(totalDuration), target: '20:00:00' },
-        closing: { achieved: totalClosing, target: 50000 }
+        projectedMeetings: { 
+          achieved: totalMeetings, 
+          target: targetData.projectedMeetings.target 
+        },
+        attendedMeetings: { 
+          achieved: totalAttendedMeetings, 
+          target: targetData.attendedMeetings.target 
+        },
+        meetingDuration: { 
+          achieved: formatDuration(totalDuration), 
+          target: targetData.meetingDuration.target 
+        },
+        closing: { 
+          achieved: totalClosing, 
+          target: targetData.closing.target 
+        }
       };
 
       setTargetData(newTargetData);
 
-      const meetingsPercentage = (totalMeetings / 30) * 100;
-      const attendedPercentage = (totalAttendedMeetings / 30) * 100;
-      const durationPercentage = (totalDuration / (20 * 3600)) * 100;
-      const closingPercentage = (totalClosing / 50000) * 100;
+      const meetingsPercentage = (totalMeetings / targetData.projectedMeetings.target) * 100;
+      const attendedPercentage = (totalAttendedMeetings / targetData.attendedMeetings.target) * 100;
+      const durationPercentage = (totalDuration / (parseInt(targetData.meetingDuration.target) * 3600)) * 100;
+      const closingPercentage = (totalClosing / targetData.closing.target) * 100;
 
       const overallProgress = Math.min(
         (meetingsPercentage + attendedPercentage + durationPercentage + closingPercentage) / 4,
@@ -193,10 +271,10 @@ const BDMTargetScreen = () => {
 
       setOverallProgress(Math.min(overallProgress, 100));
 
-      const lastWeekMeetingsPercentage = (lastWeekMeetings / 30) * 100;
-      const lastWeekAttendedPercentage = (lastWeekAttendedMeetings / 30) * 100;
-      const lastWeekDurationPercentage = (lastWeekDuration / (20 * 3600)) * 100;
-      const lastWeekClosingPercentage = (lastWeekClosing / 50000) * 100;
+      const lastWeekMeetingsPercentage = (lastWeekMeetings / targetData.projectedMeetings.target) * 100;
+      const lastWeekAttendedPercentage = (lastWeekAttendedMeetings / targetData.attendedMeetings.target) * 100;
+      const lastWeekDurationPercentage = (lastWeekDuration / (parseInt(targetData.meetingDuration.target) * 3600)) * 100;
+      const lastWeekClosingPercentage = (lastWeekClosing / targetData.closing.target) * 100;
 
       const lastWeekProgress = Math.min(
         (lastWeekMeetingsPercentage + lastWeekAttendedPercentage + 
@@ -208,6 +286,7 @@ const BDMTargetScreen = () => {
       setIsLoading(false);
     } catch (error) {
       console.error("Error fetching target data:", error);
+      setError(error instanceof Error ? error.message : 'Failed to fetch data');
       setIsLoading(false);
     }
   }, []);
@@ -287,6 +366,110 @@ const BDMTargetScreen = () => {
     }
   }, [isLoading]);
 
+  // Add notification setup
+  useEffect(() => {
+    const setupNotifications = async () => {
+      const { status } = await Notifications.requestPermissionsAsync();
+      if (status !== 'granted') {
+        console.log('Notification permissions not granted');
+      }
+    };
+
+    setupNotifications();
+  }, []);
+
+  // Add real-time target listener
+  useEffect(() => {
+    if (!auth.currentUser) return;
+
+    // Get user data to get employeeId
+    const userDoc = doc(db, "users", auth.currentUser.uid);
+    let employeeId: string | null = null;
+    let userEmail = auth.currentUser.email;
+
+    const unsubscribeUser = onSnapshot(userDoc, (doc) => {
+      if (doc.exists()) {
+        const userData = doc.data();
+        employeeId = userData.employeeId;
+        userEmail = userData.email || userEmail;
+
+        // Set up target listener based on available identifier
+        const targetDataRef = collection(db, 'bdm_target_data');
+        let q;
+        
+        if (employeeId) {
+          q = query(
+            targetDataRef,
+            where('employeeId', '==', employeeId),
+            orderBy('createdAt', 'desc'),
+            limit(1)
+          );
+        } else {
+          q = query(
+            targetDataRef,
+            where('emailId', '==', userEmail),
+            orderBy('createdAt', 'desc'),
+            limit(1)
+          );
+        }
+
+        const unsubscribeTarget = onSnapshot(q, (snapshot) => {
+          if (!snapshot.empty) {
+            const targetDoc = snapshot.docs[0].data();
+            
+            // Create new target data object
+            const newTargetData = {
+              projectedMeetings: { 
+                achieved: targetData.projectedMeetings.achieved, 
+                target: targetDoc.numMeetings || 30 
+              },
+              attendedMeetings: { 
+                achieved: targetData.attendedMeetings.achieved, 
+                target: targetDoc.positiveLeads || 30 
+              },
+              meetingDuration: { 
+                achieved: targetData.meetingDuration.achieved, 
+                target: `${targetDoc.meetingDuration || '20'}:00:00` 
+              },
+              closing: { 
+                achieved: targetData.closing.achieved, 
+                target: targetDoc.closingAmount || 50000 
+              }
+            };
+
+            // Check if targets have changed
+            if (JSON.stringify(newTargetData) !== JSON.stringify(targetData)) {
+              // Show notification
+              Notifications.scheduleNotificationAsync({
+                content: {
+                  title: 'Target Updated! 🎯',
+                  body: `Your weekly targets have been updated:\n• Meetings: ${newTargetData.projectedMeetings.target}\n• Prospective Meetings: ${newTargetData.attendedMeetings.target}\n• Duration: ${newTargetData.meetingDuration.target}\n• Amount: ₹${newTargetData.closing.target.toLocaleString()}`,
+                  sound: true,
+                  priority: Notifications.AndroidNotificationPriority.HIGH,
+                },
+                trigger: null,
+              });
+
+              // Update target data state
+              setTargetData(newTargetData);
+              
+              // Refresh data with new targets
+              fetchTargetData();
+            }
+          }
+        });
+
+        return () => {
+          unsubscribeTarget();
+        };
+      }
+    });
+
+    return () => {
+      unsubscribeUser();
+    };
+  }, []);
+
   const getDaysLeft = () => {
     const now = new Date();
     const endOfWeek = new Date(now);
@@ -307,6 +490,24 @@ const BDMTargetScreen = () => {
       </View>
     );
   };
+
+  if (error) {
+    return (
+      <AppGradient>
+        <BDMMainLayout title="Weekly Target" showBackButton showDrawer={true} showBottomTabs={true}>
+          <View style={styles.errorContainer}>
+            <Text style={styles.errorText}>{error}</Text>
+            <TouchableOpacity 
+              style={styles.retryButton}
+              onPress={() => fetchTargetData()}
+            >
+              <Text style={styles.retryButtonText}>Retry</Text>
+            </TouchableOpacity>
+          </View>
+        </BDMMainLayout>
+      </AppGradient>
+    );
+  }
 
   if (isLoading) {
     return (
@@ -544,6 +745,30 @@ const styles = StyleSheet.create({
     color: '#FF8447',
     width: 70,
     textAlign: 'center',
+  },
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  errorText: {
+    fontSize: 16,
+    fontFamily: 'LexendDeca_500Medium',
+    color: '#FF4444',
+    textAlign: 'center',
+    marginBottom: 16,
+  },
+  retryButton: {
+    backgroundColor: '#FF8447',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 8,
+  },
+  retryButtonText: {
+    color: 'white',
+    fontSize: 16,
+    fontFamily: 'LexendDeca_500Medium',
   },
 });
 

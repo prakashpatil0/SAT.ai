@@ -1,17 +1,17 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Linking, Platform, Alert, Image, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Linking, Platform, Alert, Image, ActivityIndicator, Dimensions } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
-import PermissionsService from '@/app/services/PermissionsService';
 import { DEFAULT_LOCATION, DEFAULT_MAP_DELTA, GOOGLE_MAPS_STYLE } from '@/app/utils/MapUtils';
-import { format } from 'date-fns';
-import { collection, addDoc, getDocs, query, where, Timestamp, updateDoc } from 'firebase/firestore';
+import { format, startOfMonth, endOfMonth, eachMonthOfInterval, subMonths, addMonths } from 'date-fns';
+import { collection, addDoc, getDocs, query, where, Timestamp, updateDoc, doc, getDoc } from 'firebase/firestore';
 import { db, auth } from '@/firebaseConfig';
 import BDMMainLayout from '@/app/components/BDMMainLayout';
 import AppGradient from '@/app/components/AppGradient';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 type RootStackParamList = {
   BDMCameraScreen: {
@@ -29,16 +29,45 @@ type BDMAttendanceScreenRouteProp = RouteProp<RootStackParamList, 'BDMAttendance
 type BDMAttendanceScreenNavigationProp = StackNavigationProp<RootStackParamList, 'BDMAttendanceScreen'>;
 
 type AttendanceRecord = {
-  date: string;
-  day: string;
-  punchIn: string;
-  punchOut: string;
+  date: string;          // "01", "02", ..., "31"
+  day: string;           // "MON", "TUE", etc.
+  month: string;         // "01" to "12"
+  year: string;          // "2023"
+  punchIn: string;       // "09:00" (24-hour format)
+  punchOut: string;      // "17:30" (24-hour format)
   status: 'Present' | 'Half Day' | 'On Leave';
   userId: string;
   timestamp: Date;
-  photoUri?: string;
-  location?: { latitude: number; longitude: number };
+  photoUri: string;      // Punch-in photo URL
+  punchOutPhotoUri?: string; // Punch-out photo URL
+  location: {            // Punch-in location
+    latitude: number;
+    longitude: number;
+  };
+  punchOutLocation?: {   // Punch-out location
+    latitude: number;
+    longitude: number;
+  };
+  designation: string;
+  employeeName: string;
+  phoneNumber: string;
+  email: string;
+  totalHours: number;
+  workMode: 'Office' | 'Work From Home';
+  locationName: string;  // Punch-in location name
+  punchOutLocationName?: string; // Punch-out location name
+  lastUpdated: Date;
 };
+
+type ChartData = {
+  labels: string[];
+  datasets: {
+    data: number[];
+  }[];
+};
+
+const CACHE_KEY = '@map_location_cache';
+const CACHE_EXPIRY = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
 
 const BDMAttendanceScreen = () => {
   // Map and location states
@@ -47,6 +76,7 @@ const BDMAttendanceScreen = () => {
   const [permissionStatus, setPermissionStatus] = useState<string>('unknown');
   const [locationServiceEnabled, setLocationServiceEnabled] = useState<boolean | null>(null);
   const [mapReady, setMapReady] = useState(false);
+  const [isLocationLoading, setIsLocationLoading] = useState(true);
   
   // Attendance states
   const [currentDate, setCurrentDate] = useState(new Date());
@@ -63,6 +93,21 @@ const BDMAttendanceScreen = () => {
     'Half Day': 0,
     'On Leave': 0
   });
+
+  // New states for enhanced features
+  const [selectedMonth, setSelectedMonth] = useState(new Date());
+  const [monthsList, setMonthsList] = useState<Date[]>([]);
+  const [userDetails, setUserDetails] = useState<{
+    designation?: string;
+    employeeName?: string;
+    phoneNumber?: string;
+    email?: string;
+  }>({});
+  const [chartData, setChartData] = useState<ChartData>({
+    labels: [],
+    datasets: [{ data: [] }]
+  });
+  const [isLoadingUserDetails, setIsLoadingUserDetails] = useState(true);
 
   const navigation = useNavigation<BDMAttendanceScreenNavigationProp>();
   const route = useRoute<BDMAttendanceScreenRouteProp>();
@@ -91,47 +136,89 @@ const BDMAttendanceScreen = () => {
     timestamp: Date.now()
   };
 
-  useEffect(() => {
-    // Request location permission immediately on screen load
-    (async () => {
-      try {
-        const enabled = await Location.hasServicesEnabledAsync();
-        setLocationServiceEnabled(enabled);
+  const openLocationSettings = () => {
+    if (Platform.OS === 'ios') {
+      Linking.openURL('App-Prefs:root=Privacy&path=LOCATION');
+    } else {
+      Linking.sendIntent('android.settings.LOCATION_SOURCE_SETTINGS');
+    }
+  };
+
+  // Add new function to save location to cache
+  const saveLocationToCache = async (location: Location.LocationObject) => {
+    try {
+      const cacheData = {
+        location: location,
+        timestamp: Date.now()
+      };
+      await AsyncStorage.setItem(CACHE_KEY, JSON.stringify(cacheData));
+    } catch (error) {
+      console.error('Error saving location to cache:', error);
+    }
+  };
+
+  // Add new function to get location from cache
+  const getLocationFromCache = async () => {
+    try {
+      const cachedData = await AsyncStorage.getItem(CACHE_KEY);
+      if (cachedData) {
+        const { location, timestamp } = JSON.parse(cachedData);
+        const isExpired = Date.now() - timestamp > CACHE_EXPIRY;
         
-        if (!enabled) {
-          Alert.alert(
-            "Location Services Required",
-            "Please enable location services to use the attendance feature.",
-            [
-              { text: "Open Settings", onPress: () => Linking.openSettings() },
-              { text: "Cancel", style: "cancel" }
-            ]
-          );
-          return;
+        if (!isExpired) {
+          return location;
         }
-        
+      }
+      return null;
+    } catch (error) {
+      console.error('Error getting location from cache:', error);
+      return null;
+    }
+  };
+
+  // Modify checkLocationStatus to use cache
+  const checkLocationStatus = async () => {
+    try {
+      setIsLocationLoading(true);
+      const enabled = await Location.hasServicesEnabledAsync();
+      setLocationServiceEnabled(enabled);
+      
+      if (enabled) {
         const { status } = await Location.requestForegroundPermissionsAsync();
         setPermissionStatus(status);
         
-        if (status !== 'granted') {
-          Alert.alert(
-            "Location Permission Required",
-            "Please grant location permission to use the attendance feature.",
-            [
-              { text: "Open Settings", onPress: () => Linking.openSettings() },
-              { text: "Cancel", style: "cancel" }
-            ]
-          );
-          return;
+        if (status === 'granted') {
+          // Try to load from cache first
+          const cachedLocation = await getLocationFromCache();
+          if (cachedLocation) {
+            setLocation(cachedLocation);
+            setMapReady(true);
+          }
+          // Then load current location
+          await loadLocation();
         }
-        
-        // If all permissions are granted, proceed with loading the map
-        await loadLocation();
-      } catch (error) {
-        console.error('Error setting up location services:', error);
-        setMapError(true);
       }
-    })();
+    } catch (error) {
+      console.error('Error checking location status:', error);
+      setMapError(true);
+    } finally {
+      setIsLocationLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    // Initialize months list
+    const months = eachMonthOfInterval({
+      start: subMonths(new Date(), 11),
+      end: new Date()
+    });
+    setMonthsList(months);
+    
+    // Load user details
+    loadUserDetails();
+    
+    // Check location status immediately
+    checkLocationStatus();
     
     // Initialize the current date and update weekly days
     initializeDate();
@@ -139,6 +226,14 @@ const BDMAttendanceScreen = () => {
     // Fetch attendance history
     fetchAttendanceHistory();
   }, []);
+
+  // Add effect for selected month changes
+  useEffect(() => {
+    if (attendanceHistory.length > 0) {
+      updateChartData();
+      filterHistoryByMonth();
+    }
+  }, [selectedMonth, attendanceHistory]);
 
   // Add filtered history effect
   useEffect(() => {
@@ -226,17 +321,46 @@ const BDMAttendanceScreen = () => {
   const loadLocation = async () => {
     try {
       setMapError(false);
-      const currentLocation = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.High
-      });
       
-      if (currentLocation) {
-        setLocation(currentLocation);
+      // First try to get location from cache
+      const cachedLocation = await getLocationFromCache();
+      if (cachedLocation) {
+        setLocation(cachedLocation);
+        setMapReady(true);
+      }
+
+      // Then try to get last known location
+      const lastKnownLocation = await Location.getLastKnownPositionAsync({
+        maxAge: 10000 // 10 seconds
+      });
+
+      if (lastKnownLocation) {
+        setLocation(lastKnownLocation);
+        saveLocationToCache(lastKnownLocation);
+        // Then get current location in background
+        Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced
+        }).then(currentLocation => {
+          if (currentLocation) {
+            setLocation(currentLocation);
+            saveLocationToCache(currentLocation);
+          }
+        }).catch(error => {
+          console.error('Error getting current location:', error);
+        });
       } else {
-        // Fallback to default location
-        console.log('Using default location');
-        setLocation(defaultLocation as Location.LocationObject);
-        setMapError(true);
+        // If no last known location, get current location
+        const currentLocation = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced
+        });
+        
+        if (currentLocation) {
+          setLocation(currentLocation);
+          saveLocationToCache(currentLocation);
+        } else {
+          setLocation(defaultLocation as Location.LocationObject);
+          setMapError(true);
+        }
       }
     } catch (error) {
       console.error('Error loading location:', error);
@@ -253,8 +377,15 @@ const BDMAttendanceScreen = () => {
         return;
       }
 
-      const attendanceRef = collection(db, 'users', userId, 'attendance');
-      const querySnapshot = await getDocs(attendanceRef);
+      const attendanceRef = collection(db, 'bdm_monthly_attendance');
+      const monthQuery = query(
+        attendanceRef,
+        where('month', '==', format(selectedMonth, 'MM')),
+        where('year', '==', format(selectedMonth, 'yyyy')),
+        where('userId', '==', userId)
+      );
+      
+      const querySnapshot = await getDocs(monthQuery);
       
       const history: AttendanceRecord[] = [];
       const today = format(new Date(), 'dd');
@@ -264,27 +395,53 @@ const BDMAttendanceScreen = () => {
         history.push({
           date: data.date,
           day: data.day,
+          month: data.month,
+          year: data.year,
           punchIn: data.punchIn,
           punchOut: data.punchOut,
           status: data.status,
           userId: data.userId,
           timestamp: data.timestamp.toDate(),
           photoUri: data.photoUri,
-          location: data.location
+          punchOutPhotoUri: data.punchOutPhotoUri,
+          location: data.location,
+          punchOutLocation: data.punchOutLocation,
+          designation: data.designation,
+          employeeName: data.employeeName,
+          phoneNumber: data.phoneNumber,
+          email: data.email,
+          totalHours: data.totalHours,
+          workMode: data.workMode,
+          locationName: data.locationName,
+          punchOutLocationName: data.punchOutLocationName,
+          lastUpdated: data.lastUpdated.toDate()
         });
 
         // Update today's punch in/out status
-        if (data.date === today) {
+        if (data.date === today && data.month === format(new Date(), 'MM')) {
           setTodayRecord({
             date: data.date,
             day: data.day,
+            month: data.month,
+            year: data.year,
             punchIn: data.punchIn,
             punchOut: data.punchOut,
             status: data.status,
             userId: data.userId,
             timestamp: data.timestamp.toDate(),
             photoUri: data.photoUri,
-            location: data.location
+            punchOutPhotoUri: data.punchOutPhotoUri,
+            location: data.location,
+            punchOutLocation: data.punchOutLocation,
+            designation: data.designation,
+            employeeName: data.employeeName,
+            phoneNumber: data.phoneNumber,
+            email: data.email,
+            totalHours: data.totalHours,
+            workMode: data.workMode,
+            locationName: data.locationName,
+            punchOutLocationName: data.punchOutLocationName,
+            lastUpdated: data.lastUpdated.toDate()
           });
           
           setPunchInTime(data.punchIn ? format(new Date(`2000-01-01T${data.punchIn}`), 'hh:mm a') : '');
@@ -296,14 +453,8 @@ const BDMAttendanceScreen = () => {
       const sortedHistory = history.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
       setAttendanceHistory(sortedHistory);
 
-      // Check if there are any records for the current month
-      const currentMonthRecords = sortedHistory.filter(record => {
-        const recordDate = new Date(record.timestamp);
-        return format(recordDate, 'MM') === format(new Date(), 'MM') && 
-               format(recordDate, 'yyyy') === format(new Date(), 'yyyy');
-      });
-
-      if (currentMonthRecords.length > 0) {
+      // Check if there are any records for the selected month
+      if (sortedHistory.length > 0) {
         calculateStatusCounts(sortedHistory);
         updateWeekDaysStatus(sortedHistory);
       } else {
@@ -404,6 +555,95 @@ const BDMAttendanceScreen = () => {
     setStatusCounts(counts);
   };
 
+  const loadUserDetails = async () => {
+    try {
+      const userId = auth.currentUser?.uid;
+      if (!userId) {
+        Alert.alert('Error', 'User not authenticated');
+        return;
+      }
+
+      const userDoc = await getDoc(doc(db, 'users', userId));
+      if (userDoc.exists()) {
+        const data = userDoc.data();
+        setUserDetails({
+          designation: data.designation,
+          employeeName: data.name,
+          phoneNumber: data.phoneNumber,
+          email: data.email
+        });
+      }
+    } catch (error) {
+      console.error('Error loading user details:', error);
+    } finally {
+      setIsLoadingUserDetails(false);
+    }
+  };
+
+  const updateChartData = () => {
+    const monthStart = startOfMonth(selectedMonth);
+    const monthEnd = endOfMonth(selectedMonth);
+    
+    // Filter attendance records for selected month
+    const monthRecords = attendanceHistory.filter(record => {
+      const recordDate = new Date(record.timestamp);
+      return recordDate >= monthStart && recordDate <= monthEnd;
+    });
+
+    // Create labels for each day of the month
+    const daysInMonth = monthEnd.getDate();
+    const labels = Array.from({ length: daysInMonth }, (_, i) => (i + 1).toString());
+    
+    // Calculate attendance percentage for each day
+    const data = labels.map(day => {
+      const record = monthRecords.find(r => r.date === day);
+      if (!record) return 0;
+      
+      switch (record.status) {
+        case 'Present': return 100;
+        case 'Half Day': return 50;
+        default: return 0;
+      }
+    });
+
+    setChartData({
+      labels,
+      datasets: [{ data }]
+    });
+  };
+
+  const filterHistoryByMonth = () => {
+    const monthStart = startOfMonth(selectedMonth);
+    const monthEnd = endOfMonth(selectedMonth);
+    
+    const filtered = attendanceHistory.filter(record => {
+      const recordDate = new Date(record.timestamp);
+      return recordDate >= monthStart && recordDate <= monthEnd;
+    });
+
+    if (activeFilter) {
+      setFilteredHistory(filtered.filter(record => record.status === activeFilter));
+    } else {
+      setFilteredHistory(filtered);
+    }
+  };
+
+  const handleMonthSelect = (month: Date) => {
+    setSelectedMonth(month);
+  };
+
+  const calculateTotalHours = (punchIn: string, punchOut: string): number => {
+    if (!punchIn || !punchOut) return 0;
+    
+    const [inHours, inMinutes] = punchIn.split(':').map(Number);
+    const [outHours, outMinutes] = punchOut.split(':').map(Number);
+    
+    const totalInMinutes = inHours * 60 + inMinutes;
+    const totalOutMinutes = outHours * 60 + outMinutes;
+    
+    return (totalOutMinutes - totalInMinutes) / 60;
+  };
+
   const saveAttendance = async (isPunchIn: boolean, photoUri: string, locationCoords: any) => {
     try {
       const userId = auth.currentUser?.uid;
@@ -415,12 +655,16 @@ const BDMAttendanceScreen = () => {
       const currentTime = new Date();
       const dateStr = format(currentTime, 'dd');
       const dayStr = format(currentTime, 'EEE').toUpperCase();
-      const timeStr = format(currentTime, 'HH:mm'); // Changed to 24-hour format for easier calculations
+      const monthStr = format(currentTime, 'MM');
+      const yearStr = format(currentTime, 'yyyy');
+      const timeStr = format(currentTime, 'HH:mm');
 
-      const attendanceRef = collection(db, 'users', userId, 'attendance');
+      const attendanceRef = collection(db, 'bdm_monthly_attendance');
       const todayQuery = query(
         attendanceRef,
         where('date', '==', dateStr),
+        where('month', '==', monthStr),
+        where('year', '==', yearStr),
         where('userId', '==', userId)
       );
 
@@ -431,13 +675,26 @@ const BDMAttendanceScreen = () => {
         await addDoc(attendanceRef, {
           date: dateStr,
           day: dayStr,
+          month: monthStr,
+          year: yearStr,
           punchIn: isPunchIn ? timeStr : '',
           punchOut: !isPunchIn ? timeStr : '',
           status: isPunchIn ? 'Half Day' : 'On Leave',
           userId,
           timestamp: Timestamp.fromDate(currentTime),
-          photoUri,
-          location: locationCoords
+          photoUri: isPunchIn ? photoUri : '',
+          punchOutPhotoUri: !isPunchIn ? photoUri : '',
+          location: isPunchIn ? locationCoords : null,
+          punchOutLocation: !isPunchIn ? locationCoords : null,
+          designation: userDetails.designation,
+          employeeName: userDetails.employeeName,
+          phoneNumber: userDetails.phoneNumber,
+          email: userDetails.email,
+          totalHours: 0,
+          workMode: 'Office',
+          locationName: isPunchIn ? await getLocationName(locationCoords) : '',
+          punchOutLocationName: !isPunchIn ? await getLocationName(locationCoords) : '',
+          lastUpdated: Timestamp.fromDate(currentTime)
         });
       } else {
         // Update existing record
@@ -448,13 +705,8 @@ const BDMAttendanceScreen = () => {
         
         let newStatus = 'Half Day';
         if (newPunchIn && newPunchOut) {
-          // Calculate time difference for full day vs half day
-          const punchInTime = new Date(`2000-01-01T${newPunchIn}`);
-          const punchOutTime = new Date(`2000-01-01T${newPunchOut}`);
-          const diffMs = punchOutTime.getTime() - punchInTime.getTime();
-          const diffHrs = diffMs / (1000 * 60 * 60);
-          
-          newStatus = diffHrs >= 8 ? 'Present' : 'Half Day';
+          const totalHours = calculateTotalHours(newPunchIn, newPunchOut);
+          newStatus = totalHours >= 8 ? 'Present' : 'Half Day';
         } else if (!newPunchIn && !newPunchOut) {
           newStatus = 'On Leave';
         }
@@ -463,17 +715,23 @@ const BDMAttendanceScreen = () => {
           punchIn: newPunchIn,
           punchOut: newPunchOut,
           status: newStatus,
-          photoUri: !isPunchIn ? photoUri : existingData.photoUri,
-          location: !isPunchIn ? locationCoords : existingData.location
+          photoUri: isPunchIn ? photoUri : existingData.photoUri,
+          punchOutPhotoUri: !isPunchIn ? photoUri : existingData.punchOutPhotoUri,
+          location: isPunchIn ? locationCoords : existingData.location,
+          punchOutLocation: !isPunchIn ? locationCoords : existingData.punchOutLocation,
+          totalHours: newPunchIn && newPunchOut ? calculateTotalHours(newPunchIn, newPunchOut) : 0,
+          locationName: isPunchIn ? await getLocationName(locationCoords) : existingData.locationName,
+          punchOutLocationName: !isPunchIn ? await getLocationName(locationCoords) : existingData.punchOutLocationName,
+          lastUpdated: Timestamp.fromDate(currentTime)
         });
       }
 
       // Update local state
       if (isPunchIn) {
-        setPunchInTime(format(currentTime, 'hh:mm a')); // Display in 12-hour format
+        setPunchInTime(format(currentTime, 'hh:mm a'));
         setIsPunchedIn(true);
       } else {
-        setPunchOutTime(format(currentTime, 'hh:mm a')); // Display in 12-hour format
+        setPunchOutTime(format(currentTime, 'hh:mm a'));
         setIsPunchedIn(false);
       }
 
@@ -485,7 +743,23 @@ const BDMAttendanceScreen = () => {
     }
   };
 
-  const handlePunch = () => {
+  const getLocationName = async (coords: any): Promise<string> => {
+    try {
+      const response = await fetch(
+        `https://maps.googleapis.com/maps/api/geocode/json?latlng=${coords.latitude},${coords.longitude}&key=YOUR_GOOGLE_MAPS_API_KEY`
+      );
+      const data = await response.json();
+      if (data.results && data.results[0]) {
+        return data.results[0].formatted_address;
+      }
+      return 'Unknown Location';
+    } catch (error) {
+      console.error('Error getting location name:', error);
+      return 'Unknown Location';
+    }
+  };
+
+  const handlePunch = async () => {
     if (isPunchButtonDisabled) {
       Alert.alert(
         "Punch Disabled",
@@ -494,11 +768,16 @@ const BDMAttendanceScreen = () => {
       return;
     }
 
-    if (permissionStatus !== 'granted') {
-      Alert.alert(
-        "Location Permission Required",
-        "Please grant location permission to punch in/out."
-      );
+    // Check location status before proceeding
+    const enabled = await Location.hasServicesEnabledAsync();
+    if (!enabled) {
+      openLocationSettings();
+      return;
+    }
+
+    const { status } = await Location.requestForegroundPermissionsAsync();
+    if (status !== 'granted') {
+      openLocationSettings();
       return;
     }
     
@@ -571,14 +850,14 @@ const BDMAttendanceScreen = () => {
   const renderMapFallback = () => (
     <TouchableOpacity 
       style={styles.mapFallback}
-      onPress={loadLocation}
+      onPress={openLocationSettings}
     >
       <MaterialIcons name="map" size={48} color="#FF8447" />
       <Text style={styles.mapFallbackText}>
         {locationServiceEnabled === false 
-          ? 'Location services are disabled. Tap to retry.' 
+          ? 'Location services are disabled. Tap to enable.' 
           : permissionStatus !== 'granted' 
-            ? 'Location permission required to show map. Tap to request again.' 
+            ? 'Location permission required. Tap to grant.' 
             : 'Could not load map. Tap to retry.'}
       </Text>
     </TouchableOpacity>
@@ -658,6 +937,13 @@ const BDMAttendanceScreen = () => {
                 loadingIndicatorColor="#FF8447"
                 loadingBackgroundColor="#FFF8F0"
                 onMapReady={handleMapReady}
+                moveOnMarkerPress={false}
+                showsCompass={false}
+                showsScale={false}
+                showsTraffic={false}
+                showsBuildings={false}
+                showsIndoors={false}
+                showsPointsOfInterest={false}
               >
                 {mapReady && (
                   <Marker
@@ -675,7 +961,9 @@ const BDMAttendanceScreen = () => {
             ) : (
               <View style={styles.loadingLocation}>
                 <ActivityIndicator size="large" color="#FF8447" />
-                <Text style={styles.loadingText}>Getting your location...</Text>
+                <Text style={styles.loadingText}>
+                  {isLocationLoading ? 'Getting your location...' : 'Location not available'}
+                </Text>
               </View>
             )}
           </View>
@@ -742,6 +1030,31 @@ const BDMAttendanceScreen = () => {
             </View>
           </View>
 
+          {/* Month Selection */}
+          <ScrollView 
+            horizontal 
+            showsHorizontalScrollIndicator={false}
+            style={styles.monthScrollView}
+          >
+            {monthsList.map((month, index) => (
+              <TouchableOpacity
+                key={index}
+                style={[
+                  styles.monthButton,
+                  format(selectedMonth, 'MM-yyyy') === format(month, 'MM-yyyy') && styles.selectedMonthButton
+                ]}
+                onPress={() => handleMonthSelect(month)}
+              >
+                <Text style={[
+                  styles.monthButtonText,
+                  format(selectedMonth, 'MM-yyyy') === format(month, 'MM-yyyy') && styles.selectedMonthButtonText
+                ]}>
+                  {format(month, 'MMM yyyy')}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+
           {/* Attendance Summary */}
           <View style={styles.summaryContainer}>
             <TouchableOpacity 
@@ -807,11 +1120,29 @@ const BDMAttendanceScreen = () => {
                     <View style={styles.punchTimeContainer}>
                       <Text style={styles.punchTime}>{record.punchIn ? format(new Date(`2000-01-01T${record.punchIn}`), 'hh:mm a') : '-----'}</Text>
                       <Text style={styles.punchType}>Punch In</Text>
+                      {record.locationName && (
+                        <Text style={styles.locationText} numberOfLines={1}>
+                          {record.locationName}
+                        </Text>
+                      )}
                     </View>
                     <View style={styles.punchTimeContainer}>
                       <Text style={styles.punchTime}>{record.punchOut ? format(new Date(`2000-01-01T${record.punchOut}`), 'hh:mm a') : '-----'}</Text>
                       <Text style={styles.punchType}>Punch Out</Text>
                     </View>
+                    {record.totalHours > 0 && (
+                      <Text style={styles.totalHours}>
+                        Total Hours: {record.totalHours.toFixed(1)}h
+                      </Text>
+                    )}
+                    {record.workMode && (
+                      <Text style={styles.workMode}>
+                        Mode: {record.workMode}
+                      </Text>
+                    )}
+                    <Text style={styles.lastUpdated}>
+                      Last Updated: {format(record.lastUpdated, 'dd MMM yyyy, hh:mm a')}
+                    </Text>
                   </View>
                   <View style={[styles.statusBadge, getStatusStyle(record.status)]}>
                     <Text style={[styles.statusText, getStatusTextStyle(record.status)]}>{record.status}</Text>
@@ -1187,6 +1518,74 @@ const styles = StyleSheet.create({
     fontFamily: 'LexendDeca_400Regular',
     color: '#FF8447',
     marginRight: 4,
+  },
+  chartCard: {
+    backgroundColor: 'white',
+    borderRadius: 12,
+    padding: 16,
+    margin: 16,
+    marginTop: 0,
+    marginBottom: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  chartTitle: {
+    fontSize: 16,
+    fontFamily: 'LexendDeca_500Medium',
+    color: '#333',
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  monthScrollView: {
+    marginHorizontal: 16,
+    marginBottom: 12,
+  },
+  monthButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: '#F5F5F5',
+    marginRight: 8,
+  },
+  selectedMonthButton: {
+    backgroundColor: '#FF8447',
+  },
+  monthButtonText: {
+    fontSize: 14,
+    fontFamily: 'LexendDeca_400Regular',
+    color: '#666',
+  },
+  selectedMonthButtonText: {
+    color: 'white',
+  },
+  totalHours: {
+    fontSize: 12,
+    color: '#666',
+    fontFamily: 'LexendDeca_400Regular',
+    marginTop: 4,
+  },
+  workMode: {
+    fontSize: 12,
+    color: '#666',
+    fontFamily: 'LexendDeca_400Regular',
+    marginTop: 2,
+  },
+  locationText: {
+    fontSize: 12,
+    color: '#666',
+    fontFamily: 'LexendDeca_400Regular',
+    marginTop: 2,
+    maxWidth: 200,
+  },
+  lastUpdated: {
+    fontSize: 11,
+    color: '#999',
+    fontFamily: 'LexendDeca_400Regular',
+    marginTop: 4,
+    fontStyle: 'italic',
   },
 });
 

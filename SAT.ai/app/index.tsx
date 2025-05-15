@@ -20,13 +20,13 @@ import CustomDrawerContent from "@/app/components/CustomDrawer";
 import MyScript from "@/app/Screens/Telecaller/DrawerTab/TelecallerMyScript";
 import DetailsScreen from '@/app/Screens/Telecaller/TelecallerDetailsScreen';
 import ReportScreen from "@/app/Screens/Telecaller/Tab/DailyReportScreen";
-import Leaderboard from "@/app/Screens/Telecaller/DrawerTab/TelecallerLeaderBoard";
+// import Leaderboard from "@/app/Screens/Telecaller/DrawerTab/TelecallerLeaderBoard";
 import TelecallerCallNoteDetails from "@/app/Screens/Telecaller/TelecallerAddCallNoteDetails";
 import TelecallerCreateFollowUp from "@/app/Screens/Telecaller/TelecallerCreateFollowUpScreen";
 import MyScheduleScreen from "@/app/Screens/Telecaller/DrawerTab/TelecallerMyScheduleScreen";
 import ViewFullReport from "@/app/Screens/Telecaller/TelecallerViewFullReport";
 import VirtualBusinessCard from "@/app/Screens/Telecaller/DrawerTab/TelecallerVirtualBusinessCard";
-import Profile from "@/app/Screens/Telecaller/DrawerTab/TelecallerProfile";
+import Profile from "@/app/components/MainProfile"
 import TelecallerSettings from "@/app/Screens/Telecaller/DrawerTab/TelecallerSettings";
 // import ConfirmationScreen from "@/app/Screens/Telecaller/TelecallerConfirmationScreen";
 import CameraScreen from "@/app/Screens/Telecaller/TelecallerCameraScreen";
@@ -36,7 +36,7 @@ import AddContactModal from "@/app/Screens/Telecaller/TelecallerAddContactModal"
 import CallHistory from "./Screens/Telecaller/TelecallerCallHistory";
 import TelecallerPersonNotes from "@/app/Screens/Telecaller/TelecallerPersonNotes";
 import ContactBook from "@/app/components/ContactBook/ContactBook";
-
+import Leaderboard from "@/app/components/LeaderBoard";
 import BDMBottomTabs from "@/app/Screens/BDM/BDMBottomTabs";
 import BDMContactDetailsScreen from "@/app/Screens/BDM/BDMContactDetailsScreen";
 import BDMCompanyDetailsScreen from "@/app/Screens/BDM/BDMCompanyDetailsScreen";
@@ -52,8 +52,7 @@ import BDMMyNotesScreen from "@/app/Screens/BDM/DrawerTab/BDMMyNotesScreen";
 import BDMNotesDetailScreen from "@/app/Screens/BDM/DrawerTab/BDMNotesDetailScreen";
 import BDMMyScheduleScreen from "@/app/Screens/BDM/DrawerTab/BDMMyScheduleScreen";
 import BDMVirtualBusinessCard from "@/app/Screens/BDM/DrawerTab/BDMVirtualBusinessCard";
-import BDMProfile from "@/app/Screens/BDM/DrawerTab/BDMProfile";
-import BDMLeaderBoard from "@/app/Screens/BDM/DrawerTab/BDMLeaderBoard";
+// import BDMLeaderBoard from "@/app/Screens/BDM/DrawerTab/BDMLeaderBoard";
 import BDMCallHistory from "@/app/Screens/BDM/BDMCallHistory"
 import BDMPersonNote from "@/app/Screens/BDM/BDMPersonNote";
 import BDMCameraScreen from "@/app/Screens/BDM/BDMCameraScreen";
@@ -77,7 +76,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import AlertScreen from "@/app/Screens/Telecaller/Tab/AlertScreen";
 import TelecallerIdleTimer from "./Screens/Telecaller/Tab/TelecallerIdleTimer";
 import BDMContactBook from "@/app/components/ContactBook/BDMContactBook"
-
+import LeaderBoard from "@/app/components/LeaderBoard";
 
 import HrHomeScreen from "@/app/HRMS/Tab/HrHomeScreen";
 import HrDrawer from "@/app/HRMS/HrDrawer";
@@ -408,8 +407,8 @@ function BDMStackNavigator() {
         }}
       />
       <BDMStack.Screen 
-        name="BDMProfile" 
-        component={BDMProfile}
+        name="Profile" 
+        component={Profile}
         options={{
           title: 'Profile',
           drawerIcon: ({ color }) => (
@@ -458,8 +457,8 @@ function BDMStackNavigator() {
         }}
       />
       <BDMStack.Screen 
-        name="BDMLeaderBoard" 
-        component={BDMLeaderBoard}
+        name="LeaderBoard" 
+        component={LeaderBoard}
         options={{
           title: 'Leaderboard',
           drawerIcon: ({ color }) => (

@@ -90,7 +90,7 @@ const BDMMainLayout: React.FC<BDMMainLayoutProps> = ({
             </TouchableOpacity>
           )}
           <TouchableOpacity 
-            onPress={() => navigation.navigate('BDMProfile' as never)}
+            onPress={() => navigation.navigate('Profile' as never)}
             style={styles.profileButton}
           >
             {isLoading ? (

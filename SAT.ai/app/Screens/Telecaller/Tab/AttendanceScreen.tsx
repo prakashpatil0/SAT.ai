@@ -1,6 +1,5 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { View, Text, ScrollView, TouchableOpacity, Alert, StyleSheet, Animated, Easing, Dimensions, Linking } from "react-native";
-import { Button } from "react-native-paper";
 import { useNavigation, RouteProp, useRoute } from "@react-navigation/native";
 import { StackNavigationProp } from '@react-navigation/stack';
 import TelecallerMainLayout from "@/app/components/TelecallerMainLayout";
@@ -22,7 +21,7 @@ type CameraScreenParams = {
 };
 
 type RootStackParamList = {
-  CameraScreen: { isPunchIn: boolean };
+  CameraScreen: { isPunchIn: boolean; location: { coords: { latitude: number; longitude: number } } };
   AttendanceScreen: {
     photo?: { uri: string };
     location?: { coords: { latitude: number; longitude: number } };
@@ -47,6 +46,14 @@ interface AttendanceRecord {
   location: any;
   workMode: string;
   timestamp: Date;
+  month: string;
+  year: string;
+  photoUri: string;
+  punchOutPhotoUri: string;
+  locationName: string;
+  punchOutLocationName: string;
+  punchOutLocation: any;
+  lastUpdated: Date;
 }
 
 interface WeekDay {
@@ -58,7 +65,7 @@ interface WeekDay {
 const EIGHT_HOURS_IN_MS = 8 * 60 * 60 * 1000; // 8 hours in milliseconds
 const PUNCH_IN_DEADLINE = '09:45'; // 9:45 AM for full day
 const PUNCH_IN_HALF_DAY = '14:00'; // 2:00 PM for half day
-const PUNCH_OUT_MINIMUM = '18:30'; // 6:30 PM
+const PUNCH_OUT_MINIMUM = '20:30'; // 8:30 PM
 const NEXT_DAY_PUNCH_TIME = '08:45'; // 8:45 AM
 
 const { width } = Dimensions.get('window');
@@ -111,35 +118,28 @@ const AttendanceScreen = () => {
     tomorrow.setDate(tomorrow.getDate() + 1);
     tomorrow.setHours(8, 30, 0, 0); // Set to 8:30 AM next day
 
-    // If user has punched out today, disable punch button until tomorrow 8:30 AM
     if (punchOutTime) {
       setIsPunchButtonDisabled(now < tomorrow);
       return;
     }
 
-    // For punch in, check if it's before 2 PM
     if (!punchInTime) {
       const punchInDeadline = '14:00'; // 2 PM
       const [deadlineHour, deadlineMinute] = punchInDeadline.split(':').map(Number);
-      
       const currentMinutes = currentHour * 60 + currentMinute;
       const deadlineMinutes = deadlineHour * 60 + deadlineMinute;
-      
       setIsPunchButtonDisabled(currentMinutes > deadlineMinutes);
     } else if (punchInTime && !punchOutTime) {
-      // Enable punch out button at 6:15 PM
-      const punchOutEnableTime = '18:15'; // 6:15 PM
+      const punchOutEnableTime = '09:00'; // 9:00 PM
       const [enableHour, enableMinute] = punchOutEnableTime.split(':').map(Number);
       const enableMinutes = enableHour * 60 + enableMinute;
       const currentMinutes = currentHour * 60 + currentMinute;
-      
       setIsPunchButtonDisabled(currentMinutes < enableMinutes);
     }
   };
 
   useEffect(() => {
     checkPunchAvailability();
-    // Check availability every minute
     const interval = setInterval(checkPunchAvailability, 60000);
     return () => clearInterval(interval);
   }, [punchInTime, punchOutTime]);
@@ -148,7 +148,6 @@ const AttendanceScreen = () => {
     if (!punchIn) return 'On Leave';
     if (!punchOut) return 'Half Day';
     
-    // Convert time strings to minutes for easier comparison
     const [punchInHours, punchInMinutes] = punchIn.split(':').map(Number);
     const [punchOutHours, punchOutMinutes] = punchOut.split(':').map(Number);
     const [minOutHours, minOutMinutes] = PUNCH_OUT_MINIMUM.split(':').map(Number);
@@ -161,12 +160,10 @@ const AttendanceScreen = () => {
     const maxInMins = maxInHours * 60 + maxInMinutes;
     const halfDayInMins = halfDayInHours * 60 + halfDayInMinutes;
     
-    // If punch in is after 2 PM, mark as On Leave
     if (punchInMins > halfDayInMins) {
       return 'On Leave';
     }
     
-    // If punch in is after 9:45 AM or punch out is before 6:30 PM, mark as Half Day
     if (punchInMins > maxInMins || punchOutMins < minOutMins) {
       return 'Half Day';
     }
@@ -176,7 +173,6 @@ const AttendanceScreen = () => {
 
   const handlePunchInOut = async (isPunchIn: boolean) => {
     try {
-      // Check if punch in/out is allowed
       if (isPunchButtonDisabled) {
         if (!punchInTime) {
           Alert.alert('Punch In Not Allowed', 'You can only punch in before 9:45 AM for a full day. Punching in after 9:45 AM will be counted as a half day.');
@@ -186,7 +182,6 @@ const AttendanceScreen = () => {
         return;
       }
 
-      // First check location permission
       const { status: locationStatus } = await Location.requestForegroundPermissionsAsync();
       if (locationStatus !== 'granted') {
         Alert.alert(
@@ -194,16 +189,12 @@ const AttendanceScreen = () => {
           'Please grant location permission to take attendance.',
           [
             { text: 'Cancel', style: 'cancel' },
-            { 
-              text: 'Open Settings', 
-              onPress: () => Linking.openSettings() 
-            }
+            { text: 'Open Settings', onPress: () => Linking.openSettings() }
           ]
         );
         return;
       }
 
-      // Check if location services are enabled
       const locationEnabled = await Location.hasServicesEnabledAsync();
       if (!locationEnabled) {
         Alert.alert(
@@ -211,26 +202,22 @@ const AttendanceScreen = () => {
           'Please enable location services to take attendance.',
           [
             { text: 'Cancel', style: 'cancel' },
-            { 
-              text: 'Open Settings', 
-              onPress: () => Linking.openSettings() 
-            }
+            { text: 'Open Settings', onPress: () => Linking.openSettings() }
           ]
         );
         return;
       }
 
-      // Get current location before proceeding
       try {
         const location = await Location.getCurrentPositionAsync({
           accuracy: Location.Accuracy.Balanced,
           timeInterval: 5000
         });
-        
-        // If location is obtained successfully, proceed with camera permission
+
         const { status: cameraStatus } = await Camera.requestCameraPermissionsAsync();
         if (cameraStatus === 'granted') {
-          navigation.navigate('CameraScreen', { isPunchIn });
+          // Pass both isPunchIn and location to CameraScreen
+          navigation.navigate('CameraScreen', { isPunchIn, location });
         } else {
           Alert.alert('Permission Required', 'Camera permission is required to take attendance photos.');
         }
@@ -263,23 +250,30 @@ const AttendanceScreen = () => {
         const status = calculateStatus(data.punchIn, data.punchOut);
         
         history.push({
-          userId: data.userId,
-          name: data.name || '',
-          designation: data.designation || data.role || '',
+          userId: data.userId || '',
+          name: data.employeeName || '',
+          designation: data.designation || '',
           email: data.email || auth.currentUser?.email || '',
           phoneNumber: data.phoneNumber || '',
-          date: data.date,
-          day: data.day,
+          date: data.date || '',
+          day: data.day || '',
           status,
-          punchIn: data.punchIn,
-          punchOut: data.punchOut,
-          totalHours: data.totalHours || '',
-          location: data.location,
+          punchIn: data.punchIn || '',
+          punchOut: data.punchOut || '',
+          totalHours: data.totalHours?.toString() || '0',
+          location: data.location || null,
           workMode: data.workMode || '',
-          timestamp: data.timestamp.toDate()
+          timestamp: data.timestamp?.toDate() || new Date(),
+          month: data.month || '',
+          year: data.year || '',
+          photoUri: data.photoUri || '',
+          punchOutPhotoUri: data.punchOutPhotoUri || '',
+          locationName: data.locationName || 'Unknown Location',
+          punchOutLocationName: data.punchOutLocationName || '',
+          punchOutLocation: data.punchOutLocation || null,
+          lastUpdated: data.lastUpdated?.toDate() || new Date(),
         });
 
-        // Update today's punch in/out status
         if (data.date === today) {
           setPunchInTime(data.punchIn ? format(new Date(`2000-01-01T${data.punchIn}`), 'hh:mm a') : '');
           setPunchOutTime(data.punchOut ? format(new Date(`2000-01-01T${data.punchOut}`), 'hh:mm a') : '');
@@ -287,9 +281,7 @@ const AttendanceScreen = () => {
         }
       });
 
-      // Set isNewUser based on attendance history
       setIsNewUser(history.length === 0);
-
       const sortedHistory = history.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
       setAttendanceHistory(sortedHistory);
       calculateStatusCounts(sortedHistory);
@@ -309,16 +301,12 @@ const AttendanceScreen = () => {
       Absent: 0,
     };
 
-    // If the user is new (no attendance history), return zero counts
     if (history.length === 0) {
       setStatusCounts(counts);
       return;
     }
 
-    // Get the number of days in current month
     const daysInMonth = new Date(parseInt(currentYear), parseInt(currentMonth), 0).getDate();
-    
-    // Create array of all dates in current month (excluding Sundays)
     const allDates = Array.from({ length: daysInMonth }, (_, i) => {
       const date = new Date(parseInt(currentYear), parseInt(currentMonth) - 1, i + 1);
       return {
@@ -327,35 +315,46 @@ const AttendanceScreen = () => {
       };
     });
 
-    // Filter records for current month and count statuses
     const currentMonthRecords = history.filter(record => {
       const recordDate = new Date(record.timestamp);
       return format(recordDate, 'MM') === currentMonth && 
              format(recordDate, 'yyyy') === currentYear;
     });
 
-    // Count existing records
     currentMonthRecords.forEach(record => {
       counts[record.status]++;
     });
 
-    // Get current date for comparison
     const today = format(new Date(), 'dd');
-    
-    // For dates without records, only count as On Leave if they are in the past
     const attendedDates = currentMonthRecords.map(record => record.date);
     const onLeaveDates = allDates.filter(({ dateStr, isSunday }) => 
-      !isSunday && // Exclude Sundays
-      !attendedDates.includes(dateStr) && // Not attended
-      parseInt(dateStr) < parseInt(today) // Only past dates
+      !isSunday &&
+      !attendedDates.includes(dateStr) &&
+      parseInt(dateStr) < parseInt(today)
     );
     
     counts['On Leave'] = onLeaveDates.length;
-
     setStatusCounts(counts);
   };
 
-  const saveAttendance = async (isPunchIn: boolean, photoUri: string, location: any) => {
+  const getLocationName = async (coords: { latitude: number; longitude: number } | null): Promise<string> => {
+    if (!coords) return 'Unknown Location';
+    try {
+      const response = await fetch(
+        `https://maps.googleapis.com/maps/api/geocode/json?latlng=${coords.latitude},${coords.longitude}&key=YOUR_GOOGLE_MAPS_API_KEY`
+      );
+      const data = await response.json();
+      if (data.results && data.results[0]) {
+        return data.results[0].formatted_address;
+      }
+      return 'Unknown Location';
+    } catch (error) {
+      console.error('Error getting location name:', error);
+      return 'Unknown Location';
+    }
+  };
+
+  const saveAttendance = async (isPunchIn: boolean, photoUri: string, location: { coords: { latitude: number; longitude: number } } | undefined) => {
     try {
       const userId = auth.currentUser?.uid;
       if (!userId) {
@@ -363,37 +362,55 @@ const AttendanceScreen = () => {
         return;
       }
 
-      // Fetch user profile
+      if (!location || !location.coords) {
+        Alert.alert('Error', 'Location data is unavailable. Please try again.');
+        return;
+      }
+
       const userDoc = await getDoc(doc(db, 'users', userId));
       const userData = userDoc.exists() ? userDoc.data() : {};
-      const name = userData.name || '';
-      const designation = userData.designation || userData.role || '';
-      const email = userData.email || auth.currentUser?.email || '';
-      const phoneNumber = userData.phoneNumber || '';
-      const workMode = userData.workMode || '';
+      
+      const designation = userData.designation || userData.role || 'BDM';
+      const employeeName = userData.name || 'Rahul Mullimani';
+      const email = userData.email || auth.currentUser?.email || 'rahul@policyplanner.com';
+      const phoneNumber = userData.phoneNumber || '9685743215';
+      const workMode = userData.workMode || 'Office';
 
       const currentTime = new Date();
       const dateStr = format(currentTime, 'dd');
       const dayStr = format(currentTime, 'EEE').toUpperCase();
       const timeStr = format(currentTime, 'HH:mm');
+      const monthStr = format(currentTime, 'MM');
+      const yearStr = format(currentTime, 'yyyy');
 
-      // Create attendance data object
+      const locationName = await getLocationName(location.coords);
+
       const attendanceData = {
         userId,
-        name,
         designation,
+        employeeName,
         email,
         phoneNumber,
         date: dateStr,
         day: dayStr,
+        month: monthStr,
+        year: yearStr,
         status: 'On Leave' as AttendanceStatus,
         punchIn: '',
         punchOut: '',
-        totalHours: '',
-        location,
+        totalHours: 0,
         workMode,
+        location: {
+          latitude: location.coords.latitude,
+          longitude: location.coords.longitude,
+        },
+        locationName,
+        photoUri: isPunchIn ? photoUri : '',
+        punchOutPhotoUri: !isPunchIn ? photoUri : '',
+        punchOutLocation: null,
+        punchOutLocationName: '',
         timestamp: Timestamp.fromDate(currentTime),
-        photoUri
+        lastUpdated: Timestamp.fromDate(currentTime),
       };
 
       const attendanceRef = collection(db, 'users', userId, 'attendance');
@@ -406,49 +423,52 @@ const AttendanceScreen = () => {
       const querySnapshot = await getDocs(todayQuery);
 
       if (querySnapshot.empty) {
-        // New record
         if (isPunchIn) {
           attendanceData.punchIn = timeStr;
           attendanceData.status = calculateStatus(timeStr, '');
+          attendanceData.photoUri = photoUri;
         } else {
           attendanceData.status = 'Absent';
+          attendanceData.punchOutPhotoUri = photoUri;
+          attendanceData.punchOutLocation = {
+            latitude: location.coords.latitude,
+            longitude: location.coords.longitude,
+          };
+          attendanceData.punchOutLocationName = locationName;
         }
         await addDoc(attendanceRef, attendanceData);
       } else {
-        // Update existing record
         const docRef = querySnapshot.docs[0].ref;
         const existingData = querySnapshot.docs[0].data();
         
-        // Update punch times
         attendanceData.punchIn = isPunchIn ? timeStr : existingData.punchIn;
         attendanceData.punchOut = !isPunchIn ? timeStr : existingData.punchOut;
 
-        // Calculate total hours if both punch in and out exist
+        attendanceData.photoUri = isPunchIn ? photoUri : existingData.photoUri;
+        attendanceData.punchOutPhotoUri = !isPunchIn ? photoUri : existingData.punchOutPhotoUri;
+        attendanceData.location = isPunchIn ? {
+          latitude: location.coords.latitude,
+          longitude: location.coords.longitude,
+        } : existingData.location || null;
+        attendanceData.locationName = isPunchIn ? locationName : existingData.locationName || 'Unknown Location';
+        attendanceData.punchOutLocation = !isPunchIn ? {
+          latitude: location.coords.latitude,
+          longitude: location.coords.longitude,
+        } : existingData.punchOutLocation || null;
+        attendanceData.punchOutLocationName = !isPunchIn ? locationName : existingData.punchOutLocationName || '';
+
         if (attendanceData.punchIn && attendanceData.punchOut) {
           const inTime = new Date(`2000-01-01T${attendanceData.punchIn}`);
           const outTime = new Date(`2000-01-01T${attendanceData.punchOut}`);
           const diffMs = outTime.getTime() - inTime.getTime();
           const hours = Math.floor(diffMs / (1000 * 60 * 60));
-          const minutes = Math.floor((diffMs / (1000 * 60)) % 60);
-          attendanceData.totalHours = `${hours}h ${minutes}m`;
+          attendanceData.totalHours = hours;
         }
 
-        // Calculate status
         attendanceData.status = calculateStatus(attendanceData.punchIn, attendanceData.punchOut);
-
-        // Update photo and location only for punch out
-        if (!isPunchIn) {
-          attendanceData.photoUri = photoUri;
-          attendanceData.location = location;
-        } else {
-          attendanceData.photoUri = existingData.photoUri;
-          attendanceData.location = existingData.location;
-        }
-
         await updateDoc(docRef, attendanceData);
       }
 
-      // Update local state
       if (isPunchIn) {
         setPunchInTime(format(currentTime, 'hh:mm a'));
         setIsPunchedIn(true);
@@ -457,7 +477,6 @@ const AttendanceScreen = () => {
         setIsPunchedIn(false);
       }
 
-      // Refresh attendance history
       fetchAttendanceHistory();
     } catch (error) {
       console.error('Error saving attendance:', error);
@@ -486,13 +505,11 @@ const AttendanceScreen = () => {
     if (attendanceHistory.length > 0) {
       let filtered = [...attendanceHistory];
       
-      // Filter by month
       filtered = filtered.filter(record => {
         const recordDate = new Date(record.timestamp);
         return format(recordDate, 'MMMM') === selectedMonth;
       });
 
-      // Filter by status if selected
       if (selectedStatus) {
         filtered = filtered.filter(record => record.status === selectedStatus);
       }
@@ -505,7 +522,6 @@ const AttendanceScreen = () => {
   const updateWeekDays = () => {
     const today = new Date();
     const startOfWeek = new Date(today);
-    // Set Monday as start of week
     const day = startOfWeek.getDay();
     const diff = startOfWeek.getDate() - day + (day === 0 ? -6 : 1);
     startOfWeek.setDate(diff);
@@ -519,14 +535,12 @@ const AttendanceScreen = () => {
       const attendanceRecord = attendanceHistory.find(record => record.date === dateStr);
   
       if (currentDate > today) {
-        // 🔥 Future dates → Always On Leave
         return {
           day: dayObj.day,
           date: dateStr,
           status: 'On Leave' as AttendanceStatus,
         };
       } else {
-        // 🔥 Today or Past
         return {
           day: dayObj.day,
           date: dateStr,
@@ -593,7 +607,6 @@ const AttendanceScreen = () => {
 
     return (
       <View style={styles.skeletonContainer}>
-        {/* Punch Card Skeleton */}
         <View style={styles.skeletonPunchCard}>
           <View style={styles.skeletonPunchHeader}>
             <View style={styles.skeletonPunchTitle} />
@@ -611,7 +624,6 @@ const AttendanceScreen = () => {
           </View>
         </View>
 
-        {/* Calendar Card Skeleton */}
         <View style={styles.skeletonCalendarCard}>
           <View style={styles.skeletonDateHeader} />
           <View style={styles.skeletonWeekDays}>
@@ -625,27 +637,22 @@ const AttendanceScreen = () => {
           </View>
         </View>
 
-        {/* Month Selector Skeleton */}
         <View style={styles.skeletonMonthSelector}>
           {[1, 2, 3, 4, 5].map((_, index) => (
             <View key={index} style={styles.skeletonMonthButton} />
           ))}
         </View>
 
-        {/* Status Badges Skeleton */}
         <View style={styles.skeletonStatusContainer}>
           {[1, 2, 3].map((_, index) => (
             <View key={index} style={styles.skeletonStatusBadge} />
           ))}
         </View>
 
-        {/* Wave Animation Overlay */}
         <Animated.View
           style={[
             styles.waveOverlay,
-            {
-              transform: [{ translateX }],
-            },
+            { transform: [{ translateX }] },
           ]}
         />
       </View>
@@ -653,11 +660,9 @@ const AttendanceScreen = () => {
   };
 
   useEffect(() => {
-    // Simulate loading time
     const timer = setTimeout(() => {
       setIsLoading(false);
     }, 2000);
-
     return () => clearTimeout(timer);
   }, []);
 
@@ -676,7 +681,6 @@ const AttendanceScreen = () => {
       <TelecallerMainLayout showDrawer showBackButton={true} title="Attendance">
         <ScrollView contentContainerStyle={styles.scrollContainer} keyboardShouldPersistTaps="handled">
           <View style={styles.container}>
-            {/* Punch Card */}
             <View style={styles.punchCard}>
               <View style={styles.punchHeader}>
                 <Text style={styles.punchTitle}>Take Attendance</Text>
@@ -724,13 +728,11 @@ const AttendanceScreen = () => {
               </View>
             </View>
 
-            {/* Calendar Card */}
             {!isNewUser && (
               <View style={styles.calendarCard}>
                 <Text style={styles.dateHeader}>
                   {format(currentDate, 'dd MMMM (EEEE)')}
                 </Text>
-
                 <View style={styles.weekDays}>
                   {weekDays.map((item, index) => (
                     <View key={index} style={styles.dayContainer}>
@@ -758,7 +760,6 @@ const AttendanceScreen = () => {
               </View>
             )}
 
-            {/* Month Selector */}
             {!isNewUser && (
               <ScrollView
                 horizontal
@@ -785,7 +786,6 @@ const AttendanceScreen = () => {
               </ScrollView>
             )}
 
-            {/* Status Badges */}
             <View style={[
               styles.statusContainer,
               isNewUser && styles.newUserStatusContainer
@@ -795,7 +795,6 @@ const AttendanceScreen = () => {
               {renderStatusBadge('On Leave')}
             </View>
 
-            {/* Attendance History */}
             {!isNewUser && (
               <View style={styles.historyContainer}>
                 {filteredHistory.map((item, index) => (

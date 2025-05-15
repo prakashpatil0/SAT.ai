@@ -4,7 +4,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { useNavigation, DrawerActions } from '@react-navigation/native';
 import { useProfile } from '@/app/context/ProfileContext';
 import { LinearGradient } from 'expo-linear-gradient';
-import BDMBottomTabs from '@/app/Screens/BDM/BDMBottomTabs';
+import BottomTabSwitcherComponent from '@/app/components/BottomTab/BottomTabSwitcher';
 import AppGradient from './AppGradient';
 import { storage } from '@/firebaseConfig';
 import { ref, getDownloadURL } from 'firebase/storage';
@@ -133,7 +133,7 @@ const BDMMainLayout: React.FC<BDMMainLayoutProps> = ({
         {children}
       {/* </AppGradient> */}
 
-      {showBottomTabs && <BDMBottomTabs />}
+      {showBottomTabs && <BottomTabSwitcherComponent role="BDM" />}
     </View>
   );
 };

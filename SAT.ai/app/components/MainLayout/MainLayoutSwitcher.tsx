@@ -1,16 +1,23 @@
-import React, { useState, useEffect } from 'react';
-import { View, StyleSheet, TouchableOpacity, Image, Text, SafeAreaView } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import {
+  View,
+  StyleSheet,
+  TouchableOpacity,
+  Image,
+  Text,
+  ActivityIndicator,
+  SafeAreaView,
+} from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useNavigation, DrawerActions } from '@react-navigation/native';
 import { useProfile } from '@/app/context/ProfileContext';
-import { LinearGradient } from 'expo-linear-gradient';
 import BottomTabSwitcherComponent from '@/app/components/BottomTab/BottomTabSwitcher';
-import AppGradient from './AppGradient';
+import AppGradient from '@/app/components/AppGradient';
 import { storage } from '@/firebaseConfig';
 import { ref, getDownloadURL } from 'firebase/storage';
 
-type BottomTabSwitcher = {
-  children: React.ReactNode;
+type MainLayoutProps = {
+  children?: React.ReactNode;
   title?: string;
   showBackButton?: boolean;
   showDrawer?: boolean;
@@ -18,7 +25,7 @@ type BottomTabSwitcher = {
   rightIcon?: React.ReactNode;
 };
 
-const BottomTabSwitcher: React.FC<BottomTabSwitcher> = ({
+const MainLayoutSwitcher: React.FC<MainLayoutProps> = ({
   children,
   title,
   showBackButton = true,
@@ -32,41 +39,39 @@ const BottomTabSwitcher: React.FC<BottomTabSwitcher> = ({
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    const loadDefaultProfileImage = async () => {
+      try {
+        const imageRef = ref(storage, 'assets/girl.png');
+        const url = await getDownloadURL(imageRef);
+        setDefaultProfileImage(url);
+      } catch (error) {
+        console.error('Error loading default profile image:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
     loadDefaultProfileImage();
   }, []);
 
-  const loadDefaultProfileImage = async () => {
-    try {
-      console.log('Loading default profile image from Firebase Storage');
-      const imageRef = ref(storage, 'assets/girl.png');
-      const url = await getDownloadURL(imageRef);
-      console.log('Successfully loaded default profile image URL:', url);
-      setDefaultProfileImage(url);
-    } catch (error) {
-      console.error('Error loading default profile image:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Get the profile image from multiple possible sources
   const profileImage = userProfile?.profileImageUrl || profilePhotoUri || defaultProfileImage;
 
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.container}>
+        {/* HEADER */}
         <View style={styles.headerContainer}>
           {/* Top Row - Drawer Menu and Profile */}
           <View style={styles.topRow}>
             {showDrawer && (
-              <TouchableOpacity 
+              <TouchableOpacity
                 onPress={() => navigation.dispatch(DrawerActions.openDrawer())}
                 style={styles.iconButton}
               >
                 <MaterialIcons name="menu" size={24} color="#333" />
               </TouchableOpacity>
             )}
-            <TouchableOpacity 
+            <TouchableOpacity
               onPress={() => navigation.navigate('Profile' as never)}
               style={styles.profileButton}
             >
@@ -75,8 +80,8 @@ const BottomTabSwitcher: React.FC<BottomTabSwitcher> = ({
                   <MaterialIcons name="person" size={24} color="#999" />
                 </View>
               ) : (
-                <Image 
-                  source={profileImage ? { uri: profileImage } : { uri: defaultProfileImage || '' }} 
+                <Image
+                  source={{ uri: profileImage || '' }}
                   style={styles.profileImage}
                 />
               )}
@@ -87,29 +92,36 @@ const BottomTabSwitcher: React.FC<BottomTabSwitcher> = ({
           <View style={styles.bottomRow}>
             <View style={styles.leftContainer}>
               {showBackButton && (
-                <TouchableOpacity 
-                  onPress={() => navigation.goBack()}
-                  style={styles.backButton}
-                >
+                <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
                   <MaterialIcons name="arrow-back" size={24} color="#333" />
                 </TouchableOpacity>
               )}
             </View>
-            {title && (
-              <Text style={styles.title}>{title}</Text>
-            )}
-            <View style={styles.rightContainer}>
-              {rightIcon}
-            </View>
+            {title && <Text style={styles.title}>{title}</Text>}
+            <View style={styles.rightContainer}>{rightIcon}</View>
           </View>
         </View>
 
+        {/* CONTENT */}
         <View style={styles.contentContainer}>
           <AppGradient style={styles.gradientContainer}>
-            {children}
+            <TouchableOpacity
+              style={{ flex: 1 }}
+              activeOpacity={0.9}
+              onPress={() => navigation.navigate('DashboardDetails' as never)} // ⬅️ Replace with your actual target screen
+            >
+              {children ? (
+                children
+              ) : (
+                <View style={styles.defaultContent}>
+                  <Text>Tap anywhere to go to DashboardDetails</Text>
+                </View>
+              )}
+            </TouchableOpacity>
           </AppGradient>
         </View>
 
+        {/* BOTTOM TABS */}
         {showBottomTabs && (
           <View style={styles.bottomTabsContainer}>
             <BottomTabSwitcherComponent role="Telecaller" />
@@ -120,7 +132,6 @@ const BottomTabSwitcher: React.FC<BottomTabSwitcher> = ({
   );
 };
 
-// Same styles as BDMMainLayout but with fixed bottom tabs
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
@@ -130,27 +141,8 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   headerContainer: {
-    paddingTop: 20,
     backgroundColor: 'transparent',
-    zIndex: 10,
-  },
-  contentContainer: {
-    flex: 1,
-  },
-  gradientContainer: {
-    flex: 1,
-  },
-  bottomTabsContainer: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: '#F8F8F8',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 8,
+    paddingTop: 20,
     zIndex: 10,
   },
   topRow: {
@@ -167,6 +159,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingBottom: 15,
   },
+  iconButton: {
+    padding: 4,
+  },
+  backButton: {
+    padding: 4,
+  },
   leftContainer: {
     width: 40,
   },
@@ -174,12 +172,6 @@ const styles = StyleSheet.create({
     width: 40,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  iconButton: {
-    padding: 4,
-  },
-  backButton: {
-    padding: 4,
   },
   title: {
     fontSize: 20,
@@ -199,6 +191,30 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: '#FF8447',
   },
+  contentContainer: {
+    flex: 1,
+  },
+  gradientContainer: {
+    flex: 1,
+  },
+  bottomTabsContainer: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: '#fff',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 8,
+    zIndex: 10,
+  },
+  defaultContent: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
 });
 
-export default BottomTabSwitcher; 
+export default MainLayoutSwitcher;

@@ -24,7 +24,7 @@ import * as Haptics from 'expo-haptics';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useProfile } from '@/app/context/ProfileContext';
 import { BDMStackParamList, RootStackParamList } from '@/app/index';
-import BDMMainLayout from '@/app/components/BDMMainLayout';
+import MainLayoutSwitcher from '@/app/components/MainLayout/MainLayoutSwitcher';
 import CallLog from 'react-native-call-log';
 import { collection, addDoc,query, where, getDocs, doc, getDoc, setDoc, orderBy, limit, serverTimestamp, Timestamp } from 'firebase/firestore';
 import { db, auth } from '@/firebaseConfig';
@@ -1341,7 +1341,7 @@ const BDMHomeScreen = () => {
 
   return (
     <AppGradient>
-      <BDMMainLayout showDrawer showBottomTabs={true} showBackButton={false}>
+      <MainLayoutSwitcher showDrawer showBottomTabs={true} showBackButton={false}>
         <View style={styles.container}>
             {/* Welcome Section */}
             <View style={styles.welcomeSection}>
@@ -1451,7 +1451,7 @@ const BDMHomeScreen = () => {
             fetchCallLogs();
           }}
         />
-    </BDMMainLayout>
+    </MainLayoutSwitcher>
     </AppGradient>
   );
 };

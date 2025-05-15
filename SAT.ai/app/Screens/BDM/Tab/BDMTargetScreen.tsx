@@ -1,80 +1,50 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Image, ScrollView, Animated, Easing, ActivityIndicator } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, Image, ScrollView, Animated } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import BDMMainLayout from '@/app/components/BDMMainLayout';
 import AppGradient from '@/app/components/AppGradient';
 import { auth, db } from '@/firebaseConfig';
-import { collection, query, where, getDocs, Timestamp, onSnapshot } from 'firebase/firestore';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useSharedValue, withRepeat, withSequence, withTiming, withDelay, useAnimatedStyle } from 'react-native-reanimated';
-import AnimatedReanimated from 'react-native-reanimated';
+import { collection, query, where, getDocs, Timestamp } from 'firebase/firestore';
 
 interface TargetData {
   projectedMeetings: { achieved: number; target: number };
   attendedMeetings: { achieved: number; target: number };
-  meetingDuration: { achieved: string; target: string };
+  meetingDuration: { achieved: number; target: number };
   closing: { achieved: number; target: number };
 }
-
-const SkeletonLoader = ({ width, height, style }: { width: number | string; height: number; style?: any }) => {
-  const [opacity] = useState(new Animated.Value(0.3));
-
-  useEffect(() => {
-    const animation = Animated.loop(
-      Animated.sequence([
-        Animated.timing(opacity, {
-          toValue: 0.7,
-          duration: 1000,
-          useNativeDriver: true,
-        }),
-        Animated.timing(opacity, {
-          toValue: 0.3,
-          duration: 1000,
-          useNativeDriver: true,
-        }),
-      ])
-    );
-    animation.start();
-    return () => animation.stop();
-  }, []);
-
-  return (
-    <Animated.View
-      style={[
-        {
-          width,
-          height,
-          backgroundColor: '#E5E7EB',
-          borderRadius: 8,
-          opacity,
-        },
-        style,
-      ]}
-    />
-  );
-};
 
 const BDMTargetScreen = () => {
   const navigation = useNavigation();
   const [targetData, setTargetData] = useState<TargetData>({
     projectedMeetings: { achieved: 0, target: 30 },
     attendedMeetings: { achieved: 0, target: 30 },
-    meetingDuration: { achieved: '00:00:00', target: '00:00:00' },
+    meetingDuration: { achieved: 0, target: 20 },
     closing: { achieved: 0, target: 50000 }
   });
   const [progressAnim] = useState(new Animated.Value(0));
   const [overallProgress, setOverallProgress] = useState(0);
   const [lastWeekProgress, setLastWeekProgress] = useState(0);
-  const [isLoading, setIsLoading] = useState(true);
-  const [waveAnimation] = useState(new Animated.Value(0));
 
-  const fetchTargetData = useCallback(async () => {
+  useEffect(() => {
+    fetchTargetData();
+  }, []);
+
+  useEffect(() => {
+    // Animate progress bar
+    Animated.timing(progressAnim, {
+      toValue: overallProgress,
+      duration: 1000,
+      useNativeDriver: false
+    }).start();
+  }, [overallProgress]);
+
+  const fetchTargetData = async () => {
     try {
-      setIsLoading(true);
       const userId = auth.currentUser?.uid;
       if (!userId) return;
 
+      // Get start and end of current week
       const now = new Date();
       const startOfWeek = new Date(now);
       startOfWeek.setDate(now.getDate() - now.getDay());
@@ -84,39 +54,36 @@ const BDMTargetScreen = () => {
       endOfWeek.setDate(startOfWeek.getDate() + 6);
       endOfWeek.setHours(23, 59, 59, 999);
 
+      // Get start and end of last week
       const startOfLastWeek = new Date(startOfWeek);
-      startOfLastWeek.setDate(startOfWeek.getDate() - 7);
+      startOfLastWeek.setDate(startOfLastWeek.getDate() - 7);
       const endOfLastWeek = new Date(startOfWeek);
-      endOfLastWeek.setDate(startOfLastWeek.getDate() - 1);
+      endOfLastWeek.setDate(endOfLastWeek.getDate() - 1);
       endOfLastWeek.setHours(23, 59, 59, 999);
 
-      const currentMonth = now.getMonth() + 1;
-      const currentYear = now.getFullYear();
-      const currentWeekNumber = Math.ceil((now.getDate() + new Date(currentYear, now.getMonth(), 1).getDay()) / 7);
-      
-      const lastWeekDate = new Date(startOfLastWeek);
-      const lastWeekMonth = lastWeekDate.getMonth() + 1;
-      const lastWeekYear = lastWeekDate.getFullYear();
-      const lastWeekNumber = Math.ceil((lastWeekDate.getDate() + new Date(lastWeekYear, lastWeekDate.getMonth(), 1).getDay()) / 7);
-
+      // Fetch reports for current week
       const reportsRef = collection(db, 'bdm_reports');
+      const currentWeekQuery = query(
+        reportsRef,
+        where('userId', '==', userId),
+        where('createdAt', '>=', Timestamp.fromDate(startOfWeek)),
+        where('createdAt', '<=', Timestamp.fromDate(endOfWeek))
+      );
+
+      // Fetch reports for last week
+      const lastWeekQuery = query(
+        reportsRef,
+        where('userId', '==', userId),
+        where('createdAt', '>=', Timestamp.fromDate(startOfLastWeek)),
+        where('createdAt', '<=', Timestamp.fromDate(endOfLastWeek))
+      );
+
       const [currentWeekSnapshot, lastWeekSnapshot] = await Promise.all([
-        getDocs(query(
-          reportsRef,
-          where('userId', '==', userId),
-          where('year', '==', currentYear),
-          where('month', '==', currentMonth),
-          where('weekNumber', '==', currentWeekNumber)
-        )),
-        getDocs(query(
-          reportsRef,
-          where('userId', '==', userId),
-          where('year', '==', lastWeekYear),
-          where('month', '==', lastWeekMonth),
-          where('weekNumber', '==', lastWeekNumber)
-        ))
+        getDocs(currentWeekQuery),
+        getDocs(lastWeekQuery)
       ]);
 
+      // Calculate current week achievements
       let totalMeetings = 0;
       let totalAttendedMeetings = 0;
       let totalDuration = 0;
@@ -125,22 +92,43 @@ const BDMTargetScreen = () => {
       currentWeekSnapshot.forEach(doc => {
         const data = doc.data();
         totalMeetings += data.numMeetings || 0;
-        totalAttendedMeetings += data.positiveLeads || 0;
-        totalClosing += data.totalClosingAmount || 0;
+        totalAttendedMeetings += data.numMeetings || 0; // All reported meetings are considered attended
         
+        // Parse duration string (e.g., "1 hr 30 mins" -> hours)
         const durationStr = data.meetingDuration || '';
-        if (durationStr.includes(':')) {
-          const [hours, minutes, seconds] = durationStr.split(':').map(Number);
-          totalDuration += (hours * 3600) + (minutes * 60) + seconds;
-        } else {
-          const hrMatch = durationStr.match(/(\d+)\s*hr/);
-          const minMatch = durationStr.match(/(\d+)\s*min/);
-          const hours = (hrMatch ? parseInt(hrMatch[1]) : 0) +
-                       (minMatch ? parseInt(minMatch[1]) / 60 : 0);
-          totalDuration += hours * 3600;
-        }
+        const hrMatch = durationStr.match(/(\d+)\s*hr/);
+        const minMatch = durationStr.match(/(\d+)\s*min/);
+        const hours = (hrMatch ? parseInt(hrMatch[1]) : 0) +
+                     (minMatch ? parseInt(minMatch[1]) / 60 : 0);
+        totalDuration += hours;
+
+        totalClosing += data.totalClosingAmount || 0;
       });
 
+      const newTargetData = {
+        projectedMeetings: { achieved: totalMeetings, target: 30 },
+        attendedMeetings: { achieved: totalAttendedMeetings, target: 30 },
+        meetingDuration: { achieved: Math.round(totalDuration), target: 20 },
+        closing: { achieved: totalClosing, target: 50000 }
+      };
+
+      setTargetData(newTargetData);
+
+      // Calculate current week progress
+      const progressPercentages = [
+        (newTargetData.projectedMeetings.achieved / newTargetData.projectedMeetings.target) * 100,
+        (newTargetData.attendedMeetings.achieved / newTargetData.attendedMeetings.target) * 100,
+        (newTargetData.meetingDuration.achieved / newTargetData.meetingDuration.target) * 100,
+        (newTargetData.closing.achieved / newTargetData.closing.target) * 100
+      ];
+
+      const avgProgress = Math.min(
+        Math.round(progressPercentages.reduce((a, b) => a + b, 0) / progressPercentages.length),
+        100
+      );
+      setOverallProgress(avgProgress);
+
+      // Calculate last week's progress
       let lastWeekMeetings = 0;
       let lastWeekAttendedMeetings = 0;
       let lastWeekDuration = 0;
@@ -149,143 +137,35 @@ const BDMTargetScreen = () => {
       lastWeekSnapshot.forEach(doc => {
         const data = doc.data();
         lastWeekMeetings += data.numMeetings || 0;
-        lastWeekAttendedMeetings += data.positiveLeads || 0;
-        lastWeekClosing += data.totalClosingAmount || 0;
+        lastWeekAttendedMeetings += data.numMeetings || 0;
         
         const durationStr = data.meetingDuration || '';
-        if (durationStr.includes(':')) {
-          const [hours, minutes, seconds] = durationStr.split(':').map(Number);
-          lastWeekDuration += (hours * 3600) + (minutes * 60) + seconds;
-        } else {
-          const hrMatch = durationStr.match(/(\d+)\s*hr/);
-          const minMatch = durationStr.match(/(\d+)\s*min/);
-          const hours = (hrMatch ? parseInt(hrMatch[1]) : 0) +
-                       (minMatch ? parseInt(minMatch[1]) / 60 : 0);
-          lastWeekDuration += hours * 3600;
-        }
+        const hrMatch = durationStr.match(/(\d+)\s*hr/);
+        const minMatch = durationStr.match(/(\d+)\s*min/);
+        const hours = (hrMatch ? parseInt(hrMatch[1]) : 0) +
+                     (minMatch ? parseInt(minMatch[1]) / 60 : 0);
+        lastWeekDuration += hours;
+
+        lastWeekClosing += data.totalClosingAmount || 0;
       });
 
-      const formatDuration = (totalSeconds: number) => {
-        const hours = Math.floor(totalSeconds / 3600);
-        const minutes = Math.floor((totalSeconds % 3600) / 60);
-        const seconds = totalSeconds % 60;
-        return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
-      };
-
-      const newTargetData = {
-        projectedMeetings: { achieved: totalMeetings, target: 30 },
-        attendedMeetings: { achieved: totalAttendedMeetings, target: 30 },
-        meetingDuration: { achieved: formatDuration(totalDuration), target: '20:00:00' },
-        closing: { achieved: totalClosing, target: 50000 }
-      };
-
-      setTargetData(newTargetData);
-
-      const meetingsPercentage = (totalMeetings / 30) * 100;
-      const attendedPercentage = (totalAttendedMeetings / 30) * 100;
-      const durationPercentage = (totalDuration / (20 * 3600)) * 100;
-      const closingPercentage = (totalClosing / 50000) * 100;
-
-      const overallProgress = Math.min(
-        (meetingsPercentage + attendedPercentage + durationPercentage + closingPercentage) / 4,
-        100
-      );
-
-      setOverallProgress(Math.min(overallProgress, 100));
-
-      const lastWeekMeetingsPercentage = (lastWeekMeetings / 30) * 100;
-      const lastWeekAttendedPercentage = (lastWeekAttendedMeetings / 30) * 100;
-      const lastWeekDurationPercentage = (lastWeekDuration / (20 * 3600)) * 100;
-      const lastWeekClosingPercentage = (lastWeekClosing / 50000) * 100;
+      const lastWeekPercentages = [
+        (lastWeekMeetings / 30) * 100,
+        (lastWeekAttendedMeetings / 30) * 100,
+        (lastWeekDuration / 20) * 100,
+        (lastWeekClosing / 50000) * 100
+      ];
 
       const lastWeekProgress = Math.min(
-        (lastWeekMeetingsPercentage + lastWeekAttendedPercentage + 
-         lastWeekDurationPercentage + lastWeekClosingPercentage) / 4,
+        Math.round(lastWeekPercentages.reduce((a, b) => a + b, 0) / lastWeekPercentages.length),
         100
       );
-      
       setLastWeekProgress(lastWeekProgress);
-      setIsLoading(false);
+
     } catch (error) {
-      console.error("Error fetching target data:", error);
-      setIsLoading(false);
+      console.error('Error fetching target data:', error);
     }
-  }, []);
-
-  useEffect(() => {
-    fetchTargetData();
-    
-    const setupRealtimeListener = async () => {
-      try {
-        const userId = auth.currentUser?.uid;
-        if (!userId) return;
-        
-        const now = new Date();
-        const startOfWeek = new Date(now);
-        startOfWeek.setDate(now.getDate() - now.getDay());
-        startOfWeek.setHours(0, 0, 0, 0);
-        
-        const endOfWeek = new Date(startOfWeek);
-        endOfWeek.setDate(startOfWeek.getDate() + 6);
-        endOfWeek.setHours(23, 59, 59, 999);
-        
-        const reportsRef = collection(db, 'bdm_reports');
-        const q = query(
-          reportsRef,
-          where('userId', '==', userId),
-          where('createdAt', '>=', Timestamp.fromDate(startOfWeek)),
-          where('createdAt', '<=', Timestamp.fromDate(endOfWeek))
-        );
-        
-        return onSnapshot(q, () => {
-          fetchTargetData();
-        });
-      } catch (error) {
-        console.error('Error setting up real-time listener:', error);
-      }
-    };
-    
-    let unsubscribe: (() => void) | undefined;
-    setupRealtimeListener().then(unsub => {
-      if (unsub) unsubscribe = unsub;
-    });
-    
-    return () => {
-      if (unsubscribe) unsubscribe();
-    };
-  }, [fetchTargetData]);
-
-  useEffect(() => {
-    Animated.timing(progressAnim, {
-      toValue: overallProgress,
-      duration: 500,
-      useNativeDriver: false
-    }).start();
-  }, [overallProgress]);
-
-  // Add wave animation effect
-  useEffect(() => {
-    if (isLoading) {
-      Animated.loop(
-        Animated.sequence([
-          Animated.timing(waveAnimation, {
-            toValue: 1,
-            duration: 1000,
-            useNativeDriver: true,
-            easing: Easing.inOut(Easing.ease),
-          }),
-          Animated.timing(waveAnimation, {
-            toValue: 0,
-            duration: 1000,
-            useNativeDriver: true,
-            easing: Easing.inOut(Easing.ease),
-          }),
-        ])
-      ).start();
-    } else {
-      waveAnimation.setValue(0);
-    }
-  }, [isLoading]);
+  };
 
   const getDaysLeft = () => {
     const now = new Date();
@@ -307,14 +187,6 @@ const BDMTargetScreen = () => {
       </View>
     );
   };
-
-  if (isLoading) {
-    return (
-      <View style={[styles.container, styles.loadingContainer]}>
-        <ActivityIndicator size="large" color="#FF8447" />
-      </View>
-    );
-  }
 
   return (
     <AppGradient>
@@ -342,10 +214,13 @@ const BDMTargetScreen = () => {
                 <Text style={styles.daysLeft}>{getDaysLeft()} days to go!</Text>
               </View>
 
+              {/* Progress Bar */}
               {renderProgressBar()}
               <Text style={styles.progressText}>{Math.round(overallProgress)}%</Text>
 
+              {/* Target Details */}
               <View style={styles.targetDetails}>
+                {/* Column Headers */}
                 <View style={styles.columnHeaders}>
                   <View style={styles.spacer} />
                   <View style={styles.valueColumns}>
@@ -354,8 +229,9 @@ const BDMTargetScreen = () => {
                   </View>
                 </View>
 
+                {/* Rows */}
                 <View style={styles.row}>
-                  <Text style={styles.label}>Number of Meetings</Text>
+                  <Text style={styles.label}>Projected No. of Meetings</Text>
                   <View style={styles.valueColumns}>
                     <Text style={styles.achieved}>{targetData.projectedMeetings.achieved}</Text>
                     <Text style={styles.target}>{targetData.projectedMeetings.target}</Text>
@@ -363,7 +239,7 @@ const BDMTargetScreen = () => {
                 </View>
 
                 <View style={styles.row}>
-                  <Text style={styles.label}>Prospective No. of Meetings</Text>
+                  <Text style={styles.label}>Attended No. of Meetings</Text>
                   <View style={styles.valueColumns}>
                     <Text style={styles.achieved}>{targetData.attendedMeetings.achieved}</Text>
                     <Text style={styles.target}>{targetData.attendedMeetings.target}</Text>
@@ -373,13 +249,13 @@ const BDMTargetScreen = () => {
                 <View style={styles.row}>
                   <Text style={styles.label}>Meeting Duration</Text>
                   <View style={styles.valueColumns}>
-                    <Text style={styles.achieved}>{targetData.meetingDuration.achieved}</Text>
-                    <Text style={styles.target}>{targetData.meetingDuration.target}</Text>
+                    <Text style={styles.achieved}>{targetData.meetingDuration.achieved} hrs</Text>
+                    <Text style={styles.target}>{targetData.meetingDuration.target} hrs</Text>
                   </View>
                 </View>
 
                 <View style={styles.row}>
-                  <Text style={styles.label}>Closing Amount</Text>
+                  <Text style={styles.label}>Closing</Text>
                   <View style={styles.valueColumns}>
                     <Text style={styles.achieved}>₹{targetData.closing.achieved.toLocaleString()}</Text>
                     <Text style={styles.target}>₹{targetData.closing.target.toLocaleString()}</Text>
@@ -397,10 +273,6 @@ const BDMTargetScreen = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-  },
-  loadingContainer: {
-    justifyContent: 'center',
-    alignItems: 'center',
   },
   scrollView: {
     flex: 1,

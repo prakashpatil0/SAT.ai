@@ -4,7 +4,7 @@ import { ProgressBar } from "react-native-paper";
 import { useNavigation } from "@react-navigation/native";
 import { MaterialIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import TelecallerMainLayout from '@/app/components/TelecallerMainLayout';
+import MainLayoutSwitcher from '@/app/components/MainLayout/MainLayoutSwitcher';
 import * as Linking from 'expo-linking';
 import AppGradient from "@/app/components/AppGradient";
 import { Audio } from 'expo-av';
@@ -1393,7 +1393,7 @@ const HomeScreen = () => {
 
   return (
     <AppGradient>
-      <TelecallerMainLayout showDrawer showBottomTabs={true} showBackButton={false}>
+      <MainLayoutSwitcher showDrawer showBottomTabs={true} showBackButton={false}>
         <View style={styles.container}>
           {/* Welcome Section */}
           <View style={styles.welcomeSection}>
@@ -1491,7 +1491,7 @@ const HomeScreen = () => {
           phoneNumber={selectedNumber}
           onContactSaved={(contact: Contact) => handleContactSaved(contact as Contact & {favorite: boolean})}
         />
-      </TelecallerMainLayout>
+      </MainLayoutSwitcher>
     </AppGradient>
   );
 };

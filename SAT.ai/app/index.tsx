@@ -16,6 +16,9 @@ import { Poppins_500Medium, Poppins_600SemiBold } from "@expo-google-fonts/poppi
 import TargetScreen from "@/app/Screens/Telecaller/Tab/TargetScreen";
 import HomeScreen from "@/app/Screens/Telecaller/Tab/HomeScreen";
 import AttendanceScreen from "@/app/Screens/Telecaller/Tab/AttendanceScreen";
+// import BottomTabSwitcher from "@/app/components/BottomTab/BottomTabSwitcher";
+import BottomTabSwitcher from "@/app/components/BottomTab/BottomTabSwitcher"; // ✅ Correct path
+import MainLayoutSwitcher from "@/app/components/MainLayout/MainLayoutSwitcher"; // ✅ Correct path
 import CustomDrawerContent from "@/app/components/CustomDrawer";
 import MyScript from "@/app/Screens/Telecaller/DrawerTab/TelecallerMyScript";
 import DetailsScreen from '@/app/Screens/Telecaller/TelecallerDetailsScreen';
@@ -37,7 +40,7 @@ import CallHistory from "./Screens/Telecaller/TelecallerCallHistory";
 import TelecallerPersonNotes from "@/app/Screens/Telecaller/TelecallerPersonNotes";
 import ContactBook from "@/app/components/ContactBook/ContactBook";
 
-import BDMBottomTabs from "@/app/Screens/BDM/BDMBottomTabs";
+// import BDMBottomTabs from "@/app/Screens/BDM/BDMBottomTabs";
 import BDMContactDetailsScreen from "@/app/Screens/BDM/BDMContactDetailsScreen";
 import BDMCompanyDetailsScreen from "@/app/Screens/BDM/BDMCompanyDetailsScreen";
 import BDMDrawer from '@/app/Screens/BDM/BDMDrawer';
@@ -354,6 +357,9 @@ const DrawerNavigator = () => {
       <Drawer.Screen name="TelecallerLeaveApplication" component={TelecallerLeaveApplication} />
       <Drawer.Screen name="ApplyLeaveScreen" component={ApplyLeaveScreen} />
       <Drawer.Screen name="CalendarViewScreen" component={CalendarViewScreen} />
+      <Drawer.Screen name="BottomTabSwitcher" component={BottomTabSwitcher} />
+      <Drawer.Screen name="MainLayoutSwitcher" component={MainLayoutSwitcher} />
+      
     </Drawer.Navigator>
     </IdleTimerProvider>
   );

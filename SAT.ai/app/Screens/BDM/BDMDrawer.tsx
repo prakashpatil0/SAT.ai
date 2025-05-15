@@ -240,7 +240,7 @@ const BDMDrawer = (props: DrawerContentComponentProps) => {
             icon={({ size }) => <MaterialCommunityIcons name="podium" size={size} color="#09142D" />}
             labelStyle={styles.menuText}
             style={styles.drawerItem}
-            onPress={() => handleNavigate("LeaderBoard")}
+            onPress={() => handleNavigate("BDMLeaderBoard")}
           />
         </View>
                 <DrawerItem

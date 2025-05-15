@@ -20,7 +20,7 @@ import CustomDrawerContent from "@/app/components/CustomDrawer";
 import MyScript from "@/app/Screens/Telecaller/DrawerTab/TelecallerMyScript";
 import DetailsScreen from '@/app/Screens/Telecaller/TelecallerDetailsScreen';
 import ReportScreen from "@/app/Screens/Telecaller/Tab/DailyReportScreen";
-// import Leaderboard from "@/app/Screens/Telecaller/DrawerTab/TelecallerLeaderBoard";
+import Leaderboard from "@/app/Screens/Telecaller/DrawerTab/TelecallerLeaderBoard";
 import TelecallerCallNoteDetails from "@/app/Screens/Telecaller/TelecallerAddCallNoteDetails";
 import TelecallerCreateFollowUp from "@/app/Screens/Telecaller/TelecallerCreateFollowUpScreen";
 import MyScheduleScreen from "@/app/Screens/Telecaller/DrawerTab/TelecallerMyScheduleScreen";
@@ -36,7 +36,8 @@ import AddContactModal from "@/app/Screens/Telecaller/TelecallerAddContactModal"
 import CallHistory from "./Screens/Telecaller/TelecallerCallHistory";
 import TelecallerPersonNotes from "@/app/Screens/Telecaller/TelecallerPersonNotes";
 import ContactBook from "@/app/components/ContactBook/ContactBook";
-import Leaderboard from "@/app/components/LeaderBoard";
+
+
 import BDMBottomTabs from "@/app/Screens/BDM/BDMBottomTabs";
 import BDMContactDetailsScreen from "@/app/Screens/BDM/BDMContactDetailsScreen";
 import BDMCompanyDetailsScreen from "@/app/Screens/BDM/BDMCompanyDetailsScreen";
@@ -76,7 +77,6 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import AlertScreen from "@/app/Screens/Telecaller/Tab/AlertScreen";
 import TelecallerIdleTimer from "./Screens/Telecaller/Tab/TelecallerIdleTimer";
 import BDMContactBook from "@/app/components/ContactBook/BDMContactBook"
-import LeaderBoard from "@/app/components/LeaderBoard";
 
 import HrHomeScreen from "@/app/HRMS/Tab/HrHomeScreen";
 import HrDrawer from "@/app/HRMS/HrDrawer";
@@ -84,6 +84,7 @@ import HrProfile from "./HRMS/DrawerTab/HrProfile";
 import ApplyLeaveScreen from "@/app/HRMS/ApplyLeaveScreen";
 import CalendarViewScreen from "@/app/HRMS/CalendarViewScreen";
 import TelecallerLeaveApplication from "@/app/HRMS/TelecallerLeaveApplication";
+import BDMLeaderBoard from "./Screens/BDM/DrawerTab/BDMLeaderBoard";
 import HrSettings from "./HRMS/DrawerTab/HrSettings";
 
 export type RootStackParamList = {
@@ -318,7 +319,6 @@ const CustomAlertButton = ({ children, onPress }: { children: React.ReactNode; o
 
 const DrawerNavigator = () => {
   return (
-    <IdleTimerProvider>
     <Drawer.Navigator
       drawerContent={(props) => <CustomDrawerContent {...props} />}
       screenOptions={{
@@ -354,7 +354,6 @@ const DrawerNavigator = () => {
       <Drawer.Screen name="ApplyLeaveScreen" component={ApplyLeaveScreen} />
       <Drawer.Screen name="CalendarViewScreen" component={CalendarViewScreen} />
     </Drawer.Navigator>
-    </IdleTimerProvider>
   );
 };
 
@@ -457,8 +456,8 @@ function BDMStackNavigator() {
         }}
       />
       <BDMStack.Screen 
-        name="LeaderBoard" 
-        component={LeaderBoard}
+        name="BDMLeaderBoard" 
+        component={BDMLeaderBoard}
         options={{
           title: 'Leaderboard',
           drawerIcon: ({ color }) => (
@@ -904,11 +903,9 @@ export default function App() {
   }
 
   return ( 
-      // <BackendProvider>
         <ProfileProvider>
             <RootStack />
         </ProfileProvider>
-      // </BackendProvider>
   );
 }
 

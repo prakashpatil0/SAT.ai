@@ -43,7 +43,7 @@ interface AttendanceRecord {
   punchIn: string;
   punchOut: string;
   totalHours: string;
-  location: any;
+  location: { latitude: number; longitude: number } | null;
   workMode: string;
   timestamp: Date;
   month: string;
@@ -52,7 +52,7 @@ interface AttendanceRecord {
   punchOutPhotoUri: string;
   locationName: string;
   punchOutLocationName: string;
-  punchOutLocation: any;
+  punchOutLocation: { latitude: number; longitude: number } | null;
   lastUpdated: Date;
 }
 
@@ -238,12 +238,14 @@ const AttendanceScreen = () => {
     try {
       const userId = auth.currentUser?.uid;
       if (!userId) return;
-
+  
       const attendanceRef = collection(db, 'users', userId, 'attendance');
       const querySnapshot = await getDocs(attendanceRef);
       
       const history: AttendanceRecord[] = [];
       const today = format(new Date(), 'dd');
+      const currentMonth = format(new Date(), 'MM');
+      const currentYear = format(new Date(), 'yyyy');
       
       querySnapshot.forEach((doc) => {
         const data = doc.data();
@@ -273,14 +275,15 @@ const AttendanceScreen = () => {
           punchOutLocation: data.punchOutLocation || null,
           lastUpdated: data.lastUpdated?.toDate() || new Date(),
         });
-
-        if (data.date === today) {
+  
+        if (data.date === today && data.month === currentMonth && data.year === currentYear) {
+          console.log('Found today’s record:', data);
           setPunchInTime(data.punchIn ? format(new Date(`2000-01-01T${data.punchIn}`), 'hh:mm a') : '');
           setPunchOutTime(data.punchOut ? format(new Date(`2000-01-01T${data.punchOut}`), 'hh:mm a') : '');
           setIsPunchedIn(!!data.punchIn && !data.punchOut);
         }
       });
-
+  
       setIsNewUser(history.length === 0);
       const sortedHistory = history.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
       setAttendanceHistory(sortedHistory);
@@ -361,12 +364,12 @@ const AttendanceScreen = () => {
         Alert.alert('Error', 'User not authenticated');
         return;
       }
-
+  
       if (!location || !location.coords) {
         Alert.alert('Error', 'Location data is unavailable. Please try again.');
         return;
       }
-
+  
       const userDoc = await getDoc(doc(db, 'users', userId));
       const userData = userDoc.exists() ? userDoc.data() : {};
       
@@ -375,16 +378,16 @@ const AttendanceScreen = () => {
       const email = userData.email || auth.currentUser?.email || 'rahul@policyplanner.com';
       const phoneNumber = userData.phoneNumber || '9685743215';
       const workMode = userData.workMode || 'Office';
-
+  
       const currentTime = new Date();
       const dateStr = format(currentTime, 'dd');
       const dayStr = format(currentTime, 'EEE').toUpperCase();
       const timeStr = format(currentTime, 'HH:mm');
       const monthStr = format(currentTime, 'MM');
       const yearStr = format(currentTime, 'yyyy');
-
+  
       const locationName = await getLocationName(location.coords);
-
+  
       const attendanceData = {
         userId,
         designation,
@@ -412,16 +415,18 @@ const AttendanceScreen = () => {
         timestamp: Timestamp.fromDate(currentTime),
         lastUpdated: Timestamp.fromDate(currentTime),
       };
-
+  
       const attendanceRef = collection(db, 'users', userId, 'attendance');
       const todayQuery = query(
         attendanceRef,
         where('date', '==', dateStr),
+        where('month', '==', monthStr),
+        where('year', '==', yearStr),
         where('userId', '==', userId)
       );
-
+  
       const querySnapshot = await getDocs(todayQuery);
-
+  
       if (querySnapshot.empty) {
         if (isPunchIn) {
           attendanceData.punchIn = timeStr;
@@ -441,34 +446,42 @@ const AttendanceScreen = () => {
         const docRef = querySnapshot.docs[0].ref;
         const existingData = querySnapshot.docs[0].data();
         
-        attendanceData.punchIn = isPunchIn ? timeStr : existingData.punchIn;
-        attendanceData.punchOut = !isPunchIn ? timeStr : existingData.punchOut;
-
-        attendanceData.photoUri = isPunchIn ? photoUri : existingData.photoUri;
-        attendanceData.punchOutPhotoUri = !isPunchIn ? photoUri : existingData.punchOutPhotoUri;
-        attendanceData.location = isPunchIn ? {
-          latitude: location.coords.latitude,
-          longitude: location.coords.longitude,
-        } : existingData.location || null;
-        attendanceData.locationName = isPunchIn ? locationName : existingData.locationName || 'Unknown Location';
-        attendanceData.punchOutLocation = !isPunchIn ? {
-          latitude: location.coords.latitude,
-          longitude: location.coords.longitude,
-        } : existingData.punchOutLocation || null;
-        attendanceData.punchOutLocationName = !isPunchIn ? locationName : existingData.punchOutLocationName || '';
-
-        if (attendanceData.punchIn && attendanceData.punchOut) {
-          const inTime = new Date(`2000-01-01T${attendanceData.punchIn}`);
-          const outTime = new Date(`2000-01-01T${attendanceData.punchOut}`);
+        if (isPunchIn && existingData.punchIn) {
+          Alert.alert('Already Punched In', 'You have already punched in for today.');
+          return;
+        }
+  
+        const updatedData = {
+          ...existingData,
+          punchIn: isPunchIn ? timeStr : existingData.punchIn,
+          punchOut: !isPunchIn ? timeStr : existingData.punchOut,
+          photoUri: isPunchIn ? photoUri : existingData.photoUri,
+          punchOutPhotoUri: !isPunchIn ? photoUri : existingData.punchOutPhotoUri,
+          location: isPunchIn ? {
+            latitude: location.coords.latitude,
+            longitude: location.coords.longitude,
+          } : existingData.location,
+          locationName: isPunchIn ? locationName : existingData.locationName,
+          punchOutLocation: !isPunchIn ? {
+            latitude: location.coords.latitude,
+            longitude: location.coords.longitude,
+          } : existingData.punchOutLocation,
+          punchOutLocationName: !isPunchIn ? locationName : existingData.punchOutLocationName,
+          lastUpdated: Timestamp.fromDate(currentTime),
+        };
+  
+        if (updatedData.punchIn && updatedData.punchOut) {
+          const inTime = new Date(`2000-01-01T${updatedData.punchIn}`);
+          const outTime = new Date(`2000-01-01T${updatedData.punchOut}`);
           const diffMs = outTime.getTime() - inTime.getTime();
           const hours = Math.floor(diffMs / (1000 * 60 * 60));
-          attendanceData.totalHours = hours;
+          updatedData.totalHours = hours;
         }
-
-        attendanceData.status = calculateStatus(attendanceData.punchIn, attendanceData.punchOut);
-        await updateDoc(docRef, attendanceData);
+  
+        updatedData.status = calculateStatus(updatedData.punchIn, updatedData.punchOut);
+        await updateDoc(docRef, updatedData);
       }
-
+  
       if (isPunchIn) {
         setPunchInTime(format(currentTime, 'hh:mm a'));
         setIsPunchedIn(true);
@@ -476,7 +489,7 @@ const AttendanceScreen = () => {
         setPunchOutTime(format(currentTime, 'hh:mm a'));
         setIsPunchedIn(false);
       }
-
+  
       fetchAttendanceHistory();
     } catch (error) {
       console.error('Error saving attendance:', error);

@@ -13,7 +13,7 @@ import * as Location from 'expo-location';
 type RootStackParamList = {
   AttendanceScreen: {
     photo: { uri: string };
-    location: string;
+    location: { coords: { latitude: number; longitude: number } };
     dateTime: Date;
     isPunchIn: boolean;
   };
@@ -105,8 +105,10 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ route, navigation }) => {
         Alert.alert('Permission Required', 'Location permission is required to take attendance.');
         return;
       }
-      const location = await Location.getCurrentPositionAsync({});
-      const { latitude, longitude } = location.coords;
+      const location = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced,
+        timeInterval: 5000
+      });
 
       // Save to Firestore
       const db = getFirestore();
@@ -116,8 +118,8 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ route, navigation }) => {
         photoUrl,
         timestamp: serverTimestamp(),
         location: {
-          latitude,
-          longitude,
+          latitude: location.coords.latitude,
+          longitude: location.coords.longitude,
           accuracy: location.coords.accuracy
         },
         type: isPunchIn ? 'punchIn' : 'punchOut'
@@ -126,7 +128,7 @@ const CameraScreen: React.FC<CameraScreenProps> = ({ route, navigation }) => {
       // Navigate back with attendance data
       navigation.navigate('Attendance' as never, {
         photo: { uri: photoUrl },
-        location: `${latitude}, ${longitude}`,
+        location: location,
         dateTime: now,
         isPunchIn,
       });

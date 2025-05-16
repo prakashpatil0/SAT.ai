@@ -1,225 +1,258 @@
-import React, { useRef, useState, useEffect } from 'react';
-import { View, StyleSheet, TouchableOpacity, Text, Alert, Image } from 'react-native';
-import { Camera, CameraView, CameraType } from 'expo-camera';
-import { MaterialIcons } from '@expo/vector-icons';
-import { useNavigation, RouteProp } from '@react-navigation/native';
-import { StackNavigationProp } from '@react-navigation/stack';
-import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { getFirestore, doc, setDoc, serverTimestamp } from 'firebase/firestore';
-import { getAuth } from 'firebase/auth';
+import React, { useState, useEffect, useRef } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, Platform, Image, Alert } from 'react-native';
+import { Camera, CameraView } from 'expo-camera';
 import * as Location from 'expo-location';
+import { MaterialIcons } from '@expo/vector-icons';
+import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
+import { StackNavigationProp } from '@react-navigation/stack';
+import { format } from 'date-fns';
+import { collection, addDoc, getDocs, query, where, Timestamp, updateDoc, doc, getDoc } from 'firebase/firestore';
+import { db, auth } from '@/firebaseConfig';
 
-// Define the navigation types
 type RootStackParamList = {
   AttendanceScreen: {
-    photo: { uri: string };
-    location: { coords: { latitude: number; longitude: number } };
-    dateTime: Date;
-    isPunchIn: boolean;
+    photo?: { uri: string };
+    location?: { coords: { latitude: number; longitude: number } };
+    dateTime?: Date;
+    isPunchIn?: boolean;
   };
   CameraScreen: {
     isPunchIn: boolean;
   };
 };
 
-type CameraScreenNavigationProp = StackNavigationProp<RootStackParamList, 'CameraScreen'>;
 type CameraScreenRouteProp = RouteProp<RootStackParamList, 'CameraScreen'>;
+type CameraScreenNavigationProp = StackNavigationProp<RootStackParamList, 'CameraScreen'>;
 
-interface CameraScreenProps {
-  route: CameraScreenRouteProp;
-  navigation: CameraScreenNavigationProp;
-}
-
-const CameraScreen: React.FC<CameraScreenProps> = ({ route, navigation }) => {
+const CameraScreen = () => {
+  const [location, setLocation] = useState<Location.LocationObject | null>(null);
+  const [currentTime, setCurrentTime] = useState(new Date());
+  const [hasPermission, setHasPermission] = useState(false);
+  const [cameraType, setCameraType] = useState<number>(0); // 0 is front, 1 is back
+  const [photo, setPhoto] = useState<{ uri: string } | null>(null);
+  const [locationAddress, setLocationAddress] = useState<string | null>(null);
+  const [flash, setFlash] = useState<boolean>(false);
+  const cameraRef = useRef<any>(null);
+  const navigation = useNavigation<CameraScreenNavigationProp>();
+  const route = useRoute<CameraScreenRouteProp>();
   const { isPunchIn } = route.params;
-  const [facing, setFacing] = useState<CameraType>('back');
-  const [hasPermission, setHasPermission] = useState<boolean | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [photo, setPhoto] = useState<string | null>(null);
-  const cameraRef = useRef<CameraView>(null);
+
+  // Reset photo when component mounts or isPunchIn changes
+  useEffect(() => {
+    setPhoto(null);
+  }, [isPunchIn]);
 
   useEffect(() => {
     (async () => {
-      const { status } = await Camera.requestCameraPermissionsAsync();
-      if (status !== 'granted') {
-        Alert.alert('Permission Required', 'Camera permission is required to take photos.');
+      const { status: cameraStatus } = await Camera.requestCameraPermissionsAsync();
+      const { status: locationStatus } = await Location.requestForegroundPermissionsAsync();
+      
+      setHasPermission(cameraStatus === 'granted' && locationStatus === 'granted');
+      
+      if (locationStatus === 'granted') {
+        try {
+          const location = await Location.getCurrentPositionAsync({
+            accuracy: Location.Accuracy.Highest
+          });
+          setLocation(location);
+          
+          // Get the address from coordinates
+          const geocode = await Location.reverseGeocodeAsync({
+            latitude: location.coords.latitude,
+            longitude: location.coords.longitude
+          });
+          
+          if (geocode.length > 0) {
+            const address = geocode[0];
+            const addressString = [
+              address.name,
+              address.street,
+              address.district,
+              address.city,
+              address.region,
+              address.postalCode,
+              address.country
+            ]
+              .filter(Boolean)
+              .join(', ');
+            
+            setLocationAddress(addressString);
+          }
+        } catch (error) {
+          console.error('Error getting location:', error);
+        }
       }
-      setHasPermission(status === 'granted');
     })();
+    
+    // Update the time every second
+    const timer = setInterval(() => {
+      setCurrentTime(new Date());
+    }, 1000);
+    
+    return () => clearInterval(timer);
   }, []);
 
-  const toggleCameraFacing = () => {
-    setFacing(current => (current === 'back' ? 'front' : 'back'));
-  };
-
   const takePicture = async () => {
-    if (!cameraRef.current) return;
-
-    try {
-      setLoading(true);
-      const photo = await cameraRef.current.takePictureAsync({
-        quality: 0.7,
-        base64: true
-      });
-
-      if (!photo) return;
-      setPhoto(photo.uri);
-    } catch (error) {
-      console.error('Error taking picture:', error);
-      Alert.alert('Error', 'Failed to take picture. Please try again.');
-    } finally {
-      setLoading(false);
+    if (cameraRef.current && location) {
+      try {
+        const photo = await cameraRef.current.takePictureAsync();
+        console.log("Photo taken:", photo);
+        setPhoto(photo);
+      } catch (error) {
+        console.error('Error taking picture:', error);
+        Alert.alert('Error', 'Failed to take picture. Please try again.');
+      }
     }
   };
 
-  const savePhoto = async () => {
-    if (!photo) return;
-
-    try {
-      setLoading(true);
-      const auth = getAuth();
-      const userId = auth.currentUser?.uid;
-      if (!userId) {
-        Alert.alert('Error', 'User not authenticated');
-        return;
-      }
-
-      // Create unique filename
-      const now = new Date();
-      const timestamp = now.toISOString().split('T')[0];
-      const filename = `${userId}_${isPunchIn ? 'punchIn' : 'punchOut'}_${timestamp}.jpg`;
-      const storage = getStorage();
-      const storageRef = ref(storage, `attendance/${userId}/${filename}`);
-
-      // Convert photo to blob
-      const response = await fetch(photo);
-      const blob = await response.blob();
-
-      // Upload to Firebase Storage
-      await uploadBytes(storageRef, blob);
-      const photoUrl = await getDownloadURL(storageRef);
-
-      // Get location
-      const { status: locationStatus } = await Location.requestForegroundPermissionsAsync();
-      if (locationStatus !== 'granted') {
-        Alert.alert('Permission Required', 'Location permission is required to take attendance.');
-        return;
-      }
-      const location = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.Balanced,
-        timeInterval: 5000
-      });
-
-      // Save to Firestore
-      const db = getFirestore();
-      const attendanceRef = doc(db, 'attendance', userId, timestamp, isPunchIn ? 'punchIn' : 'punchOut');
-
-      await setDoc(attendanceRef, {
-        photoUrl,
-        timestamp: serverTimestamp(),
-        location: {
-          latitude: location.coords.latitude,
-          longitude: location.coords.longitude,
-          accuracy: location.coords.accuracy
-        },
-        type: isPunchIn ? 'punchIn' : 'punchOut'
-      });
-
-      // Navigate back with attendance data
-      navigation.navigate('Attendance' as never, {
-        photo: { uri: photoUrl },
-        location: location,
-        dateTime: now,
-        isPunchIn,
-      });
-    } catch (error: any) {
-      console.error('Storage Error:', error);
-      let errorMessage = 'Failed to save photo. Please try again.';
-      if (error.code === 'storage/unauthorized') {
-        errorMessage = 'You do not have permission to upload photos. Please contact support.';
-      }
-      Alert.alert('Error', errorMessage);
-    } finally {
-      setLoading(false);
-    }
+  const flipCamera = () => {
+    setCameraType(cameraType === 0 ? 1 : 0);
   };
 
-  const retakePhoto = () => {
-    setPhoto(null);
+  const renderPhotoPreview = () => {
+    return (
+      <View style={styles.previewContainer}>
+        {photo && <Image source={{ uri: photo.uri }} style={styles.preview} />}
+        <View style={styles.previewOverlay}>
+          <View style={styles.previewAddress}>
+            <MaterialIcons name="location-on" size={20} color="#FF8447" />
+            <Text style={styles.previewAddressText}>
+              {locationAddress || 'Location captured'}
+            </Text>
+          </View>
+          <View style={styles.previewDate}>
+            <MaterialIcons name="event" size={20} color="#FF8447" />
+            <Text style={styles.previewDateText}>
+              {format(currentTime, 'dd MMM yyyy, h:mm a')}
+            </Text>
+          </View>
+        </View>
+        <View style={styles.previewButtons}>
+          <TouchableOpacity 
+            style={styles.previewButton}
+            onPress={() => setPhoto(null)}
+          >
+            <MaterialIcons name="replay" size={24} color="#FF5252" />
+            <Text style={[styles.previewButtonText, { color: '#FF5252' }]}>Retake</Text>
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={[styles.previewButton, styles.confirmButton]}
+            onPress={async () => {
+              if (location && photo) {
+                try {
+                  // Navigate to AttendanceScreen with the required data
+                  navigation.navigate('Attendance' as never, {
+                    photo: { uri: photo.uri },
+                    location: {
+                      coords: {
+                        latitude: location.coords.latitude,
+                        longitude: location.coords.longitude
+                      }
+                    },
+                    dateTime: currentTime,
+                    isPunchIn
+                  });
+                } catch (error) {
+                  console.error('Navigation error:', error);
+                  Alert.alert('Error', 'Failed to navigate to attendance screen. Please try again.');
+                }
+              } else {
+                Alert.alert('Error', 'Location or photo not available. Please try again.');
+              }
+            }}
+          >
+            <MaterialIcons name="check" size={24} color="#4CAF50" />
+            <Text style={[styles.previewButtonText, { color: '#4CAF50' }]}>Confirm</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
   };
 
-  if (hasPermission === null) {
-    return <View />;
-  }
-  if (hasPermission === false) {
+  if (!hasPermission) {
     return (
       <View style={styles.container}>
-        <Text style={styles.errorText}>No access to camera</Text>
+        <Text style={styles.errorText}>Camera and location permissions are required.</Text>
+        <TouchableOpacity style={styles.captureButton} onPress={() => navigation.goBack()}>
+          <Text style={styles.captureText}>Go Back</Text>
+        </TouchableOpacity>
       </View>
     );
   }
 
   return (
     <View style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity 
-          onPress={() => navigation.goBack()} 
-          style={styles.backButton}
-        >
-          <MaterialIcons name="arrow-back" size={24} color="#333" />
-        </TouchableOpacity>
-        <Text style={styles.title}>Click a Picture</Text>
-      </View>
-
       {photo ? (
-        // Photo Preview
-        <View style={styles.previewContainer}>
-          <Image source={{ uri: photo }} style={styles.preview} />
-          <View style={styles.previewControls}>
-            <TouchableOpacity 
-              style={[styles.button, styles.retakeButton]} 
-              onPress={retakePhoto}
-            >
-              <MaterialIcons name="replay" size={24} color="#333" />
-              <Text style={styles.buttonText}>Retake</Text>
-            </TouchableOpacity>
-            <TouchableOpacity 
-              style={[styles.button, styles.saveButton]} 
-              onPress={savePhoto}
-              disabled={loading}
-            >
-              <MaterialIcons name="check" size={24} color="#FFF" />
-              <Text style={[styles.buttonText, styles.saveButtonText]}>Save</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
+        renderPhotoPreview()
       ) : (
-        // Camera View
-        <CameraView
+        <CameraView 
           ref={cameraRef}
           style={styles.camera}
-          facing={facing}
+          facing={cameraType === 0 ? "front" : "back"}
         >
-          <View style={styles.controlsContainer}>
-            {/* Camera Flip Button */}
+          <View style={styles.overlay}>
             <TouchableOpacity 
-              style={styles.flipButton} 
-              onPress={toggleCameraFacing}
+              style={styles.backButton}
+              onPress={() => navigation.goBack()}
             >
-              <MaterialIcons name="flip-camera-ios" size={28} color="white" />
+              <MaterialIcons name="arrow-back" size={24} color="white" />
             </TouchableOpacity>
 
-            {/* Capture Button */}
             <TouchableOpacity 
-              style={styles.captureButton} 
-              onPress={takePicture}
-              disabled={loading}
+              style={styles.flipButton}
+              onPress={flipCamera}
             >
-              <View style={styles.captureInner}>
-                {loading && <View style={styles.loadingIndicator} />}
-              </View>
+              <MaterialIcons name="flip-camera-android" size={24} color="white" />
             </TouchableOpacity>
+
+            <TouchableOpacity 
+              style={styles.flashButton}
+              onPress={() => {
+                setFlash(!flash);
+                if (cameraRef.current) {
+                  console.log('Flash toggled:', !flash);
+                }
+              }}
+            >
+              <MaterialIcons 
+                name={flash ? "flash-on" : "flash-off"} 
+                size={24} 
+                color="white" 
+              />
+            </TouchableOpacity>
+
+            <View style={styles.locationContainer}>
+              <MaterialIcons name="location-on" size={24} color="#FF8447" />
+              <Text style={styles.locationText}>
+                {locationAddress || 'Getting location...'}
+              </Text>
+            </View>
+
+            <View style={styles.dateTimeContainer}>
+              <MaterialIcons name="event" size={24} color="#FF8447" />
+              <Text style={styles.dateTimeText}>
+                {format(currentTime, 'dd-MM-yyyy')}
+              </Text>
+            </View>
+
+            <View style={styles.timeContainer}>
+              <MaterialIcons name="access-time" size={24} color="#FF8447" />
+              <Text style={styles.dateTimeText}>
+                {format(currentTime, 'h:mm:ss a')}
+              </Text>
+            </View>
+
+            <View style={styles.buttonContainer}>
+              <TouchableOpacity
+                style={[styles.captureButton, location ? {} : styles.disabledButton]}
+                onPress={takePicture}
+                disabled={!location}
+              >
+                <Text style={styles.captureText}>
+                  {isPunchIn ? 'Punch In' : 'Punch Out'}
+                </Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </CameraView>
       )}
@@ -231,110 +264,179 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: 'black',
-  },
-  header: {
-    flexDirection: 'row',
+    justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: 'white',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#EEE',
-  },
-  backButton: {
-    padding: 8,
-    marginRight: 12,
-  },
-  title: {
-    fontSize: 18,
-    fontFamily: 'LexendDeca_600SemiBold',
-    color: '#333',
   },
   camera: {
     flex: 1,
+    width: '100%',
   },
-  controlsContainer: {
+  overlay: {
     flex: 1,
     backgroundColor: 'transparent',
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'flex-end',
-    paddingBottom: 30,
+    padding: 20,
+  },
+  backButton: {
+    position: 'absolute',
+    top: 40,
+    left: 20,
+    zIndex: 1,
+    padding: 10,
   },
   flipButton: {
     position: 'absolute',
-    left: 30,
-    bottom: 40,
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'center',
+    top: 40,
+    right: 20,
+    zIndex: 1,
+    padding: 10,
+  },
+  flashButton: {
+    position: 'absolute',
+    top: 40,
+    right: 80,
+    zIndex: 1,
+    padding: 10,
+  },
+  locationContainer: {
+    position: 'absolute',
+    bottom: 180,
+    left: 20,
+    right: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    padding: 10,
+    borderRadius: 8,
+    marginBottom: 10,
+  },
+  locationText: {
+    color: 'white',
+    fontSize: 14,
+    fontFamily: 'LexendDeca_400Regular',
+    marginLeft: 10,
+    flex: 1,
+  },
+  dateTimeContainer: {
+    position: 'absolute',
+    bottom: 130,
+    left: 20,
+    right: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    padding: 10,
+    borderRadius: 8,
+    marginBottom: 10,
+  },
+  timeContainer: {
+    position: 'absolute',
+    bottom: 80,
+    left: 20,
+    right: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    padding: 10,
+    borderRadius: 8,
+  },
+  dateTimeText: {
+    color: 'white',
+    fontSize: 16,
+    fontFamily: 'LexendDeca_400Regular',
+    marginLeft: 10,
+  },
+  buttonContainer: {
+    position: 'absolute',
+    bottom: 20,
+    left: 0,
+    right: 0,
     alignItems: 'center',
   },
   captureButton: {
-    width: 70,
-    height: 70,
-    borderRadius: 35,
-    backgroundColor: 'white',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: '#FF8447',
+    paddingHorizontal: 40,
+    paddingVertical: 15,
+    borderRadius: 30,
   },
-  captureInner: {
-    width: 62,
-    height: 62,
-    borderRadius: 31,
-    backgroundColor: 'white',
-    borderWidth: 2,
-    borderColor: '#000',
+  disabledButton: {
+    backgroundColor: '#aaa',
   },
-  loadingIndicator: {
-    ...StyleSheet.absoluteFillObject,
-    borderRadius: 31,
-    backgroundColor: 'rgba(0,0,0,0.1)',
-  },
-  errorText: {
+  captureText: {
     color: 'white',
-    fontSize: 16,
-    textAlign: 'center',
-    marginTop: 20,
+    fontSize: 18,
+    fontFamily: 'LexendDeca_500Medium',
   },
   previewContainer: {
     flex: 1,
-    backgroundColor: '#000',
+    width: '100%',
+    position: 'relative',
   },
   preview: {
     flex: 1,
     width: '100%',
   },
-  previewControls: {
+  previewOverlay: {
+    position: 'absolute',
+    bottom: 120,
+    left: 20,
+    right: 20,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    borderRadius: 12,
+    padding: 15,
+  },
+  previewAddress: {
     flexDirection: 'row',
-    justifyContent: 'space-around',
     alignItems: 'center',
-    padding: 20,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    marginBottom: 10,
   },
-  button: {
+  previewDate: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 12,
-    borderRadius: 8,
-    minWidth: 120,
-    justifyContent: 'center',
   },
-  retakeButton: {
-    backgroundColor: 'white',
+  previewAddressText: {
+    color: 'white',
+    fontSize: 14,
+    fontFamily: 'LexendDeca_400Regular',
+    marginLeft: 10,
+    flex: 1,
   },
-  saveButton: {
-    backgroundColor: '#4CAF50',
+  previewDateText: {
+    color: 'white',
+    fontSize: 14,
+    fontFamily: 'LexendDeca_400Regular',
+    marginLeft: 10,
   },
-  buttonText: {
-    marginLeft: 8,
+  previewButtons: {
+    position: 'absolute',
+    bottom: 30,
+    left: 20,
+    right: 20,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  previewButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.9)',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 30,
+  },
+  confirmButton: {
+    backgroundColor: 'rgba(255,255,255,0.9)',
+  },
+  previewButtonText: {
     fontSize: 16,
     fontFamily: 'LexendDeca_500Medium',
+    marginLeft: 8,
   },
-  saveButtonText: {
+  errorText: {
     color: 'white',
+    fontSize: 16,
+    fontFamily: 'LexendDeca_400Regular',
+    marginBottom: 20,
+    textAlign: 'center',
+    padding: 20,
   },
 });
 

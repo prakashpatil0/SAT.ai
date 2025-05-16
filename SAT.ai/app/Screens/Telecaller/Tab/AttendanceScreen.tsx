@@ -92,6 +92,12 @@ const AttendanceScreen = () => {
   const [isNewUser, setIsNewUser] = useState(true);
   const [waveAnimation] = useState(new Animated.Value(0));
   const [isLoading, setIsLoading] = useState(true);
+  const [userDetails, setUserDetails] = useState<{
+    designation?: string;
+    employeeName?: string;
+    phoneNumber?: string;
+    email?: string;
+  }>({});
 
   const [weekDays, setWeekDays] = useState<WeekDay[]>([
     { day: 'M', date: '', status: 'On Leave' },
@@ -277,7 +283,7 @@ const AttendanceScreen = () => {
         });
   
         if (data.date === today && data.month === currentMonth && data.year === currentYear) {
-          console.log('Found today’s record:', data);
+          console.log("Found today's record:", data);
           setPunchInTime(data.punchIn ? format(new Date(`2000-01-01T${data.punchIn}`), 'hh:mm a') : '');
           setPunchOutTime(data.punchOut ? format(new Date(`2000-01-01T${data.punchOut}`), 'hh:mm a') : '');
           setIsPunchedIn(!!data.punchIn && !data.punchOut);
@@ -340,8 +346,7 @@ const AttendanceScreen = () => {
     setStatusCounts(counts);
   };
 
-  const getLocationName = async (coords: { latitude: number; longitude: number } | null): Promise<string> => {
-    if (!coords) return 'Unknown Location';
+  const getLocationName = async (coords: any): Promise<string> => {
     try {
       const response = await fetch(
         `https://maps.googleapis.com/maps/api/geocode/json?latlng=${coords.latitude},${coords.longitude}&key=YOUR_GOOGLE_MAPS_API_KEY`
@@ -357,65 +362,21 @@ const AttendanceScreen = () => {
     }
   };
 
-  const saveAttendance = async (isPunchIn: boolean, photoUri: string, location: { coords: { latitude: number; longitude: number } } | undefined) => {
+  const saveAttendance = async (isPunchIn: boolean, photoUri: string, locationCoords: any) => {
     try {
       const userId = auth.currentUser?.uid;
       if (!userId) {
         Alert.alert('Error', 'User not authenticated');
         return;
       }
-  
-      if (!location || !location.coords) {
-        Alert.alert('Error', 'Location data is unavailable. Please try again.');
-        return;
-      }
-  
-      const userDoc = await getDoc(doc(db, 'users', userId));
-      const userData = userDoc.exists() ? userDoc.data() : {};
-      
-      const designation = userData.designation || userData.role || 'BDM';
-      const employeeName = userData.name || 'Rahul Mullimani';
-      const email = userData.email || auth.currentUser?.email || 'rahul@policyplanner.com';
-      const phoneNumber = userData.phoneNumber || '9685743215';
-      const workMode = userData.workMode || 'Office';
-  
+
       const currentTime = new Date();
       const dateStr = format(currentTime, 'dd');
       const dayStr = format(currentTime, 'EEE').toUpperCase();
-      const timeStr = format(currentTime, 'HH:mm');
       const monthStr = format(currentTime, 'MM');
       const yearStr = format(currentTime, 'yyyy');
-  
-      const locationName = await getLocationName(location.coords);
-  
-      const attendanceData = {
-        userId,
-        designation,
-        employeeName,
-        email,
-        phoneNumber,
-        date: dateStr,
-        day: dayStr,
-        month: monthStr,
-        year: yearStr,
-        status: 'On Leave' as AttendanceStatus,
-        punchIn: '',
-        punchOut: '',
-        totalHours: 0,
-        workMode,
-        location: {
-          latitude: location.coords.latitude,
-          longitude: location.coords.longitude,
-        },
-        locationName,
-        photoUri: isPunchIn ? photoUri : '',
-        punchOutPhotoUri: !isPunchIn ? photoUri : '',
-        punchOutLocation: null,
-        punchOutLocationName: '',
-        timestamp: Timestamp.fromDate(currentTime),
-        lastUpdated: Timestamp.fromDate(currentTime),
-      };
-  
+      const timeStr = format(currentTime, 'HH:mm');
+
       const attendanceRef = collection(db, 'users', userId, 'attendance');
       const todayQuery = query(
         attendanceRef,
@@ -424,64 +385,66 @@ const AttendanceScreen = () => {
         where('year', '==', yearStr),
         where('userId', '==', userId)
       );
-  
+
       const querySnapshot = await getDocs(todayQuery);
-  
+      
       if (querySnapshot.empty) {
-        if (isPunchIn) {
-          attendanceData.punchIn = timeStr;
-          attendanceData.status = calculateStatus(timeStr, '');
-          attendanceData.photoUri = photoUri;
-        } else {
-          attendanceData.status = 'Absent';
-          attendanceData.punchOutPhotoUri = photoUri;
-          attendanceData.punchOutLocation = {
-            latitude: location.coords.latitude,
-            longitude: location.coords.longitude,
-          };
-          attendanceData.punchOutLocationName = locationName;
-        }
-        await addDoc(attendanceRef, attendanceData);
+        // Create new attendance record
+        await addDoc(attendanceRef, {
+          date: dateStr,
+          day: dayStr,
+          month: monthStr,
+          year: yearStr,
+          punchIn: isPunchIn ? timeStr : '',
+          punchOut: !isPunchIn ? timeStr : '',
+          status: isPunchIn ? 'Half Day' : 'On Leave',
+          userId,
+          timestamp: Timestamp.fromDate(currentTime),
+          photoUri: isPunchIn ? photoUri : '',
+          punchOutPhotoUri: !isPunchIn ? photoUri : '',
+          location: isPunchIn ? locationCoords : null,
+          punchOutLocation: !isPunchIn ? locationCoords : null,
+          designation: userDetails.designation || 'Telecaller',
+          employeeName: userDetails.employeeName || '',
+          phoneNumber: userDetails.phoneNumber || '',
+          email: userDetails.email || '',
+          totalHours: 0,
+          workMode: 'Office',
+          locationName: isPunchIn ? await getLocationName(locationCoords) : '',
+          punchOutLocationName: !isPunchIn ? await getLocationName(locationCoords) : '',
+          lastUpdated: Timestamp.fromDate(currentTime)
+        });
       } else {
+        // Update existing record
         const docRef = querySnapshot.docs[0].ref;
         const existingData = querySnapshot.docs[0].data();
+        const newPunchIn = isPunchIn ? timeStr : existingData.punchIn;
+        const newPunchOut = !isPunchIn ? timeStr : existingData.punchOut;
         
-        if (isPunchIn && existingData.punchIn) {
-          Alert.alert('Already Punched In', 'You have already punched in for today.');
-          return;
+        let newStatus = 'Half Day';
+        if (newPunchIn && newPunchOut) {
+          const totalHours = calculateTotalHours(newPunchIn, newPunchOut);
+          newStatus = totalHours >= 8 ? 'Present' : 'Half Day';
+        } else if (!newPunchIn && !newPunchOut) {
+          newStatus = 'On Leave';
         }
-  
-        const updatedData = {
-          ...existingData,
-          punchIn: isPunchIn ? timeStr : existingData.punchIn,
-          punchOut: !isPunchIn ? timeStr : existingData.punchOut,
+        
+        await updateDoc(docRef, {
+          punchIn: newPunchIn,
+          punchOut: newPunchOut,
+          status: newStatus,
           photoUri: isPunchIn ? photoUri : existingData.photoUri,
           punchOutPhotoUri: !isPunchIn ? photoUri : existingData.punchOutPhotoUri,
-          location: isPunchIn ? {
-            latitude: location.coords.latitude,
-            longitude: location.coords.longitude,
-          } : existingData.location,
-          locationName: isPunchIn ? locationName : existingData.locationName,
-          punchOutLocation: !isPunchIn ? {
-            latitude: location.coords.latitude,
-            longitude: location.coords.longitude,
-          } : existingData.punchOutLocation,
-          punchOutLocationName: !isPunchIn ? locationName : existingData.punchOutLocationName,
-          lastUpdated: Timestamp.fromDate(currentTime),
-        };
-  
-        if (updatedData.punchIn && updatedData.punchOut) {
-          const inTime = new Date(`2000-01-01T${updatedData.punchIn}`);
-          const outTime = new Date(`2000-01-01T${updatedData.punchOut}`);
-          const diffMs = outTime.getTime() - inTime.getTime();
-          const hours = Math.floor(diffMs / (1000 * 60 * 60));
-          updatedData.totalHours = hours;
-        }
-  
-        updatedData.status = calculateStatus(updatedData.punchIn, updatedData.punchOut);
-        await updateDoc(docRef, updatedData);
+          location: isPunchIn ? locationCoords : existingData.location,
+          punchOutLocation: !isPunchIn ? locationCoords : existingData.punchOutLocation,
+          totalHours: newPunchIn && newPunchOut ? calculateTotalHours(newPunchIn, newPunchOut) : 0,
+          locationName: isPunchIn ? await getLocationName(locationCoords) : existingData.locationName,
+          punchOutLocationName: !isPunchIn ? await getLocationName(locationCoords) : existingData.punchOutLocationName,
+          lastUpdated: Timestamp.fromDate(currentTime)
+        });
       }
-  
+
+      // Update local state
       if (isPunchIn) {
         setPunchInTime(format(currentTime, 'hh:mm a'));
         setIsPunchedIn(true);
@@ -489,12 +452,26 @@ const AttendanceScreen = () => {
         setPunchOutTime(format(currentTime, 'hh:mm a'));
         setIsPunchedIn(false);
       }
-  
+
+      // Refresh attendance history
       fetchAttendanceHistory();
     } catch (error) {
       console.error('Error saving attendance:', error);
       Alert.alert('Error', 'Failed to save attendance');
     }
+  };
+
+  // Add calculateTotalHours function
+  const calculateTotalHours = (punchIn: string, punchOut: string): number => {
+    if (!punchIn || !punchOut) return 0;
+    
+    const [inHours, inMinutes] = punchIn.split(':').map(Number);
+    const [outHours, outMinutes] = punchOut.split(':').map(Number);
+    
+    const totalInMinutes = inHours * 60 + inMinutes;
+    const totalOutMinutes = outHours * 60 + outMinutes;
+    
+    return (totalOutMinutes - totalInMinutes) / 60;
   };
 
   useEffect(() => {
@@ -677,6 +654,34 @@ const AttendanceScreen = () => {
       setIsLoading(false);
     }, 2000);
     return () => clearTimeout(timer);
+  }, []);
+
+  const loadUserDetails = async () => {
+    try {
+      const userId = auth.currentUser?.uid;
+      if (!userId) {
+        Alert.alert('Error', 'User not authenticated');
+        return;
+      }
+
+      const userDoc = await getDoc(doc(db, 'users', userId));
+      if (userDoc.exists()) {
+        const data = userDoc.data();
+        setUserDetails({
+          designation: data.designation,
+          employeeName: data.name,
+          phoneNumber: data.phoneNumber,
+          email: data.email
+        });
+      }
+    } catch (error) {
+      console.error('Error loading user details:', error);
+    }
+  };
+
+  useEffect(() => {
+    loadUserDetails();
+    fetchAttendanceHistory();
   }, []);
 
   if (isLoading) {

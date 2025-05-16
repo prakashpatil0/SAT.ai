@@ -141,7 +141,7 @@ const CameraScreen = () => {
               if (location && photo) {
                 try {
                   // Navigate to AttendanceScreen with the required data
-                  navigation.navigate('AttendanceScreen', {
+                  navigation.navigate('Attendance' as never, {
                     photo: { uri: photo.uri },
                     location: {
                       coords: {

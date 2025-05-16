@@ -938,12 +938,12 @@ const BDMAttendanceScreen = () => {
                 loadingBackgroundColor="#FFF8F0"
                 onMapReady={handleMapReady}
                 moveOnMarkerPress={false}
-                showsCompass={false}
-                showsScale={false}
-                showsTraffic={false}
-                showsBuildings={false}
-                showsIndoors={false}
-                showsPointsOfInterest={false}
+                showsCompass={true}
+                showsScale={true}
+                showsTraffic={true}
+                showsBuildings={true}
+                showsIndoors={true}
+                showsPointsOfInterest={true}
               >
                 {mapReady && (
                   <Marker

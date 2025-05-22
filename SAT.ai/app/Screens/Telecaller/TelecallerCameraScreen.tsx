@@ -147,8 +147,10 @@ const CameraScreen = () => {
                       coords: {
                         latitude: location.coords.latitude,
                         longitude: location.coords.longitude
+
                       }
                     },
+                    locationName: locationAddress,
                     dateTime: currentTime,
                     isPunchIn
                   });

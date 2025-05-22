@@ -29,6 +29,7 @@ import {
 import { db, auth } from "@/firebaseConfig";
 import { format } from "date-fns";
 import { doc, getDoc } from "firebase/firestore";
+import * as Location from "expo-location";
 
 type AttendanceStatus = "Present" | "Half Day" | "On Leave";
 
@@ -277,6 +278,7 @@ const AttendanceScreen = () => {
           day: data.day,
           punchIn: data.punchIn,
           punchOut: data.punchOut,
+          // phoneNumber: data.phoneNumber,
           status,
           userId: data.userId,
           timestamp: data.timestamp.toDate(),
@@ -463,12 +465,26 @@ const AttendanceScreen = () => {
       const roleCollection = `${role}_monthly_attendance`;
 
       const attendanceRef = collection(db, roleCollection);
+      
       const todayQuery = query(
         attendanceRef,
         where("date", "==", dateStr),
         where("userId", "==", userId)
       );
 
+            const coords = location?.coords;
+let locationName = "Unknown Location";
+if (coords) {
+  const geo = await Location.reverseGeocodeAsync({
+    latitude: coords.latitude,
+    longitude: coords.longitude,
+  });
+
+  if (geo && geo.length > 0) {
+    const { name, street, city, region } = geo[0];
+    locationName = `${name || street || ""}, ${city || region || ""}`;
+  }
+}
       const querySnapshot = await getDocs(todayQuery);
 
     if (querySnapshot.empty) {
@@ -483,6 +499,10 @@ console.log("📄 Fetched User Data:", userData); // ADD THIS
       await addDoc(attendanceRef, {
         userId,
        employeeName: userData.name || '',
+       phoneNumber: userData.phoneNumber || '',
+        role: userData.role || '',
+        // totalHours: 0,
+        locationName: userData.locationName || '',
         email: userData.email || '',
         date: dateStr,
         day: dayStr,
@@ -492,6 +512,7 @@ console.log("📄 Fetched User Data:", userData); // ADD THIS
         timestamp: Timestamp.fromDate(currentTime),
         photoUri,
         location,
+         totalHours: "",
       });
     } else {
         const docRef = querySnapshot.docs[0].ref;
@@ -505,8 +526,13 @@ console.log("📄 Fetched User Data:", userData); // ADD THIS
           punchIn: newPunchIn,
           punchOut: newPunchOut,
           status: newStatus,
-          photoUri: !isPunchIn ? photoUri : existingData.photoUri,
-          location: !isPunchIn ? location : existingData.location,
+           location: !isPunchIn ? location : existingData.location,
+      photoUri: !isPunchIn ? photoUri : existingData.photoUri,
+          totalHours: isPunchIn
+            ? existingData.totalHours
+            : existingData.totalHours + EIGHT_HOURS_IN_MS,
+            
+            
         });
       }
 

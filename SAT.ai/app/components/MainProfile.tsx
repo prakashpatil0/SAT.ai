@@ -466,7 +466,7 @@ const ProfileScreen = () => {
     </TouchableOpacity>
   ) : null
 }
-        
+      
         
       >
         <Animated.ScrollView
@@ -621,7 +621,7 @@ const ProfileScreen = () => {
                         display={Platform.OS === "ios" ? "spinner" : "default"}
                         onChange={handleDateChange}
                         maximumDate={new Date()}
-                        minimumDate={new Date(1995,0, 1)}
+                        minimumDate={new Date(1950, 0, 1)}
                       />
                     )}
                   </>

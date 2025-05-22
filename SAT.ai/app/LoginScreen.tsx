@@ -17,7 +17,13 @@ type RootStackParamList = {
   Login: undefined;
   MainApp: undefined;
   BDMStack: undefined;
-  HrStack: undefined; // ✅ Add this screen
+  HrStack: undefined; 
+  SoftwareDevStack: undefined;
+  AccountantStack: undefined;
+  DigitalMarketingStack: undefined;
+  LineManagerStack: undefined;
+  AuthorityStack: undefined;
+  HrHeadStack: undefined;
   SignUpScreen: undefined;
   AdminDrawer: undefined;
   ForgotPassword: undefined;
@@ -226,13 +232,32 @@ const LoginScreen = () => {
       case 'admin':
         navigation.reset({ index: 0, routes: [{ name: 'AdminDrawer' }] });
         break;
-      case 'hrmanager': // ✅ Add this
+      case 'hr manager':
         navigation.reset({ index: 0, routes: [{ name: 'HrStack' }] });
+        break;
+      case 'hr head': // ✅ Added HR Head role
+        navigation.reset({ index: 0, routes: [{ name: 'HrHeadStack' }] });
+        break;
+      case 'software developer':
+        navigation.reset({ index: 0, routes: [{ name: 'SoftwareDevStack' }] });
+        break;
+      case 'accountant':
+        navigation.reset({ index: 0, routes: [{ name: 'AccountantStack' }] });
+        break;
+      case 'digital marketing':
+        navigation.reset({ index: 0, routes: [{ name: 'DigitalMarketingStack' }] });
+        break;
+      case 'line manager':
+        navigation.reset({ index: 0, routes: [{ name: 'LineManagerStack' }] });
+        break;
+      case 'authority': // ✅ Added Authority role
+        navigation.reset({ index: 0, routes: [{ name: 'AuthorityStack' }] });
         break;
       default:
         showCustomAlert('Oops! Something went wrong. Please contact support.');
     }
   };
+  
   
 
   return (

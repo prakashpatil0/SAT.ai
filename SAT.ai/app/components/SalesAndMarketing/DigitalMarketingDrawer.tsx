@@ -13,29 +13,12 @@ import { MaterialCommunityIcons, MaterialIcons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import { DrawerContentComponentProps } from "@react-navigation/drawer";
 import { getAuth, signOut } from "firebase/auth";
-import { HrStackParamList } from "@/app/index";
+import { DigitalMarketingStackParamList } from "@/app/index";
 import { useProfile } from "@/app/context/ProfileContext";
 import { LinearGradient } from "expo-linear-gradient";
-
-
-
-
-
-
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { storage } from "@/firebaseConfig";
 import { ref, getDownloadURL } from "firebase/storage";
-import {
-  collection,
-  query,
-  where,
-  getDocs,
-  updateDoc,
-  doc,
-} from "firebase/firestore";
-import { db } from "@/firebaseConfig";
-
-const HrDrawer = (props: DrawerContentComponentProps) => {
+const DigitalMarketingDrawer = (props: DrawerContentComponentProps) => {
   const navigation = useNavigation();
   const auth = getAuth();
   const { userProfile, profileImage } = useProfile();
@@ -48,9 +31,7 @@ const HrDrawer = (props: DrawerContentComponentProps) => {
 
   // Load recent screens from history
   useEffect(() => {
-    // This would normally load from AsyncStorage
-    // For now using static recent screens
-    setRecentScreens(["HrHomeScreen", "HrProfile", "HRSettings"]);
+    setRecentScreens([]);
   }, []);
 
   // Load profile image from Firebase Storage
@@ -131,68 +112,12 @@ const HrDrawer = (props: DrawerContentComponentProps) => {
     ]);
   };
 
-  const handleNavigate = async (screenName: keyof HrStackParamList) => {
-  if (screenName === "PerformanceForm") {
-    try {
-      const employeeId = userProfile?.id;
-
-      if (!employeeId) {
-        Alert.alert("Error", "Employee ID not found.");
-        return;
-      }
-
-      const q = query(
-        collection(db, "authority_Approvel"),
-        where("userId", "==", employeeId)
-      );
-
-      const querySnapshot = await getDocs(q);
-
-      if (!querySnapshot.empty) {
-        const docData = querySnapshot.docs[0].data();
-        const status = (docData.status || "").toLowerCase();
-
-        console.log("📄 authority_Approvel entry found:", docData);
-        console.log("📌 Status:", status);
-
-        if (status === "pending" || status === "") {
-          // Under review
-          props.navigation.navigate("PerformanceAppraisalForm", {
-            employeeId,
-            performanceData: [docData],
-            status: "under_review",
-          });
-        } else {
-          // Final status screen (approved or cancelled)
-          props.navigation.navigate("PerformanceAppraisalForm", {
-            employeeId,
-            status,
-            description: docData.description || "",
-            finalRating: docData.finalRating || 0,
-          });
-        }
-      } else {
-        // No record found: allow form submission
-        console.log("🆕 No existing review. Opening form...");
-        props.navigation.navigate("PerformanceForm", {
-          employeeId,
-          performanceData: [],
-        });
-      }
-    } catch (error) {
-      console.error("❌ Error checking performance status:", error);
-      Alert.alert("Error", "Could not fetch review status. Try again later.");
-    } finally {
-      props.navigation.closeDrawer();
-    }
-  } else {
+  const handleNavigate = (screenName: keyof DigitalMarketingStackParamList) => {
     props.navigation.closeDrawer();
     setTimeout(() => {
       props.navigation.navigate(screenName);
     }, 300);
-  }
-};
-
+  };
 
   return (
     <View style={styles.container}>
@@ -212,7 +137,7 @@ const HrDrawer = (props: DrawerContentComponentProps) => {
 
         <TouchableOpacity
           style={styles.profileContainer}
-          onPress={() => handleNavigate("HrProfile")}
+          onPress={() => handleNavigate("DigitalMarketingProfile")}
         >
           {isImageLoading ? (
             <ActivityIndicator
@@ -264,35 +189,26 @@ const HrDrawer = (props: DrawerContentComponentProps) => {
         contentContainerStyle={styles.drawerContent}
       >
         {/* Recent Screens Section */}
-        <View style={styles.sectionContainer}>
+        {/* <View style={styles.sectionContainer}>
           <Text style={styles.sectionTitle}>RECENT</Text>
           {recentScreens.map((screen, index) => (
             <TouchableOpacity
               key={index}
               style={styles.recentItem}
-              onPress={() => handleNavigate(screen as keyof HrStackParamList)}
+              onPress={() => handleNavigate(screen as keyof SoftwareDevStackParamList)}
             >
-              <MaterialIcons name="history" size={18} color="#777" />
+              <MaterialIns namcoe="history" size={18} color="#777" />
               <Text style={styles.recentItemText}>
                 {screen.replace("HR", "")}
               </Text>
             </TouchableOpacity>
           ))}
-        </View>
+        </View> */}
 
         {/* Main Menu */}
         <View style={styles.sectionContainer}>
           <Text style={styles.sectionTitle}>MAIN MENU</Text>
 
-          <DrawerItem
-            label="Home"
-            icon={({ size }) => (
-              <MaterialIcons name="home" size={size} color="#FF8447" />
-            )}
-            labelStyle={styles.menuText}
-            style={styles.drawerItem}
-            onPress={() => handleNavigate("HrHomeScreen")}
-          />
 
           <DrawerItem
             label="Profile"
@@ -305,18 +221,10 @@ const HrDrawer = (props: DrawerContentComponentProps) => {
             )}
             labelStyle={styles.menuText}
             style={styles.drawerItem}
-            onPress={() => handleNavigate("HrProfile")}
+            onPress={() => handleNavigate("DigitalMarketingProfile")}
           />
 
-          <DrawerItem
-            label="Settings"
-            icon={({ size }) => (
-              <MaterialIcons name="settings" size={size} color="#09142D" />
-            )}
-            labelStyle={styles.menuText}
-            style={styles.drawerItem}
-            onPress={() => handleNavigate("HrSettings")}
-          />
+          
           <DrawerItem
             label="Performance Appraisal Form"
             icon={({ size }) => (
@@ -330,22 +238,7 @@ const HrDrawer = (props: DrawerContentComponentProps) => {
             style={styles.drawerItem}
             onPress={() => handleNavigate("PerformanceForm")}
             />
-           
-     
-        <DrawerItem
-            label="Performance Review"
-            icon={({ size }) => (
-              <MaterialCommunityIcons
-                name="flash"
-                size={size}
-                color="#09142D"
-              />
-            )}
-            labelStyle={styles.menuText}
-            style={styles.drawerItem}
-            onPress={() => handleNavigate("AllEmployeeList")}
-            />
-               </View>
+        </View>
       </DrawerContentScrollView>
 
       {/* App Version */}
@@ -428,6 +321,7 @@ const styles = StyleSheet.create({
   },
   sectionContainer: {
     marginBottom: 24,
+    paddingHorizontal: 8,
   },
   sectionTitle: {
     fontSize: 12,
@@ -493,4 +387,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default HrDrawer;
+export default DigitalMarketingDrawer;

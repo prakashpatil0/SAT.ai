@@ -58,11 +58,10 @@ const ApplyLeaveScreen = () => {
 
   const [lineDropdownOpen, setLineDropdownOpen] = useState(false);
   const [selectedLineManager, setSelectedLineManager] = useState(null);
-  const [lineManagerOptions, setLineManagerOptions] = useState([
-    { label: "John Smith", value: "john_smith" },
-    { label: "Priya Mehta", value: "priya_mehta" },
-    { label: "Amit Kumar", value: "amit_kumar" },
-  ]);
+ const [lineManagerOptions, setLineManagerOptions] = useState<
+  { label: string; value: string }[]
+>([]);
+
   const grantedLeaves = {
     "Earned Leave": 20,
     "Sick Leave": 25,
@@ -122,13 +121,14 @@ const ApplyLeaveScreen = () => {
 
   useEffect(() => {
     fetchHrManagers();
+     fetchLineManagers();
   }, []);
 
   const fetchHrManagers = async () => {
     try {
       const q = query(
         collection(db, "users"),
-        where("role", "==", "hrmanager")
+        where("role", "==", "hr manager")
       );
       const querySnapshot = await getDocs(q);
       const hrList: { label: string; value: string }[] = [];
@@ -148,6 +148,30 @@ const ApplyLeaveScreen = () => {
       console.error("Error fetching HR managers:", error);
     }
   };
+const fetchLineManagers = async () => {
+  try {
+    const q = query(
+      collection(db, "users"),
+      where("role", "==", "line manager")
+    );
+    const querySnapshot = await getDocs(q);
+    const lineList: { label: string; value: string }[] = [];
+
+    querySnapshot.forEach((docSnap) => {
+      const data = docSnap.data();
+      if (data?.name) {
+        lineList.push({
+          label: data.name,
+          value: docSnap.id, // store document ID
+        });
+      }
+    });
+
+    setLineManagerOptions(lineList);
+  } catch (error) {
+    console.error("Error fetching Line Managers:", error);
+  }
+};
 
   const handleFileUpload = async () => {
     try {
@@ -231,7 +255,7 @@ const ApplyLeaveScreen = () => {
       console.log("✅ Leave application saved");
 
       // ✅ Fetch HR Manager Email
-      console.log("🔍 Selected HR Manager UID:", selectedHrManager);
+      // console.log("🔍 Selected HR Manager UID:", selectedHrManager);
       const hrDocRef = doc(db, "users", selectedHrManager);
       const hrDocSnap = await getDoc(hrDocRef);
 
@@ -239,6 +263,16 @@ const ApplyLeaveScreen = () => {
         console.warn("⚠️ HR manager document not found");
         return;
       }
+// 🔍 Fetch Line Manager Email
+const lineDocRef = doc(db, "users", selectedLineManager);
+const lineDocSnap = await getDoc(lineDocRef);
+
+let lineEmail = "";
+if (lineDocSnap.exists()) {
+  lineEmail = lineDocSnap.data().email;
+} else {
+  console.warn("⚠️ Line manager document not found");
+}
 
       const hrEmail = hrDocSnap.data().email;
       console.log("📧 HR Email:", hrEmail);
@@ -247,8 +281,8 @@ const ApplyLeaveScreen = () => {
       const isAvailable = await MailComposer.isAvailableAsync();
       if (isAvailable) {
         await MailComposer.composeAsync({
-          recipients: [], // No direct recipient
-          // ccRecipients: [], // ← Replace with actual Line Manager email
+        recipients: [lineEmail], // ✅ This is the "To" field
+         
           bccRecipients: [hrEmail], // HR gets BCC
           subject: `New Leave Request from ${employeeName}`,
           body: `
@@ -386,40 +420,44 @@ const ApplyLeaveScreen = () => {
               )}
             </View>
 
-            <View style={{ zIndex: 4000 }}>
-              <View style={styles.dropdownRow}>
-                <Text style={styles.dropdownLabel}>To</Text>
-                <DropDownPicker
-                  open={lineDropdownOpen}
-                  value={selectedLineManager}
-                  items={lineManagerOptions}
-                  setOpen={setLineDropdownOpen}
-                  setValue={setSelectedLineManager}
-                  setItems={setLineManagerOptions}
-                  placeholder="Select Line Manager"
-                  style={styles.dropdownHalf}
-                  dropDownContainerStyle={{ borderColor: "#ddd" }}
-                />
-              </View>
-            </View>
+           <View style={{ zIndex: 4000, width: '96%', marginBottom: 10 }}>
+  <View style={styles.dropdownRow}>
+    <Text style={styles.dropdownLabel}>To</Text>
+    <View style={{ width: '70%' }}>
+      <DropDownPicker
+        open={lineDropdownOpen}
+        value={selectedLineManager}
+        items={lineManagerOptions}
+        setOpen={setLineDropdownOpen}
+        setValue={setSelectedLineManager}
+        setItems={setLineManagerOptions}
+        placeholder="Select Line Manager"
+        style={{ borderColor: "#ddd", backgroundColor: "#fff", width: "100%" }}
+        dropDownContainerStyle={{ borderColor: "#ddd", width: "100%" }}
+      />
+    </View>
+  </View>
+</View>
 
-            <View style={{ zIndex: 3000 }}>
-              <View style={styles.dropdownRow}>
-                <Text style={styles.dropdownLabel}>To (BCC)</Text>
-                <DropDownPicker
-                  open={hrDropdownOpen}
-                  value={selectedHrManager}
-                  items={hrManagerOptions}
-                  setOpen={setHrDropdownOpen}
-                  setValue={setSelectedHrManager}
-                  setItems={setHrManagerOptions}
-                  placeholder="Select HR Manager"
-                  style={styles.dropdownHalf}
-                  dropDownContainerStyle={{ borderColor: "#ddd" }}
-                />
+<View style={{ zIndex: 3000, width: '96%', marginBottom: 10 }}>
+  <View style={styles.dropdownRow}>
+    <Text style={styles.dropdownLabel}>To (BCC)</Text>
+    <View style={{ width: '70%' }}>
+      <DropDownPicker
+        open={hrDropdownOpen}
+        value={selectedHrManager}
+        items={hrManagerOptions}
+        setOpen={setHrDropdownOpen}
+        setValue={setSelectedHrManager}
+        setItems={setHrManagerOptions}
+        placeholder="Select HR Manager"
+        style={{ borderColor: "#ddd", backgroundColor: "#fff", width: "100%" }}
+        dropDownContainerStyle={{ borderColor: "#ddd", width: "100%" }}
+      />
+    </View>
+  </View>
+</View>
 
-              </View>
-            </View>
 
             <View style={styles.notesContainer}>
               <TextInput

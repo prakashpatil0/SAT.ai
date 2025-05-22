@@ -11,6 +11,9 @@ import targetService, { getTargets, getCurrentWeekAchievements, getPreviousWeekA
 import { differenceInDays, endOfWeek, startOfWeek, startOfDay, endOfDay, startOfMonth, endOfMonth } from 'date-fns';
 import { collection, query, where, orderBy, limit, getDocs, Timestamp, addDoc, updateDoc } from 'firebase/firestore';
 import { db } from '@/firebaseConfig';
+import Loader from '@/app/components/Loader';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import WaveSkeleton from "@/app/components/WaveSkeleton";
 
 // Define types for achievements and targets
 interface Achievements {
@@ -429,14 +432,19 @@ const WeeklyTargetScreen = () => {
 
   if (loading) {
     return (
-      <AppGradient>
-        <TelecallerMainLayout showDrawer showBackButton={true} title="Weekly Target">
-          {renderWaveSkeleton()}
-        </TelecallerMainLayout>
-      </AppGradient>
+      <SafeAreaView style={{ flex: 1 }}>
+        <AppGradient>
+          <TelecallerMainLayout showDrawer showBackButton={true} title="Weekly Target">
+            <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+           <Loader/>
+            
+            </View>
+          </TelecallerMainLayout>
+        </AppGradient>
+      </SafeAreaView>
     );
+    
   }
-
   return (
     <AppGradient>
     <TelecallerMainLayout showDrawer showBackButton={true} title="Weekly Target">

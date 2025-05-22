@@ -28,7 +28,6 @@ import ViewFullReport from "@/app/Screens/Telecaller/TelecallerViewFullReport";
 import VirtualBusinessCard from "@/app/Screens/Telecaller/DrawerTab/TelecallerVirtualBusinessCard";
 import Profile from "@/app/Screens/Telecaller/DrawerTab/TelecallerProfile";
 import TelecallerSettings from "@/app/Screens/Telecaller/DrawerTab/TelecallerSettings";
-// import ConfirmationScreen from "@/app/Screens/Telecaller/TelecallerConfirmationScreen";
 import CameraScreen from "@/app/Screens/Telecaller/TelecallerCameraScreen";
 import LoginScreen from "@/app/LoginScreen";
 import ContactInfo from "@/app/Screens/Telecaller/TelecallerContactInfo";
@@ -36,7 +35,6 @@ import AddContactModal from "@/app/Screens/Telecaller/TelecallerAddContactModal"
 import CallHistory from "./Screens/Telecaller/TelecallerCallHistory";
 import TelecallerPersonNotes from "@/app/Screens/Telecaller/TelecallerPersonNotes";
 import ContactBook from "@/app/components/ContactBook/ContactBook";
-
 import BDMBottomTabs from "@/app/Screens/BDM/BDMBottomTabs";
 import BDMContactDetailsScreen from "@/app/Screens/BDM/BDMContactDetailsScreen";
 import BDMCompanyDetailsScreen from "@/app/Screens/BDM/BDMCompanyDetailsScreen";
@@ -86,7 +84,36 @@ import ApplyLeaveScreen from "@/app/HRMS/ApplyLeaveScreen";
 import CalendarViewScreen from "@/app/HRMS/CalendarViewScreen";
 import TelecallerLeaveApplication from "@/app/HRMS/TelecallerLeaveApplication";
 import HrSettings from "./HRMS/DrawerTab/HrSettings";
+import PerformanceForm from "@/app/components/PerformanceForm";
 
+import AllEmployeeList from "./HRMS/DrawerTab/AllEmployeeList";
+
+
+import SoftwareDevDrawer from "@/app/components/IT/SoftwareDevDrawer";
+import ItProfile from "@/app/components/IT/DrawerTab/ItProfile";
+
+import AccountantDrawer from "@/app/components/FinanceAndAccounting/AccountantDrawer";
+import FinanceAccountantProfile from "@/app/components/FinanceAndAccounting/DrawerTab/FinanceAccountantProfile";
+
+
+
+import DigitalMarketingDrawer from "@/app/components/SalesAndMarketing/DigitalMarketingDrawer";
+import DigitalMarketingProfile from "@/app/components/SalesAndMarketing/DrawerTab/DigitalMarketingProfile";
+
+import LineManagerDrawer from "@/app/components/LineManager/LineManagerDrawer";
+import LineManagerProfile from "@/app/components/LineManager/DrawerTab/LineManagerProfile";
+
+import HrHeadDrawer from "@/app/components/HrHead/HrHeadDrawer";
+import HrHeadProfile from "@/app/components/HrHead/DrawerTab/HrHeadProfile";
+
+
+import AuthorityDrawer from "@/app/components/Authority/AuthorityDrawer";
+import AuthorityProfile from "@/app/components/Authority/DrawerTab/AuthorityProfile";
+import PerformanceView from "@/app/components/Authority/DrawerTab/PerformanceView";
+import EmployeeList from "./components/Authority/DrawerTab/EmployeeList";
+
+import PerformanceAppraisalForm from "./components/PerformanceAppraisalForm";
+import Loader from "./components/Loader";
 export type RootStackParamList = {
   // Auth Screens
   Login: undefined;
@@ -101,15 +128,47 @@ export type RootStackParamList = {
   BDMHomeScreen: undefined;
   Profile: undefined;
   ContactBook: undefined;
+  Loader: undefined;
   
 // HRMS Screens
   HrHomeScreen: undefined;
   HrStackNavigator: undefined;
   HrProfile: undefined;
   HrSettings: undefined;
+  PerformanceForm: { employeeId?: string };
+
+  HrStack: undefined;
+  PerformanceAppraisalForm: { employeeId: string }; 
 
 
+// Software Development Screens
+  SoftwareDevStack: undefined;
+  ItPerformanceForm: undefined;
+  SoftwareDevDrawer: undefined;
+  ItProfile: undefined;
+  AllEmployeeList: undefined;
 
+  // Accountant Screens
+  AccountantStack: undefined;
+  AccountantDrawer: undefined;
+  FinanceAccountantProfile: undefined;
+
+  // Digital Marketing Screens
+  MarketingProfile: undefined;
+  DigitalMarketingStack: undefined;
+
+  //Hr Head Screens
+  HrHeadStack: undefined;
+  HrHeadDrawer: undefined;
+  HrHeadProfile: undefined;
+
+
+  // Authority Screens
+  AuthorityStack: undefined;
+  AuthorityDrawer: undefined;
+  AuthorityProfile: undefined;
+  PerformanceView: undefined;
+  EmployeeList: undefined;
 
   // BDM Screens
   MeetingDetails: { meetingId: string };
@@ -180,6 +239,9 @@ export type BDMStackParamList = {
   BDMHomeScreen: undefined;
   TelecallerLeaveApplication: undefined;
   ApplyLeaveScreen: undefined;
+  PerformanceForm: { employeeId?: string };
+
+PerformanceAppraisalForm: { employeeId: string }; // ✅ Fix this
   CalendarViewScreen: undefined;
   BDMCallHistory: {
     customerName: string;
@@ -287,6 +349,58 @@ export type HrStackParamList = {
   CalendarViewScreen: undefined;
   HrProfile: undefined;
   HrSettings: undefined;
+PerformanceAppraisalForm: { employeeId: string }; 
+  AllEmployeeList: undefined;
+ PerformanceForm: { employeeId?: string };
+
+};
+
+
+
+export type SoftwareDevStackParamList = {
+  ITHomeScreen: undefined;
+  ItProfile: undefined;
+  HrSettings: undefined;
+PerformanceForm: { employeeId?: string };
+
+};
+export type AccountantStackParamList = {
+PerformanceForm: { employeeId?: string };
+
+  AccountantStack: undefined;
+  AccountantDrawer: undefined;
+  FinanceAccountantProfile: undefined;
+};
+
+
+export type DigitalMarketingStackParamList = {
+  // SalesMarketingPerformanceForm: undefined;
+PerformanceForm: { employeeId?: string };
+
+  DigitalMarketingStack: undefined;
+  DigitalMarketingDrawer: undefined;
+  DigitalMarketingProfile: undefined;
+};
+export type LineManagerStackParamList = {
+  LineManagerStack: undefined;
+  LineManagerDrawer: undefined;
+  LineManagerProfile: undefined;
+};
+export type HrHeadStackParamList = {
+  HrHeadStack: undefined;
+  HrHeadDrawer: undefined;
+  HrHeadProfile: undefined;
+  AllEmployeeList:undefined
+ PerformanceForm: { employeeId?: string };
+
+PerformanceAppraisalForm: { employeeId: string };
+};
+export type AuthorityStackParamList = {
+  AuthorityStack: undefined;
+  AuthorityDrawer: undefined;
+  AuthorityProfile: undefined;
+  PerformanceView: undefined;
+  EmployeeList: undefined;
 };
 // Prevent splash screen from hiding automatically
 SplashScreen.preventAutoHideAsync();
@@ -327,7 +441,7 @@ const DrawerNavigator = () => {
         header: () => null,
       }}
     >
-      {/* <Drawer.Screen name="Main" component={BottomTabNavigator} options={{ headerShown: false }} /> */}
+   
       <Drawer.Screen name="HomeScreen" component={HomeScreen} options={{ headerShown: false }}/>
       <Drawer.Screen name="Target" component={TargetScreen} />
       <Drawer.Screen name="Attendance" component={AttendanceScreen} />
@@ -354,6 +468,9 @@ const DrawerNavigator = () => {
       <Drawer.Screen name="TelecallerLeaveApplication" component={TelecallerLeaveApplication} />
       <Drawer.Screen name="ApplyLeaveScreen" component={ApplyLeaveScreen} />
       <Drawer.Screen name="CalendarViewScreen" component={CalendarViewScreen} />
+      <Drawer.Screen name="PerformanceForm" component={PerformanceForm} />
+      <Drawer.Screen name="PerformanceAppraisalForm" component={PerformanceAppraisalForm} />
+     
     </Drawer.Navigator>
     </IdleTimerProvider>
   );
@@ -559,7 +676,18 @@ function BDMStackNavigator() {
       name="ApplyLeaveScreen" 
       component={ApplyLeaveScreen}
       options={{ headerShown: false }}/>
+      <BDMStack.Screen
+      name="PerformanceForm"
+      component={PerformanceForm}
+      options={{ headerShown: false }}/>
+      <BDMStack.Screen
+        name="PerformanceAppraisalForm"
+        component={PerformanceAppraisalForm}
+        options={{ headerShown: false }}/>
+
     </BDMStack.Navigator>
+    
+    
   );
 }
 
@@ -632,7 +760,584 @@ function HrStackNavigator() {
           ),
         }}
       />
+      <HrStack.Screen
+        name="PerformanceForm" 
+        component={PerformanceForm}
+        options={{
+          title: 'Performance Form',
+          drawerIcon: ({ color }) => (
+            <MaterialIcons name="person" size={24} color={color} />
+          ),
+        }}  
+      />
+<HrStack.Screen
+        name="AllEmployeeList" 
+        component={AllEmployeeList}
+        options={{
+          title: 'Performance Review',
+          drawerIcon: ({ color }) => (
+            <MaterialIcons name="person" size={24} color={color} />
+          ),
+        }}  
+      />
+<HrStack.Screen
+        name="PerformanceAppraisalForm" 
+        component={PerformanceAppraisalForm}
+        options={{
+          title: 'Performance Appraisal Form',
+          drawerIcon: ({ color }) => (
+            <MaterialIcons name="person" size={24} color={color} />
+          ),
+        }}  
+      />
     </HrStack.Navigator>
+  );
+}
+
+
+
+
+const SoftwareDevStack = createDrawerNavigator<SoftwareDevStackParamList>();
+
+function SoftwareDevStackNavigator() {
+  return (
+    <SoftwareDevStack.Navigator
+      drawerContent={(props) => <SoftwareDevDrawer {...props} />}
+      initialRouteName="PerformanceForm"
+      screenOptions={{
+        headerShown: false,
+        drawerStyle: {
+          backgroundColor: '#fff',
+          width: 280,
+          borderTopRightRadius: 20,
+          borderBottomRightRadius: 20,
+          elevation: 5,
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 2 },
+          shadowOpacity: 0.25,
+          shadowRadius: 3.84,
+        },
+        drawerLabelStyle: {
+          fontFamily: 'LexendDeca_400Regular',
+          fontSize: 16,
+          color: '#333',
+          marginLeft: -16,
+          paddingLeft: 16,
+        },
+        drawerItemStyle: {
+          paddingVertical: 8,
+          marginVertical: 4,
+          borderRadius: 8,
+        },
+        drawerActiveTintColor: '#FF8447',
+        drawerInactiveTintColor: '#666',
+        drawerActiveBackgroundColor: '#FFF8F0',
+        drawerInactiveBackgroundColor: 'transparent',
+      }}
+    >
+      {/* <SoftwareDevStack.Screen 
+        name="SoftwareDevHomeScreen" 
+        component={SoftwareDevHomeScreen}
+        options={{
+          title: 'Home',
+          drawerIcon: ({ color }) => (
+            <MaterialIcons name="home" size={24} color={color} />
+          ),
+        }}
+      /> */}
+       <SoftwareDevStack.Screen 
+        name="ItProfile" 
+        component={ItProfile}
+        options={{
+          title: 'Profile',
+          drawerIcon: ({ color }) => (
+            <MaterialIcons name="person" size={24} color={color} />
+          ),
+        }}
+      />
+      {/* <SoftwareDevStack.Screen 
+        name="ItSettings" 
+        component={ItSettings}
+        options={{
+          title: 'Settings',
+          drawerIcon: ({ color }) => (
+            <MaterialIcons name="person" size={24} color={color} />
+          ),
+        }}
+      /> */}
+      <SoftwareDevStack.Screen
+        name="PerformanceForm" 
+        component={PerformanceForm}
+        options={{
+          title: 'Performance Form',
+          drawerIcon: ({ color }) => (
+            <MaterialIcons name="person" size={24} color={color} />
+          ),
+        }}  
+      />
+    </SoftwareDevStack.Navigator>
+  );
+}
+
+const AccountantStack = createDrawerNavigator<AccountantStackParamList>();
+
+function AccountantStackNavigator() {
+  return (
+    <AccountantStack.Navigator
+      drawerContent={(props) => <AccountantDrawer {...props} />}
+      initialRouteName="PerformanceForm"
+      screenOptions={{
+        headerShown: false,
+        drawerStyle: {
+          backgroundColor: '#fff',
+          width: 280,
+          borderTopRightRadius: 20,
+          borderBottomRightRadius: 20,
+          elevation: 5,
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 2 },
+          shadowOpacity: 0.25,
+          shadowRadius: 3.84,
+        },
+        drawerLabelStyle: {
+          fontFamily: 'LexendDeca_400Regular',
+          fontSize: 16,
+          color: '#333',
+          marginLeft: -16,
+          paddingLeft: 16,
+        },
+        drawerItemStyle: {
+          paddingVertical: 8,
+          marginVertical: 4,
+          borderRadius: 8,
+        },
+        drawerActiveTintColor: '#FF8447',
+        drawerInactiveTintColor: '#666',
+        drawerActiveBackgroundColor: '#FFF8F0',
+        drawerInactiveBackgroundColor: 'transparent',
+      }}
+    >
+      {/* <SoftwareDevStack.Screen 
+        name="SoftwareDevHomeScreen" 
+        component={SoftwareDevHomeScreen}
+        options={{
+          title: 'Home',
+          drawerIcon: ({ color }) => (
+            <MaterialIcons name="home" size={24} color={color} />
+          ),
+        }}
+      /> */}
+       <AccountantStack.Screen 
+        name="FinanceAccountantProfile" 
+        component={FinanceAccountantProfile}
+        options={{
+          title: 'Profile',
+          drawerIcon: ({ color }) => (
+            <MaterialIcons name="person" size={24} color={color} />
+          ),
+        }}
+      />
+      {/* <SoftwareDevStack.Screen 
+        name="ItSettings" 
+        component={ItSettings}
+        options={{
+          title: 'Settings',
+          drawerIcon: ({ color }) => (
+            <MaterialIcons name="person" size={24} color={color} />
+          ),
+        }}
+      /> */}
+      <AccountantStack.Screen
+        name="PerformanceForm" 
+        component={PerformanceForm}
+        options={{
+          title: 'Performance Form',
+          drawerIcon: ({ color }) => (
+            <MaterialIcons name="person" size={24} color={color} />
+          ),
+        }}  
+      />
+    </AccountantStack.Navigator>
+  );
+}
+
+const DigitalMarketingStack = createDrawerNavigator<DigitalMarketingStackParamList>();
+
+function DigitalMarketingStackNavigator() {
+  return (
+    <DigitalMarketingStack.Navigator
+      drawerContent={(props) => <DigitalMarketingDrawer {...props} />}
+      initialRouteName="PerformanceForm"
+      screenOptions={{
+        headerShown: false,
+        drawerStyle: {
+          backgroundColor: '#fff',
+          width: 280,
+          borderTopRightRadius: 20,
+          borderBottomRightRadius: 20,
+          elevation: 5,
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 2 },
+          shadowOpacity: 0.25,
+          shadowRadius: 3.84,
+        },
+        drawerLabelStyle: {
+          fontFamily: 'LexendDeca_400Regular',
+          fontSize: 16,
+          color: '#333',
+          marginLeft: -16,
+          paddingLeft: 16,
+        },
+        drawerItemStyle: {
+          paddingVertical: 8,
+          marginVertical: 4,
+          borderRadius: 8,
+        },
+        drawerActiveTintColor: '#FF8447',
+        drawerInactiveTintColor: '#666',
+        drawerActiveBackgroundColor: '#FFF8F0',
+        drawerInactiveBackgroundColor: 'transparent',
+      }}
+    >
+      {/* <SoftwareDevStack.Screen 
+        name="SoftwareDevHomeScreen" 
+        component={SoftwareDevHomeScreen}
+        options={{
+          title: 'Home',
+          drawerIcon: ({ color }) => (
+            <MaterialIcons name="home" size={24} color={color} />
+          ),
+        }}
+      /> */}
+       <DigitalMarketingStack.Screen 
+        name="DigitalMarketingProfile" 
+        component={DigitalMarketingProfile}
+        options={{
+          title: 'Profile',
+          drawerIcon: ({ color }) => (
+            <MaterialIcons name="person" size={24} color={color} />
+          ),
+        }}
+      />
+      {/* <SoftwareDevStack.Screen 
+        name="ItSettings" 
+        component={ItSettings}
+        options={{
+          title: 'Settings',
+          drawerIcon: ({ color }) => (
+            <MaterialIcons name="person" size={24} color={color} />
+          ),
+        }}
+      /> */}
+      <DigitalMarketingStack.Screen
+        name="PerformanceForm" 
+        component={PerformanceForm}
+        options={{
+          title: 'Performance Form',
+          drawerIcon: ({ color }) => (
+            <MaterialIcons name="person" size={24} color={color} />
+          ),
+        }}  
+      />
+    </DigitalMarketingStack.Navigator>
+  );
+}
+
+const LineMangerStack = createDrawerNavigator<LineManagerStackParamList>();
+
+function LineMangerStackNavigator() {
+  return (
+    <LineMangerStack.Navigator
+      drawerContent={(props) => <LineManagerDrawer {...props} />}
+      initialRouteName="LineManagerProfile"
+      screenOptions={{
+        headerShown: false,
+        drawerStyle: {
+          backgroundColor: '#fff',
+          width: 280,
+          borderTopRightRadius: 20,
+          borderBottomRightRadius: 20,
+          elevation: 5,
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 2 },
+          shadowOpacity: 0.25,
+          shadowRadius: 3.84,
+        },
+        drawerLabelStyle: {
+          fontFamily: 'LexendDeca_400Regular',
+          fontSize: 16,
+          color: '#333',
+          marginLeft: -16,
+          paddingLeft: 16,
+        },
+        drawerItemStyle: {
+          paddingVertical: 8,
+          marginVertical: 4,
+          borderRadius: 8,
+        },
+        drawerActiveTintColor: '#FF8447',
+        drawerInactiveTintColor: '#666',
+        drawerActiveBackgroundColor: '#FFF8F0',
+        drawerInactiveBackgroundColor: 'transparent',
+      }}
+    >
+      {/* <SoftwareDevStack.Screen 
+        name="SoftwareDevHomeScreen" 
+        component={SoftwareDevHomeScreen}
+        options={{
+          title: 'Home',
+          drawerIcon: ({ color }) => (
+            <MaterialIcons name="home" size={24} color={color} />
+          ),
+        }}
+      /> */}
+       <LineMangerStack.Screen 
+        name="LineManagerProfile" 
+        component={LineManagerProfile}
+        options={{
+          title: 'Profile',
+          drawerIcon: ({ color }) => (
+            <MaterialIcons name="person" size={24} color={color} />
+          ),
+        }}
+      />
+      {/* <SoftwareDevStack.Screen 
+        name="ItSettings" 
+        component={ItSettings}
+        options={{
+          title: 'Settings',
+          drawerIcon: ({ color }) => (
+            <MaterialIcons name="person" size={24} color={color} />
+          ),
+        }}
+      /> */}
+      {/* <LineMangerStack.Screen
+        name="SalesMarketingPerformanceForm" 
+        component={SalesMarketingPerformanceForm}
+        options={{
+          title: 'Performance Form',
+          drawerIcon: ({ color }) => (
+            <MaterialIcons name="person" size={24} color={color} />
+          ),
+        }}  
+      /> */}
+    </LineMangerStack.Navigator>
+  );
+}
+
+
+const HrHeadStack = createDrawerNavigator<HrHeadStackParamList>();
+
+function HrHeadStackNavigator() {
+  return (
+    <HrHeadStack.Navigator
+      drawerContent={(props) => <HrHeadDrawer {...props} />}
+      initialRouteName="AllEmployeeList"
+      screenOptions={{
+        headerShown: false,
+        drawerStyle: {
+          backgroundColor: '#fff',
+          width: 280,
+          borderTopRightRadius: 20,
+          borderBottomRightRadius: 20,
+          elevation: 5,
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 2 },
+          shadowOpacity: 0.25,
+          shadowRadius: 3.84,
+        },
+        drawerLabelStyle: {
+          fontFamily: 'LexendDeca_400Regular',
+          fontSize: 16,
+          color: '#333',
+          marginLeft: -16,
+          paddingLeft: 16,
+        },
+        drawerItemStyle: {
+          paddingVertical: 8,
+          marginVertical: 4,
+          borderRadius: 8,
+        },
+        drawerActiveTintColor: '#FF8447',
+        drawerInactiveTintColor: '#666',
+        drawerActiveBackgroundColor: '#FFF8F0',
+        drawerInactiveBackgroundColor: 'transparent',
+      }}
+    >
+      {/* <SoftwareDevStack.Screen 
+        name="SoftwareDevHomeScreen" 
+        component={SoftwareDevHomeScreen}
+        options={{
+          title: 'Home',
+          drawerIcon: ({ color }) => (
+            <MaterialIcons name="home" size={24} color={color} />
+          ),
+        }}
+      /> */}
+       <HrHeadStack.Screen 
+        name="HrHeadProfile" 
+        component={HrHeadProfile}
+        options={{
+          title: 'Profile',
+          drawerIcon: ({ color }) => (
+            <MaterialIcons name="person" size={24} color={color} />
+          ),
+        }}
+      />
+      <HrHeadStack.Screen 
+        name="AllEmployeeList" 
+        component={AllEmployeeList}
+        options={{
+          title: 'Performance Review',
+          drawerIcon: ({ color }) => (
+            <MaterialIcons name="person" size={24} color={color} />
+          ),
+        }}
+      />
+      <HrHeadStack.Screen
+        name="PerformanceForm" 
+        component={PerformanceForm}
+        options={{
+          title: 'Performance Review',
+          drawerIcon: ({ color }) => (
+            <MaterialIcons name="person" size={24} color={color} />
+          ),
+        }} 
+        />
+      <HrHeadStack.Screen 
+        name="PerformanceAppraisalForm" 
+        component={PerformanceAppraisalForm}
+        options={{
+          title: 'Performance Review',
+          drawerIcon: ({ color }) => (
+            <MaterialIcons name="person" size={24} color={color} />
+          ),
+        }}
+      />
+      {/* <SoftwareDevStack.Screen 
+        name="ItSettings" 
+        component={ItSettings}
+        options={{
+          title: 'Settings',
+          drawerIcon: ({ color }) => (
+            <MaterialIcons name="person" size={24} color={color} />
+          ),
+        }}
+      /> */}
+      {/* <LineMangerStack.Screen
+        name="SalesMarketingPerformanceForm" 
+        component={SalesMarketingPerformanceForm}
+        options={{
+          title: 'Performance Form',
+          drawerIcon: ({ color }) => (
+            <MaterialIcons name="person" size={24} color={color} />
+          ),
+        }}  
+      /> */}
+    </HrHeadStack.Navigator>
+  );
+}
+
+
+const AuthorityStack = createDrawerNavigator<AuthorityStackParamList>();
+
+function AuthorityStackNavigator() {
+  return (
+    <AuthorityStack.Navigator
+      drawerContent={(props) => <AuthorityDrawer {...props} />}
+      initialRouteName="EmployeeList"
+      screenOptions={{
+        headerShown: false,
+        drawerStyle: {
+          backgroundColor: '#fff',
+          width: 280,
+          borderTopRightRadius: 20,
+          borderBottomRightRadius: 20,
+          elevation: 5,
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 2 },
+          shadowOpacity: 0.25,
+          shadowRadius: 3.84,
+        },
+        drawerLabelStyle: {
+          fontFamily: 'LexendDeca_400Regular',
+          fontSize: 16,
+          color: '#333',
+          marginLeft: -16,
+          paddingLeft: 16,
+        },
+        drawerItemStyle: {
+          paddingVertical: 8,
+          marginVertical: 4,
+          borderRadius: 8,
+        },
+        drawerActiveTintColor: '#FF8447',
+        drawerInactiveTintColor: '#666',
+        drawerActiveBackgroundColor: '#FFF8F0',
+        drawerInactiveBackgroundColor: 'transparent',
+      }}
+    >
+      {/* <SoftwareDevStack.Screen 
+        name="SoftwareDevHomeScreen" 
+        component={SoftwareDevHomeScreen}
+        options={{
+          title: 'Home',
+          drawerIcon: ({ color }) => (
+            <MaterialIcons name="home" size={24} color={color} />
+          ),
+        }}
+      /> */}
+       <AuthorityStack.Screen 
+        name="AuthorityProfile" 
+        component={AuthorityProfile}
+        options={{
+          title: 'Profile',
+          drawerIcon: ({ color }) => (
+            <MaterialIcons name="person" size={24} color={color} />
+          ),
+        }}
+      />
+      <AuthorityStack.Screen 
+        name="EmployeeList" 
+        component={EmployeeList}
+        options={{
+          title: 'Profile',
+          drawerIcon: ({ color }) => (
+            <MaterialIcons name="person" size={24} color={color} />
+          ),
+        }}
+      />
+       <AuthorityStack.Screen 
+        name="PerformanceView" 
+        component={PerformanceView}
+        options={{
+          title: 'Profile',
+          drawerIcon: ({ color }) => (
+            <MaterialIcons name="person" size={24} color={color} />
+          ),
+        }}
+      />
+      {/* <SoftwareDevStack.Screen 
+        name="ItSettings" 
+        component={ItSettings}
+        options={{
+          title: 'Settings',
+          drawerIcon: ({ color }) => (
+            <MaterialIcons name="person" size={24} color={color} />
+          ),
+        }}
+      /> */}
+      {/* <LineMangerStack.Screen
+        name="SalesMarketingPerformanceForm" 
+        component={SalesMarketingPerformanceForm}
+        options={{
+          title: 'Performance Form',
+          drawerIcon: ({ color }) => (
+            <MaterialIcons name="person" size={24} color={color} />
+          ),
+        }}  
+      /> */}
+    </AuthorityStack.Navigator>
   );
 }
 const RootStack = () => {
@@ -680,7 +1385,14 @@ const RootStack = () => {
         }}
       />
       <Stack.Screen name="HrStack" component={HrStackNavigator} options={{ headerShown: false }} />
+      <Stack.Screen name="SoftwareDevStack" component={SoftwareDevStackNavigator} options={{ headerShown: false }} />
+      <Stack.Screen name="AccountantStack" component={AccountantStackNavigator} options={{ headerShown: false }} />
+      <Stack.Screen name="DigitalMarketingStack" component={DigitalMarketingStackNavigator} options={{ headerShown: false }} />
+      <Stack.Screen name="LineManagerStack" component={LineMangerStackNavigator} options={{ headerShown: false }} />
+      <Stack.Screen name="HrHeadStack" component={HrHeadStackNavigator} options={{ headerShown: false }} />
+      <Stack.Screen name="AuthorityStack" component={AuthorityStackNavigator} options={{ headerShown: false }} /> 
       <Stack.Screen name="ContactInfo" component={ContactInfo} options={{ headerShown: false }} />
+      <Stack.Screen name="PerformanceForm" component={PerformanceForm} />
     </Stack.Navigator>
   );
 };

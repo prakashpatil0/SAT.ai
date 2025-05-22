@@ -243,13 +243,32 @@ const BDMDrawer = (props: DrawerContentComponentProps) => {
             onPress={() => handleNavigate("BDMLeaderBoard")}
           />
         </View>
+         <View style={styles.sectionContainer}>
+                <Text style={styles.sectionTitle}>EMPLOYEE SERVICES</Text>
                 <DrawerItem
-                  label="HR-leave (under development)"
+                  label="Leave Application"
                   icon={({ color, size }) => <MaterialCommunityIcons name="calendar-star" size={size} color="#09142D" />}
                   labelStyle={styles.menuText}
                   style={styles.drawerItem}
                   onPress={() => handleNavigate("TelecallerLeaveApplication")}
                   />
+
+         <DrawerItem
+                    label="Performance Appraisal Form"
+                    icon={({ size }) => (
+                      <MaterialCommunityIcons
+                        name="speedometer"
+                        size={size}
+                        color="#09142D"
+                      />
+                    )}
+                    labelStyle={styles.menuText}
+                    style={styles.drawerItem}
+                    onPress={() => handleNavigate("PerformanceForm")}
+                    />
+        </View>
+
+
       </DrawerContentScrollView>
 
       {/* App Version */}

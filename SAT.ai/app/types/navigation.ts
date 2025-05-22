@@ -9,7 +9,6 @@ export type RootStackParamList = {
   // Main App Screens
   MainApp: undefined;
   Profile: undefined;
-
   // BDM Screens
   BDMHomeScreen: undefined;
   MeetingDetails: { meetingId: string };
@@ -82,4 +81,7 @@ export type RootStackParamList = {
     }
   };
   TelecallerIdleTimer: { activateImmediately: boolean };
+
+  PerformanceForm: { employeeId?: string };
+PerformanceAppraisalForm: { employeeId: string };
 }; 

@@ -13,8 +13,10 @@ import { MaterialCommunityIcons, MaterialIcons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import { DrawerContentComponentProps } from "@react-navigation/drawer";
 import { getAuth, signOut } from "firebase/auth";
+import { HrHeadStackParamList } from "@/app/index";
 import { useProfile } from "@/app/context/ProfileContext";
 import { LinearGradient } from "expo-linear-gradient";
+
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { storage } from "@/firebaseConfig";
 import { ref, getDownloadURL } from "firebase/storage";
@@ -23,44 +25,79 @@ import {
   query,
   where,
   getDocs,
-  getDoc,
   updateDoc,
   doc,
 } from "firebase/firestore";
 import { db } from "@/firebaseConfig";
 
-const CustomDrawer = (props: DrawerContentComponentProps) => {
+const HrHeadDrawer = (props: DrawerContentComponentProps) => {
   const navigation = useNavigation();
   const auth = getAuth();
   const { userProfile, profileImage } = useProfile();
   const [loading, setLoading] = useState(false);
   const [recentScreens, setRecentScreens] = useState<string[]>([]);
-  const [defaultProfileImage, setDefaultProfileImage] = useState<string | null>(
-    null
-  );
-  const [imageLoading, setImageLoading] = useState(true);
+  const [firebaseProfileImage, setFirebaseProfileImage] = useState<
+    string | null
+  >(null);
+  const [isImageLoading, setIsImageLoading] = useState(true);
 
   // Load recent screens from history
   useEffect(() => {
     // This would normally load from AsyncStorage
     // For now using static recent screens
-    setRecentScreens(["HomeScreen", "Target", "ContactBook"]);
-    loadDefaultProfileImage();
+    setRecentScreens([]);
   }, []);
 
-  const loadDefaultProfileImage = async () => {
-    try {
-      console.log("Loading default profile image from Firebase Storage");
-      const imageRef = ref(storage, "assets/girl.png");
-      const url = await getDownloadURL(imageRef);
-      console.log("Successfully loaded default profile image URL:", url);
-      setDefaultProfileImage(url);
-    } catch (error) {
-      console.error("Error loading default profile image:", error);
-    } finally {
-      setImageLoading(false);
-    }
-  };
+  // Load profile image from Firebase Storage
+  useEffect(() => {
+    const loadProfileImage = async () => {
+      try {
+        setIsImageLoading(true);
+        // First try to use the profileImage from context if available
+        if (profileImage) {
+          console.log("Using profile image from context:", profileImage);
+          setFirebaseProfileImage(profileImage);
+          setIsImageLoading(false);
+          return;
+        }
+
+        // If no profileImage in context, try to get from userProfile
+        if (userProfile?.profileImageUrl) {
+          console.log(
+            "Using profile image from userProfile:",
+            userProfile.profileImageUrl
+          );
+          setFirebaseProfileImage(userProfile.profileImageUrl);
+          setIsImageLoading(false);
+          return;
+        }
+
+        // If no profile image URL in userProfile, try to get default from Firebase Storage
+        try {
+          console.log(
+            "Attempting to load default profile image from Firebase Storage"
+          );
+          const defaultImageRef = ref(storage, "assets/person.png");
+          const url = await getDownloadURL(defaultImageRef);
+          console.log("Successfully loaded default profile image URL:", url);
+          setFirebaseProfileImage(url);
+        } catch (error: any) {
+          console.error("Error loading default profile image:", error);
+          console.error("Error code:", error.code);
+          console.error("Error message:", error.message);
+          // If Firebase Storage fails, set to null
+          setFirebaseProfileImage(null);
+        }
+      } catch (error) {
+        console.error("Error in loadProfileImage:", error);
+        setFirebaseProfileImage(null);
+      } finally {
+        setIsImageLoading(false);
+      }
+    };
+
+    loadProfileImage();
+  }, [userProfile, profileImage]);
 
   const handleLogout = () => {
     Alert.alert("Logout", "Are you sure you want to logout?", [
@@ -73,12 +110,6 @@ const CustomDrawer = (props: DrawerContentComponentProps) => {
         onPress: async () => {
           try {
             setLoading(true);
-            // Clear session data
-            await AsyncStorage.multiRemove([
-              "sessionToken",
-              "lastActiveTime",
-              "userRole",
-            ]);
             await signOut(auth);
             navigation.reset({
               index: 0,
@@ -94,85 +125,64 @@ const CustomDrawer = (props: DrawerContentComponentProps) => {
       },
     ]);
   };
+  const handleNavigate = async (screenName: keyof HrHeadStackParamList) => {
+    if (screenName === "PerformanceForm") {
+      try {
+        const employeeId = userProfile?.id;
 
+        if (!employeeId) {
+          Alert.alert("Error", "Employee ID not found.");
+          return;
+        }
 
-const handleNavigate = async (screenName: string) => {
-  if (screenName === "PerformanceForm") {
-    try {
-      const employeeId = userProfile?.id;
+        const q = query(
+          collection(db, "authority_Approvel"),
+          where("userId", "==", employeeId)
+        );
 
-      if (!employeeId) {
-        Alert.alert("Error", "Employee ID not found.");
-        return;
-      }
+        const querySnapshot = await getDocs(q);
 
-      const currentUserId = auth.currentUser?.uid;
-      if (!currentUserId) {
-        Alert.alert("Error", "User not logged in.");
-        return;
-      }
+        if (!querySnapshot.empty) {
+          const docData = querySnapshot.docs[0].data();
+          const status = (docData.status || "").toLowerCase();
 
-      // ✅ Step 1: Get current user role
-      const userDoc = await getDoc(doc(db, "users", currentUserId));
-      const currentRole = userDoc.exists() ? userDoc.data().role?.toLowerCase() : "";
+          console.log("📄 authority_Approvel entry found:", docData);
+          console.log("📌 Status:", status);
 
-      // ✅ Step 2: Check if this user already submitted for this employee
-      const reviewQuery = query(
-        collection(db, "performance_reviews"),
-        where("userId", "==", employeeId),
-        where("submittedByRole", "==", currentRole)
-      );
-      const reviewSnapshot = await getDocs(reviewQuery);
-      const hasSubmitted = !reviewSnapshot.empty;
-
-      // ✅ Step 3: Check authority status
-      const q = query(
-        collection(db, "authority_Approvel"),
-        where("userId", "==", employeeId)
-      );
-      const querySnapshot = await getDocs(q);
-
-      if (!querySnapshot.empty) {
-        const docData = querySnapshot.docs[0].data();
-        const status = (docData.status || "").toLowerCase();
-
-        if (hasSubmitted) {
-          // 🔁 This role already submitted
-          props.navigation.navigate("PerformanceAppraisalForm", {
-            employeeId,
-            performanceData: [docData],
-            status: "under_review",
-          });
+          if (status === "pending" || status === "") {
+            props.navigation.navigate("PerformanceAppraisalForm", {
+              employeeId,
+              performanceData: [docData],
+              status: "under_review",
+            });
+          } else {
+            props.navigation.navigate("PerformanceAppraisalForm", {
+              employeeId,
+              status,
+              description: docData.description || "",
+              finalRating: docData.finalRating || 0,
+            });
+          }
         } else {
-          // 📝 This role has not submitted yet → show the form
+          console.log("🆕 No existing review. Opening form...");
           props.navigation.navigate("PerformanceForm", {
             employeeId,
             performanceData: [],
           });
         }
-      } else {
-        // 🆕 No authority document → show form
-        props.navigation.navigate("PerformanceForm", {
-          employeeId,
-          performanceData: [],
-        });
+      } catch (error) {
+        console.error("❌ Error checking performance status:", error);
+        Alert.alert("Error", "Could not fetch review status. Try again later.");
+      } finally {
+        props.navigation.closeDrawer();
       }
-    } catch (error) {
-      console.error("❌ Error checking performance status:", error);
-      Alert.alert("Error", "Could not fetch review status. Try again later.");
-    } finally {
+    } else {
       props.navigation.closeDrawer();
+      setTimeout(() => {
+        props.navigation.navigate(screenName);
+      }, 300);
     }
-  } else {
-    props.navigation.closeDrawer();
-    setTimeout(() => {
-      props.navigation.navigate(screenName);
-    }, 300);
-  }
-};
-
-
-
+  };
 
   return (
     <View style={styles.container}>
@@ -192,26 +202,32 @@ const handleNavigate = async (screenName: string) => {
 
         <TouchableOpacity
           style={styles.profileContainer}
-          onPress={() => handleNavigate("Profile")}
+          onPress={() => handleNavigate("HrHeadProfile")}
         >
-          {imageLoading ? (
+          {isImageLoading ? (
+            <ActivityIndicator
+              size="small"
+              color="#FFF"
+              style={styles.profileImage}
+            />
+          ) : firebaseProfileImage ? (
+            <Image
+              source={{ uri: firebaseProfileImage }}
+              style={styles.profileImage}
+            />
+          ) : (
             <View
               style={[
                 styles.profileImage,
-                { justifyContent: "center", alignItems: "center" },
+                {
+                  backgroundColor: "#f0f0f0",
+                  justifyContent: "center",
+                  alignItems: "center",
+                },
               ]}
             >
-              <MaterialIcons name="person" size={24} color="#FFF" />
+              <MaterialIcons name="person" size={24} color="#999" />
             </View>
-          ) : (
-            <Image
-              source={
-                profileImage
-                  ? { uri: profileImage }
-                  : { uri: defaultProfileImage || "" }
-              }
-              style={styles.profileImage}
-            />
           )}
           <View style={styles.profileTextContainer}>
             <Text style={styles.profileName}>
@@ -238,37 +254,39 @@ const handleNavigate = async (screenName: string) => {
         contentContainerStyle={styles.drawerContent}
       >
         {/* Recent Screens Section */}
-        <View style={styles.sectionContainer}>
+        {/* <View style={styles.sectionContainer}>
           <Text style={styles.sectionTitle}>RECENT</Text>
           {recentScreens.map((screen, index) => (
             <TouchableOpacity
               key={index}
               style={styles.recentItem}
-              onPress={() => handleNavigate(screen)}
+              onPress={() => handleNavigate(screen as keyof SoftwareDevStackParamList)}
             >
               <MaterialIcons name="history" size={18} color="#777" />
-              <Text style={styles.recentItemText}>{screen}</Text>
+              <Text style={styles.recentItemText}>
+                {screen.replace("HR", "")}
+              </Text>
             </TouchableOpacity>
           ))}
-        </View>
+        </View> */}
 
         {/* Main Menu */}
         <View style={styles.sectionContainer}>
           <Text style={styles.sectionTitle}>MAIN MENU</Text>
-
+          {/* 
           <DrawerItem
             label="Home"
-            icon={({ color, size }) => (
+            icon={({ size }) => (
               <MaterialIcons name="home" size={size} color="#FF8447" />
             )}
             labelStyle={styles.menuText}
             style={styles.drawerItem}
-            onPress={() => handleNavigate("HomeScreen")}
-          />
+            onPress={() => handleNavigate("HrHomeScreen")}
+          /> */}
 
           <DrawerItem
             label="Profile"
-            icon={({ color, size }) => (
+            icon={({ size }) => (
               <MaterialCommunityIcons
                 name="account-circle"
                 size={size}
@@ -277,102 +295,10 @@ const handleNavigate = async (screenName: string) => {
             )}
             labelStyle={styles.menuText}
             style={styles.drawerItem}
-            onPress={() => handleNavigate("Profile")}
+            onPress={() => handleNavigate("HrHeadProfile")}
           />
-
           <DrawerItem
-            label="Contact Book"
-            icon={({ color, size }) => (
-              <MaterialCommunityIcons
-                name="contacts"
-                size={size}
-                color="#09142D"
-              />
-            )}
-            labelStyle={styles.menuText}
-            style={styles.drawerItem}
-            onPress={() => handleNavigate("ContactBook")}
-          />
-
-          <DrawerItem
-            label="Virtual Business Card"
-            icon={({ color, size }) => (
-              <MaterialCommunityIcons
-                name="card-account-details"
-                size={size}
-                color="#09142D"
-              />
-            )}
-            labelStyle={styles.menuText}
-            style={styles.drawerItem}
-            onPress={() => handleNavigate("VirtualBusinessCard")}
-          />
-        </View>
-
-        {/* Productivity Tools */}
-        <View style={styles.sectionContainer}>
-          <Text style={styles.sectionTitle}>PRODUCTIVITY</Text>
-
-          <DrawerItem
-            label="My Schedule"
-            icon={({ color, size }) => (
-              <MaterialCommunityIcons
-                name="calendar"
-                size={size}
-                color="#09142D"
-              />
-            )}
-            labelStyle={styles.menuText}
-            style={styles.drawerItem}
-            onPress={() => handleNavigate("My Schedule")}
-          />
-
-          <DrawerItem
-            label="My Script"
-            icon={({ color, size }) => (
-              <MaterialCommunityIcons
-                name="note-text-outline"
-                size={size}
-                color="#09142D"
-              />
-            )}
-            labelStyle={styles.menuText}
-            style={styles.drawerItem}
-            onPress={() => handleNavigate("My Script")}
-          />
-
-          <DrawerItem
-            label="Leaderboard"
-            icon={({ color, size }) => (
-              <MaterialCommunityIcons
-                name="podium"
-                size={size}
-                color="#09142D"
-              />
-            )}
-            labelStyle={styles.menuText}
-            style={styles.drawerItem}
-            onPress={() => handleNavigate("Leaderboard")}
-          />
-        </View>
-        <View style={styles.sectionContainer}>
-          <Text style={styles.sectionTitle}>EMPLOYEE SERVICES</Text>
-          <DrawerItem
-            label="Leave Application"
-            icon={({ color, size }) => (
-              <MaterialCommunityIcons
-                name="calendar-star"
-                size={size}
-                color="#09142D"
-              />
-            )}
-            labelStyle={styles.menuText}
-            style={styles.drawerItem}
-            onPress={() => handleNavigate("TelecallerLeaveApplication")}
-          />
-          {/* kishor */}
-          <DrawerItem
-            label="Performance Appraisal Form"
+            label="Performance Review"
             icon={({ size }) => (
               <MaterialCommunityIcons
                 name="speedometer"
@@ -382,22 +308,9 @@ const handleNavigate = async (screenName: string) => {
             )}
             labelStyle={styles.menuText}
             style={styles.drawerItem}
-            onPress={() => handleNavigate("PerformanceForm")}
+            onPress={() => handleNavigate("AllEmployeeList")}
           />
-        </View>
-        {/* Tools & Settings */}
-        <View style={styles.sectionContainer}>
-          <Text style={styles.sectionTitle}>TOOLS & SETTINGS</Text>
 
-          <DrawerItem
-            label="Settings"
-            icon={({ color, size }) => (
-              <MaterialIcons name="settings" size={size} color="#09142D" />
-            )}
-            labelStyle={styles.menuText}
-            style={styles.drawerItem}
-            onPress={() => handleNavigate("TelecallerSettings")}
-          />
         </View>
       </DrawerContentScrollView>
 
@@ -429,7 +342,6 @@ const handleNavigate = async (screenName: string) => {
     </View>
   );
 };
-
 
 const styles = StyleSheet.create({
   container: {
@@ -482,7 +394,6 @@ const styles = StyleSheet.create({
   },
   sectionContainer: {
     marginBottom: 24,
-    paddingHorizontal: 8,
   },
   sectionTitle: {
     fontSize: 12,
@@ -548,4 +459,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default CustomDrawer;
+export default HrHeadDrawer;

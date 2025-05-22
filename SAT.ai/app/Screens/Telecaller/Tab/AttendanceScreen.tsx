@@ -124,12 +124,6 @@ const AttendanceScreen = () => {
   const [isNewUser, setIsNewUser] = useState(true);
   const [waveAnimation] = useState(new Animated.Value(0));
   const [isLoading, setIsLoading] = useState(true);
-  const [userDetails, setUserDetails] = useState<{
-    designation?: string;
-    employeeName?: string;
-    phoneNumber?: string;
-    email?: string;
-  }>({});
 
   const [weekDays, setWeekDays] = useState<WeekDay[]>([
     { day: "M", date: "", status: "On Leave" },
@@ -532,19 +526,6 @@ console.log("📄 Fetched User Data:", userData); // ADD THIS
     }
   };
 
-  // Add calculateTotalHours function
-  const calculateTotalHours = (punchIn: string, punchOut: string): number => {
-    if (!punchIn || !punchOut) return 0;
-    
-    const [inHours, inMinutes] = punchIn.split(':').map(Number);
-    const [outHours, outMinutes] = punchOut.split(':').map(Number);
-    
-    const totalInMinutes = inHours * 60 + inMinutes;
-    const totalOutMinutes = outHours * 60 + outMinutes;
-    
-    return (totalOutMinutes - totalInMinutes) / 60;
-  };
-
   useEffect(() => {
     if (
       route.params?.photo &&
@@ -748,34 +729,6 @@ console.log("📄 Fetched User Data:", userData); // ADD THIS
     }, 2000);
 
     return () => clearTimeout(timer);
-  }, []);
-
-  const loadUserDetails = async () => {
-    try {
-      const userId = auth.currentUser?.uid;
-      if (!userId) {
-        Alert.alert('Error', 'User not authenticated');
-        return;
-      }
-
-      const userDoc = await getDoc(doc(db, 'users', userId));
-      if (userDoc.exists()) {
-        const data = userDoc.data();
-        setUserDetails({
-          designation: data.designation,
-          employeeName: data.name,
-          phoneNumber: data.phoneNumber,
-          email: data.email
-        });
-      }
-    } catch (error) {
-      console.error('Error loading user details:', error);
-    }
-  };
-
-  useEffect(() => {
-    loadUserDetails();
-    fetchAttendanceHistory();
   }, []);
 
   if (isLoading) {

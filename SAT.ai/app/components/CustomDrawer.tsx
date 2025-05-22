@@ -43,39 +43,48 @@ const CustomDrawer = (props: DrawerContentComponentProps) => {
     }
   };
 
-  const handleLogout = () => {
-    Alert.alert(
-      "Logout",
-      "Are you sure you want to logout?",
-      [
-        {
-          text: "Cancel",
-          style: "cancel"
-        },
-        {
-          text: "Logout",
-          onPress: async () => {
-            try {
-              setLoading(true);
-              // Clear session data
-              await AsyncStorage.multiRemove(['sessionToken', 'lastActiveTime', 'userRole']);
-              await signOut(auth);
-              navigation.reset({
-                index: 0,
-                routes: [{ name: 'Login' as never }]
-              });
-            } catch (error) {
-              console.error('Logout error:', error);
-              Alert.alert('Error', 'Failed to logout. Please try again.');
-            } finally {
-              setLoading(false);
-            }
-          }
-        }
-      ]
-    );
-  };
+  // const handleLogout = () => {
+  //   Alert.alert(
+  //     "Logout",
+  //     "Are you sure you want to logout?",
+  //     [
+  //       {
+  //         text: "Cancel",
+  //         style: "cancel"
+  //       },
+  //       {
+  //         text: "Logout",
+  //         onPress: async () => {
+  //           try {
+  //             setLoading(true);
+  //             // Clear session data
+  //             await AsyncStorage.multiRemove(['sessionToken', 'lastActiveTime', 'userRole']);
+  //             await signOut(auth);
+  //             navigation.reset({
+  //               index: 0,
+  //               routes: [{ name: 'Login' as never }]
+  //             });
+  //           } catch (error) {
+  //             console.error('Logout error:', error);
+  //             Alert.alert('Error', 'Failed to logout. Please try again.');
+  //           } finally {
+  //             setLoading(false);
+  //           }
+  //         }
+  //       }
+  //     ]
+  //   );
+  // };
 
+
+  const handleLogout = async () => {
+  try {
+    await signOut(auth);
+    navigation.reset({ index: 0, routes: [{ name: 'Login' as never }] });
+  } catch (err) {
+    console.error("Logout failed", err);
+  }
+};
   const handleNavigate = (screenName: string) => {
     props.navigation.closeDrawer();
     setTimeout(() => {

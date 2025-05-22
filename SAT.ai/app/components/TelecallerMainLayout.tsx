@@ -15,8 +15,9 @@ type TelecallerMainLayoutProps = {
   showBackButton?: boolean;
   showDrawer?: boolean;
   showBottomTabs?: boolean;
-  rightIcon?: React.ReactNode;
+  rightComponent?: React.ReactNode; // ✅ updated
 };
+
 
 const TelecallerMainLayout: React.FC<TelecallerMainLayoutProps> = ({
   children,
@@ -24,8 +25,9 @@ const TelecallerMainLayout: React.FC<TelecallerMainLayoutProps> = ({
   showBackButton = true,
   showDrawer = true,
   showBottomTabs = true,
-  rightIcon,
+  rightComponent, // ✅ updated
 }) => {
+
   const navigation = useNavigation();
   const { userProfile, profilePhotoUri } = useProfile();
   const [defaultProfileImage, setDefaultProfileImage] = useState<string | null>(null);
@@ -99,7 +101,7 @@ const TelecallerMainLayout: React.FC<TelecallerMainLayoutProps> = ({
               <Text style={styles.title}>{title}</Text>
             )}
             <View style={styles.rightContainer}>
-              {rightIcon}
+              {rightComponent}
             </View>
           </View>
         </View>

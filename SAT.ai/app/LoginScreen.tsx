@@ -44,48 +44,92 @@ const LoginScreen = () => {
   const [alertMessage, setAlertMessage] = useState("");
   const [alertType, setAlertType] = useState<'error' | 'success'>('error');
   const [shakeAnimation] = useState(new Animated.Value(0));
-  
+  const [isCheckingAuth, setIsCheckingAuth] = useState(true);
+  const auth = getAuth();
+  const db = getFirestore();
   // Add session check on component mount
-  useEffect(() => {
-    checkExistingSession();
-  }, []);
-
-  const checkExistingSession = async () => {
-    try {
-      const [sessionToken, lastActiveTime] = await AsyncStorage.multiGet([
-        'sessionToken',
-        'lastActiveTime'
-      ]);
-
-      if (sessionToken[1] && lastActiveTime[1]) {
-        const lastActive = new Date(lastActiveTime[1]).getTime();
-        const now = new Date().getTime();
-        const thirtyDaysInMs = 30 * 24 * 60 * 60 * 1000;
-
-        if (now - lastActive <= thirtyDaysInMs) {
-          // Try to restore Firebase auth state
-          try {
-            const userCredential = await signInWithCustomToken(auth, sessionToken[1]);
-            if (userCredential.user) {
-              // Get user role from Firestore
-              const userDoc = await getDoc(doc(db, 'users', userCredential.user.uid));
-              if (userDoc.exists()) {
-                const userData = userDoc.data();
-                await AsyncStorage.setItem('userRole', userData.role.toLowerCase());
-                navigateBasedOnRole(userData.role.toLowerCase());
-              }
-            }
-          } catch (error) {
-            console.log('Failed to restore session:', error);
-            // Clear invalid session
-            await AsyncStorage.multiRemove(['sessionToken', 'lastActiveTime', 'userRole']);
-          }
+useEffect(() => {
+  const unsubscribe = auth.onAuthStateChanged(async (user) => {
+    if (user) {
+      try {
+        const userDoc = await getDoc(doc(db, "users", user.uid));
+        if (userDoc.exists()) {
+          const userData = userDoc.data();
+          navigation.reset({
+            index: 0,
+            routes: [{
+              name: getRouteForRole(userData.role.toLowerCase()),
+            }],
+          });
         }
+      } catch (err) {
+        console.error("Error loading user role:", err);
+        setIsCheckingAuth(false);
       }
-    } catch (error) {
-      console.error('Error checking session:', error);
+    } else {
+      setIsCheckingAuth(false); // ✅ user not logged in → show login
     }
-  };
+  });
+
+  return () => unsubscribe();
+}, []);
+
+const getRouteForRole = (role: string) => {
+  switch (role) {
+    case 'telecaller':
+      return 'MainApp';
+    case 'bdm':
+      return 'BDMStack';
+    case 'admin':
+      return 'AdminDrawer';
+    case 'hrmanager':
+      return 'HrStack';
+    default:
+      return 'Login';
+  }
+};
+
+if (isCheckingAuth) {
+  return <View style={{ flex: 1, backgroundColor: 'white' }} />;
+}
+
+
+  // const checkExistingSession = async () => {
+  //   try {
+  //     const [sessionToken, lastActiveTime] = await AsyncStorage.multiGet([
+  //       'sessionToken',
+  //       'lastActiveTime'
+  //     ]);
+
+  //     if (sessionToken[1] && lastActiveTime[1]) {
+  //       const lastActive = new Date(lastActiveTime[1]).getTime();
+  //       const now = new Date().getTime();
+  //       const thirtyDaysInMs = 30 * 24 * 60 * 60 * 1000;
+
+  //       if (now - lastActive <= thirtyDaysInMs) {
+  //         // Try to restore Firebase auth state
+  //         try {
+  //           const userCredential = await signInWithCustomToken(auth, sessionToken[1]);
+  //           if (userCredential.user) {
+  //             // Get user role from Firestore
+  //             const userDoc = await getDoc(doc(db, 'users', userCredential.user.uid));
+  //             if (userDoc.exists()) {
+  //               const userData = userDoc.data();
+  //               await AsyncStorage.setItem('userRole', userData.role.toLowerCase());
+  //               navigateBasedOnRole(userData.role.toLowerCase());
+  //             }
+  //           }
+  //         } catch (error) {
+  //           console.log('Failed to restore session:', error);
+  //           // Clear invalid session
+  //           await AsyncStorage.multiRemove(['sessionToken', 'lastActiveTime', 'userRole']);
+  //         }
+  //       }
+  //     }
+  //   } catch (error) {
+  //     console.error('Error checking session:', error);
+  //   }
+  // };
 
   const showCustomAlert = (message: string, type: 'error' | 'success' = 'error') => {
     setAlertMessage(message);
@@ -145,11 +189,11 @@ const LoginScreen = () => {
       const userData = userDoc.data();
       
       // Store session data in AsyncStorage
-      await AsyncStorage.multiSet([
-        ['userRole', userData.role.toLowerCase()],
-        ['sessionToken', user.uid],
-        ['lastActiveTime', new Date().toISOString()]
-      ]);
+   await AsyncStorage.multiSet([
+  ['userRole', userData.role.toLowerCase()],
+  ['sessionToken', user.uid],
+  ['lastActiveTime', new Date().toISOString()]
+]);
 
       // Show success message
       showCustomAlert('Welcome back! Login successful.', 'success');

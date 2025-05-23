@@ -13,6 +13,7 @@ type RootStackParamList = {
   AttendanceScreen: {
     photo?: { uri: string };
     location?: { coords: { latitude: number; longitude: number } };
+    locationName?: string | null; // ✅ Add this line
     dateTime?: Date;
     isPunchIn?: boolean;
   };
@@ -20,6 +21,7 @@ type RootStackParamList = {
     isPunchIn: boolean;
   };
 };
+
 
 type CameraScreenRouteProp = RouteProp<RootStackParamList, 'CameraScreen'>;
 type CameraScreenNavigationProp = StackNavigationProp<RootStackParamList, 'CameraScreen'>;
@@ -141,17 +143,19 @@ const CameraScreen = () => {
               if (location && photo) {
                 try {
                   // Navigate to AttendanceScreen with the required data
-                  navigation.navigate('Attendance' as never, {
-                    photo: { uri: photo.uri },
-                    location: {
-                      coords: {
-                        latitude: location.coords.latitude,
-                        longitude: location.coords.longitude
-                      }
-                    },
-                    dateTime: currentTime,
-                    isPunchIn
-                  });
+                 navigation.navigate('Attendance' as never, {
+  photo: { uri: photo.uri },
+  location: {
+    coords: {
+      latitude: location.coords.latitude,
+      longitude: location.coords.longitude
+    }
+  },
+  locationName: locationAddress, // ✅ pass location name
+  dateTime: currentTime,
+  isPunchIn
+});
+
                 } catch (error) {
                   console.error('Navigation error:', error);
                   Alert.alert('Error', 'Failed to navigate to attendance screen. Please try again.');

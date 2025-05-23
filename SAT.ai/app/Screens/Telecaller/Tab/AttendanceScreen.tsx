@@ -29,6 +29,7 @@ import {
 import { db, auth } from "@/firebaseConfig";
 import { format } from "date-fns";
 import { doc, getDoc } from "firebase/firestore";
+import * as Location from "expo-location";
 
 type AttendanceStatus = "Present" | "Half Day" | "On Leave";
 
@@ -53,6 +54,7 @@ type RootStackParamList = {
     photo?: { uri: string };
     location?: { coords: { latitude: number; longitude: number } };
     isPunchIn?: boolean;
+    locationName?: string | null;
   };
 };
 
@@ -368,7 +370,8 @@ const AttendanceScreen = () => {
   const saveAttendance = async (
     isPunchIn: boolean,
     photoUri: string,
-    location: any
+    location: any,
+      locationNameFromCamera?: string | null
   ) => {
     try {
       const userId = auth.currentUser?.uid;
@@ -388,14 +391,28 @@ const AttendanceScreen = () => {
       const dayStr = format(currentTime, "EEE").toUpperCase();
       const timeStr = format(currentTime, "HH:mm");
       const roleCollection = `${role}_monthly_attendance`;
-
+ const locationName = locationNameFromCamera || 'Unknown Location';
       const attendanceRef = collection(db, roleCollection);
+      
       const todayQuery = query(
         attendanceRef,
         where("date", "==", dateStr),
         where("userId", "==", userId)
       );
 
+            const coords = location?.coords;
+// let locationName = "Unknown Location";
+if (coords) {
+  const geo = await Location.reverseGeocodeAsync({
+    latitude: coords.latitude,
+    longitude: coords.longitude,
+  });
+
+  if (geo && geo.length > 0) {
+    const { name, street, city, region } = geo[0];
+    // locationName = `${name || street || ""}, ${city || region || ""}`;
+  }
+}
       const querySnapshot = await getDocs(todayQuery);
 
       if (querySnapshot.empty) {
@@ -432,8 +449,13 @@ const AttendanceScreen = () => {
           punchIn: newPunchIn,
           punchOut: newPunchOut,
           status: newStatus,
-          photoUri: !isPunchIn ? photoUri : existingData.photoUri,
-          location: !isPunchIn ? location : existingData.location,
+           location: !isPunchIn ? location : existingData.location,
+      photoUri: !isPunchIn ? photoUri : existingData.photoUri,
+          totalHours: isPunchIn
+            ? existingData.totalHours
+            : existingData.totalHours + EIGHT_HOURS_IN_MS,
+            
+            
         });
       }
 
@@ -453,16 +475,16 @@ const AttendanceScreen = () => {
     }
   };
 
-  useEffect(() => {
-    if (
-      route.params?.photo &&
-      route.params?.location &&
-      route.params?.isPunchIn !== undefined
-    ) {
-      const { photo, location, isPunchIn } = route.params;
-      saveAttendance(isPunchIn, photo.uri, location);
-    }
-  }, [route.params]);
+ useEffect(() => {
+  if (
+    route.params?.photo &&
+    route.params?.location &&
+    route.params?.isPunchIn !== undefined
+  ) {
+    const { photo, location, locationName, isPunchIn } = route.params;
+    saveAttendance(isPunchIn, photo.uri, location, locationName); // ✅ Pass locationName
+  }
+}, [route.params]);
 
   useEffect(() => {
     fetchAttendanceHistory();

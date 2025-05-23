@@ -746,7 +746,7 @@ const BDMAttendanceScreen = () => {
   const getLocationName = async (coords: any): Promise<string> => {
     try {
       const response = await fetch(
-        `https://maps.googleapis.com/maps/api/geocode/json?latlng=${coords.latitude},${coords.longitude}&key=YOUR_GOOGLE_MAPS_API_KEY`
+        `https://maps.googleapis.com/maps/api/geocode/json?latlng=${coords.latitude},${coords.longitude}&key=AIzaSyB1b5wiV2CnRX0iwhq0D7RSI9XTDfOXgD0`
       );
       const data = await response.json();
       if (data.results && data.results[0]) {
@@ -1120,11 +1120,6 @@ const BDMAttendanceScreen = () => {
                     <View style={styles.punchTimeContainer}>
                       <Text style={styles.punchTime}>{record.punchIn ? format(new Date(`2000-01-01T${record.punchIn}`), 'hh:mm a') : '-----'}</Text>
                       <Text style={styles.punchType}>Punch In</Text>
-                      {record.locationName && (
-                        <Text style={styles.locationText} numberOfLines={1}>
-                          {record.locationName}
-                        </Text>
-                      )}
                     </View>
                     <View style={styles.punchTimeContainer}>
                       <Text style={styles.punchTime}>{record.punchOut ? format(new Date(`2000-01-01T${record.punchOut}`), 'hh:mm a') : '-----'}</Text>
@@ -1135,14 +1130,6 @@ const BDMAttendanceScreen = () => {
                         Total Hours: {record.totalHours.toFixed(1)}h
                       </Text>
                     )}
-                    {record.workMode && (
-                      <Text style={styles.workMode}>
-                        Mode: {record.workMode}
-                      </Text>
-                    )}
-                    <Text style={styles.lastUpdated}>
-                      Last Updated: {format(record.lastUpdated, 'dd MMM yyyy, hh:mm a')}
-                    </Text>
                   </View>
                   <View style={[styles.statusBadge, getStatusStyle(record.status)]}>
                     <Text style={[styles.statusText, getStatusTextStyle(record.status)]}>{record.status}</Text>

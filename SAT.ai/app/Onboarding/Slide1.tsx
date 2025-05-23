@@ -7,18 +7,15 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { storage } from '@/firebaseConfig';
 import { ref, getDownloadURL } from 'firebase/storage';
 import * as FileSystem from 'expo-file-system';
-import { Asset } from 'expo-asset';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-// import { RootStackParamList } from '../navigation/types';
-
 
 export type RootStackParamList = {
   Onboarding: undefined;
   Login: undefined;
   Register: undefined;
   Home: undefined;
-  // Add other screen names and their params as needed
 };
+
 const { width, height } = Dimensions.get('window');
 
 const slides = [
@@ -70,8 +67,6 @@ const OnboardingScreen = () => {
       setIsLoading(true);
       const documentRef = ref(storage, `documents/${documentType === 'terms' ? 'Terms_and_Conditions.pdf' : 'privacy_policy.pdf'}`);
       const url = await getDownloadURL(documentRef);
-      
-      // Open the document URL in the device's default PDF viewer
       await Linking.openURL(url);
     } catch (error) {
       console.error(`Error opening ${documentType} document:`, error);
@@ -84,36 +79,35 @@ const OnboardingScreen = () => {
     }
   };
 
-  // Preload and cache images
   const preloadImages = useCallback(async () => {
-    const imageUrls: { [key: number]: string } = {};
     const cacheDir = `${FileSystem.cacheDirectory}onboarding_images/`;
-    
-    // Create cache directory if it doesn't exist
     await FileSystem.makeDirectoryAsync(cacheDir, { intermediates: true });
 
-    for (const slide of slides) {
+    const imagePromises = slides.map(async (slide) => {
       try {
         const imageRef = ref(storage, slide.imageUrl);
         const url = await getDownloadURL(imageRef);
-        
-        // Check if image is already cached
         const cachedPath = `${cacheDir}${slide.id}.jpg`;
         const fileInfo = await FileSystem.getInfoAsync(cachedPath);
-        
+
         if (fileInfo.exists) {
-          imageUrls[slide.id] = cachedPath;
+          return { id: slide.id, uri: cachedPath };
         } else {
-          // Download and cache the image
           const downloadResult = await FileSystem.downloadAsync(url, cachedPath);
-          imageUrls[slide.id] = downloadResult.uri;
+          return { id: slide.id, uri: downloadResult.uri };
         }
-      } catch (error: any) {
+      } catch (error) {
         console.error(`Error loading image for slide ${slide.id}:`, error);
-        imageUrls[slide.id] = '';
+        return { id: slide.id, uri: '' };
       }
-    }
-    
+    });
+
+    const results = await Promise.all(imagePromises);
+    const imageUrls = results.reduce((acc, { id, uri }) => {
+      acc[id] = uri;
+      return acc;
+    }, {} as { [key: number]: string });
+
     setSlideImages(imageUrls);
     setIsLoading(false);
   }, []);
@@ -132,7 +126,7 @@ const OnboardingScreen = () => {
       Animated.sequence([
         Animated.timing(fadeAnim, {
           toValue: 1,
-          duration: 1000, // Reduced from 2000 to 1000
+          duration: 1000,
           useNativeDriver: true,
         }),
         Animated.spring(slideAnim, {
@@ -151,7 +145,7 @@ const OnboardingScreen = () => {
       Animated.sequence([
         Animated.timing(rotateAnim, {
           toValue: 1,
-          duration: 200, // Reduced from 400 to 200
+          duration: 200,
           useNativeDriver: true,
         }),
         Animated.spring(rotateAnim, {
@@ -189,9 +183,7 @@ const OnboardingScreen = () => {
 
   const handleGetStarted = async () => {
     try {
-      // Mark that user has seen onboarding
       await AsyncStorage.setItem('hasSeenOnboarding', 'true');
-      // Navigate to login screen
       navigation.navigate('Login');
     } catch (error) {
       console.error('Error saving onboarding status:', error);
@@ -200,157 +192,161 @@ const OnboardingScreen = () => {
   };
 
   return (
-    <Swiper
-      ref={swiperRef}
-      loop={false}
-      showsPagination={false}
-      index={currentIndex}
-      onIndexChanged={(index) => {
-        setCurrentIndex(index);
-        animateContent(index);
-      }}
-      loadMinimal={true}
-      loadMinimalSize={1}
-      removeClippedSubviews={true}
-    >
-      {slides.map((slide, index) => (
-        <View key={slide.id} style={styles.container}>
-          <LinearGradient 
-            colors={['#FFE4D9', '#FFFFFF']} 
-            style={styles.gradient}
-            start={{ x: 0.5, y: 0 }}
-            end={{ x: 0.5, y: 1 }}
-          >
-            <View style={styles.contentContainer}>
-              <Animated.View 
-                style={[
-                  styles.imageContainer,
-                  {
-                    opacity: fadeAnim,
-                    transform: [
-                      { translateY: slideAnim },
-                      { scale: scaleAnim },
-                      { rotate: spin }
-                    ]
-                  }
-                ]}
-              >
-                {slideImages[slide.id] ? (
-                  <Image 
-                    source={{ uri: slideImages[slide.id] }} 
-                    style={styles.image} 
-                    resizeMode="contain"
-                    onLoadStart={() => setIsLoading(true)}
-                    onLoadEnd={() => setIsLoading(false)}
-                  />
-                ) : (
-                  <View style={[styles.image, { backgroundColor: '#f0f0f0' }]} />
-                )}
-              </Animated.View>
+    <View style={styles.container}>
+      <Swiper
+        ref={swiperRef}
+        loop={false}
+        showsPagination={false}
+        index={currentIndex}
+        onIndexChanged={(index) => {
+          setCurrentIndex(index);
+          animateContent(index);
+        }}
+        loadMinimal={true}
+        loadMinimalSize={1}
+        removeClippedSubviews={true}
+      >
+        {slides.map((slide, index) => (
+          <View key={slide.id} style={styles.slideContainer}>
+            <LinearGradient 
+              colors={['#FFE4D9', '#FFFFFF']} 
+              style={styles.gradient}
+              start={{ x: 0.5, y: 0 }}
+              end={{ x: 0.5, y: 1 }}
+            >
+              <View style={styles.contentContainer}>
+                <Animated.View 
+                  style={[
+                    styles.imageContainer,
+                    {
+                      opacity: fadeAnim,
+                      transform: [
+                        { translateY: slideAnim },
+                        { scale: scaleAnim },
+                        { rotate: spin }
+                      ]
+                    }
+                  ]}
+                >
+                  {slideImages[slide.id] ? (
+                    <Image 
+                      source={{ uri: slideImages[slide.id] }} 
+                      style={styles.image} 
+                      resizeMode="contain"
+                      onLoadStart={() => setIsLoading(true)}
+                      onLoadEnd={() => setIsLoading(false)}
+                    />
+                  ) : (
+                    <View style={[styles.image, { backgroundColor: '#f0f0f0' }]} />
+                  )}
+                </Animated.View>
 
-              <Animated.View 
-                style={[
-                  styles.textContainer,
-                  {
-                    opacity: fadeAnim,
-                    transform: [
-                      { translateY: slideAnim },
-                      { scale: scaleAnim }
-                    ]
-                  }
-                ]}
-              >
-                <Text style={styles.title}>{slide.title}</Text>
-                <Text style={styles.description}>{slide.description}</Text>
-              </Animated.View>
+                <Animated.View 
+                  style={[
+                    styles.textContainer,
+                    {
+                      opacity: fadeAnim,
+                      transform: [
+                        { translateY: slideAnim },
+                        { scale: scaleAnim }
+                      ]
+                    }
+                  ]}
+                >
+                  <Text style={styles.title}>{slide.title}</Text>
+                  <Text style={styles.description}>{slide.description}</Text>
+                </Animated.View>
 
-              <View style={styles.navigationContainer}>
-                {index < slides.length - 1 ? (
-                  <View style={styles.bottomNavigation}>
-                    <View style={styles.dotsContainer}>
-                      {slides.map((_, dotIndex) => (
-                        <Animated.View 
-                          key={dotIndex} 
-                          style={[
-                            styles.dot,
-                            index === dotIndex && styles.activeDot
-                          ]} 
-                        />
-                      ))}
-                    </View>
-
-                    <TouchableOpacity 
-                      style={styles.skipButton} 
-                      onPress={() => navigation.navigate('SignUpScreen' as never)}
-                    >
-                      <Text style={styles.skipText}>Skip</Text>
-                    </TouchableOpacity>
-
-                    <View style={styles.navigationButtons}>
-                      <TouchableOpacity 
-                        style={[styles.navButton, { opacity: index === 0 ? 0 : 1 }]}
-                        onPress={() => {
-                          if (index > 0) {
-                            setCurrentIndex(index - 1);
-                            swiperRef.current?.scrollBy(-1);
-                          }
-                        }}
-                        disabled={index === 0}
-                      >
-                        <MaterialIcons name="chevron-left" size={35} color="#7E7E7E" />
-                      </TouchableOpacity>
-                      <TouchableOpacity 
-                        style={styles.navButton}
-                        onPress={() => {
-                          setCurrentIndex(index);
-                          swiperRef.current?.scrollBy(1);
-                        }}
-                      >
-                        <MaterialIcons name="chevron-right" size={35} color="#7E7E7E" />
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-                ) : (
-                  <>
+                {index === slides.length - 1 && (
+                  <View style={styles.termsContainer}>
                     <TouchableOpacity 
                       style={[styles.getStartedButton, styles.buttonShadow]} 
                       onPress={handleGetStarted}
                     >
                       <Text style={styles.getStartedText}>Get Started</Text>
                     </TouchableOpacity>
-
-                    {/* Terms & Privacy Text */}
-                    <View style={styles.termsContainer}>
-                      <Text style={styles.termsText}>
-                        By continuing you accept to our{' '}
-                        <Text 
-                          style={styles.linkText} 
-                          onPress={() => openDocument('terms')}
-                        >
-                          Terms & Conditions
-                        </Text>{' '}
-                        and{' '}
-                        <Text 
-                          style={styles.linkText} 
-                          onPress={() => openDocument('privacy')}
-                        >
-                          Privacy Policy
-                        </Text>.
-                      </Text>
-                    </View>
-                  </>
+                    <Text style={styles.termsText}>
+                      By continuing you accept to our{' '}
+                      <Text 
+                        style={styles.linkText} 
+                        onPress={() => openDocument('terms')}
+                      >
+                        Terms & Conditions
+                      </Text>{' '}
+                      and{' '}
+                      <Text 
+                        style={styles.linkText} 
+                        onPress={() => openDocument('privacy')}
+                      >
+                        Privacy Policy
+                      </Text>.
+                    </Text>
+                  </View>
                 )}
               </View>
-            </View>
-          </LinearGradient>
+            </LinearGradient>
+          </View>
+        ))}
+      </Swiper>
+
+      {/* Static Navigation Elements */}
+      {currentIndex < slides.length - 1 && (
+        <View style={styles.navigationContainer}>
+          <View style={styles.dotsContainer}>
+            {slides.map((_, dotIndex) => (
+              <Animated.View 
+                key={dotIndex} 
+                style={[
+                  styles.dot,
+                  currentIndex === dotIndex && styles.activeDot
+                ]} 
+              />
+            ))}
+          </View>
+
+          <TouchableOpacity 
+            style={styles.skipButton} 
+            onPress={() => navigation.navigate('SignUpScreen' as never)}
+          >
+            <Text style={styles.skipText}>Skip</Text>
+          </TouchableOpacity>
+
+          <View style={styles.navigationButtons}>
+            <TouchableOpacity 
+              style={[styles.navButton, { opacity: currentIndex === 0 ? 0 : 1 }]}
+              onPress={() => {
+                if (currentIndex > 0) {
+                  setCurrentIndex(currentIndex - 1);
+                  swiperRef.current?.scrollBy(-1);
+                }
+              }}
+              disabled={currentIndex === 0}
+            >
+              <MaterialIcons name="chevron-left" size={35} color="#7E7E7E" />
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={styles.navButton}
+              onPress={() => {
+                if (currentIndex < slides.length - 1) {
+                  swiperRef.current?.scrollBy(1);
+                }
+              }}
+            >
+              <MaterialIcons name="chevron-right" size={35} color="#7E7E7E" />
+            </TouchableOpacity>
+          </View>
         </View>
-      ))}
-    </Swiper>
+      )}
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
+    flex: 1,
+    position: 'relative',
+  },
+  slideContainer: {
     flex: 1,
   },
   gradient: {
@@ -403,11 +399,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     position: 'absolute',
     bottom: height * 0.05,
-    zIndex: 3,
-  },
-  bottomNavigation: {
-    width: '100%',
-    height: 120,
+    zIndex: 10,
   },
   dotsContainer: {
     flexDirection: 'row',
@@ -415,10 +407,10 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     width: '100%',
     position: 'absolute',
-    top: 50,
+    top: -70,
   },
   dot: {
-    width: 8,
+    width: 20,
     height: 8,
     borderRadius: 4,
     backgroundColor: '#D9D9D9',
@@ -488,12 +480,13 @@ const styles = StyleSheet.create({
     elevation: 8,
   },
   termsContainer: {
-    marginTop: 12,
+    marginTop: -40,
     paddingHorizontal: 24,
     alignItems: 'center',
   },
   termsText: {
     fontSize: 14,
+    marginTop: 10,
     color: '#595550',
     textAlign: 'center',
     fontFamily: 'LexendDeca_400Regular',

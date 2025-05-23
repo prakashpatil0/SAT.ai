@@ -5,7 +5,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useNavigation } from "@react-navigation/native";
 import { StackNavigationProp } from '@react-navigation/stack';
 import { auth, db } from "@/firebaseConfig";
-import { signInWithEmailAndPassword, getAuth, browserLocalPersistence, signInWithCustomToken } from "firebase/auth";
+import { signInWithEmailAndPassword, fetchSignInMethodsForEmail, getAuth } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
 import AppGradient from "@/app/components/AppGradient";
 import { getFirestore } from "firebase/firestore";
@@ -169,56 +169,72 @@ if (isCheckingAuth) {
   };
 
   const handleLogin = async () => {
-    if (!validateEmail(email) || !validatePassword(password)) {
+  if (!validateEmail(email) || !validatePassword(password)) {
+    return;
+  }
+
+  try {
+    setLoading(true);
+
+    const userCredential = await signInWithEmailAndPassword(auth, email, password);
+    const user = userCredential.user;
+
+    // Get user role from Firestore
+    const userDoc = await getDoc(doc(db, 'users', user.uid));
+
+    if (!userDoc.exists()) {
+      showCustomAlert('Oops! We couldn\'t find your account. Please try again or contact support.');
       return;
     }
-    try {
-      setLoading(true);
-      
-      const userCredential = await signInWithEmailAndPassword(auth, email, password);
-      const user = userCredential.user;
-      
-      // Get user role from Firestore
-      const userDoc = await getDoc(doc(db, 'users', user.uid));
-      
-      if (!userDoc.exists()) {
-        showCustomAlert('Oops! We couldn\'t find your account. Please try again or contact support.');
-        return;
-      }
 
-      const userData = userDoc.data();
-      
-      // Store session data in AsyncStorage
-   await AsyncStorage.multiSet([
-  ['userRole', userData.role.toLowerCase()],
-  ['sessionToken', user.uid],
-  ['lastActiveTime', new Date().toISOString()]
-]);
+    const userData = userDoc.data();
 
-      // Show success message
-      showCustomAlert('Welcome back! Login successful.', 'success');
+    // Store session data in AsyncStorage
+    await AsyncStorage.multiSet([
+      ['userRole', userData.role.toLowerCase()],
+      ['sessionToken', user.uid],
+      ['lastActiveTime', new Date().toISOString()],
+    ]);
 
-      // Navigate based on role
-      navigateBasedOnRole(userData.role.toLowerCase());
+    // Show success message
+    showCustomAlert('Welcome back! Login successful.', 'success');
 
-    } catch (error: any) {
-      let errorMessage = 'Failed to login';
-      
-      if (error.code === 'auth/user-not-found') {
-        errorMessage = 'No account found with this email';
-      } else if (error.code === 'auth/wrong-password') {
-        errorMessage = 'Incorrect password';
-      } else if (error.code === 'auth/invalid-email') {
+    // Navigate based on role
+    navigateBasedOnRole(userData.role.toLowerCase());
+  } catch (error: any) {
+    console.log('Login error:', error); // Log the error for debugging
+    let errorMessage = 'Failed to login';
+
+    // Handle Firebase Authentication errors
+    switch (error.code) {
+      case 'auth/invalid-email':
         errorMessage = 'Invalid email address';
-      } else if (error.code === 'auth/network-request-failed') {
+        break;
+      case 'auth/user-not-found':
+        errorMessage = 'No account found with this email';
+        break;
+      case 'auth/wrong-password':
+        errorMessage = 'Incorrect password';
+        break;
+      case 'auth/invalid-credential':
+        errorMessage = 'Invalid email or password'; 
+        break;
+      case 'auth/too-many-requests':
+        errorMessage = 'Too many login attempts. Please try again later.';
+        break;
+      case 'auth/network-request-failed':
         errorMessage = 'Network error. Please check your internet connection';
-      }
-      
-      showCustomAlert(errorMessage);
-    } finally {
-      setLoading(false);
+        break;
+      default:
+        errorMessage = 'An unexpected error occurred. Please try again.';
+        break;
     }
-  };
+
+    showCustomAlert(errorMessage);
+  } finally {
+    setLoading(false);
+  }
+};
 
   const validateEmail = (text: string) => {
     setEmail(text);

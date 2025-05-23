@@ -159,7 +159,7 @@ const AttendanceScreen = () => {
 
     // For punch in, check if it's before 2 PM
     if (!punchInTime) {
-      const punchInDeadline = "14:00"; // 2 PM
+      const punchInDeadline = "6:00"; // 2 PM
       const [deadlineHour, deadlineMinute] = punchInDeadline
         .split(":")
         .map(Number);
@@ -170,7 +170,7 @@ const AttendanceScreen = () => {
       setIsPunchButtonDisabled(currentMinutes > deadlineMinutes);
     } else if (punchInTime && !punchOutTime) {
       // Enable punch out button at 6:15 PM
-      const punchOutEnableTime = "14:15"; // 6:15 PM
+      const punchOutEnableTime = "12:15"; // 6:15 PM
       const [enableHour, enableMinute] = punchOutEnableTime
         .split(":")
         .map(Number);

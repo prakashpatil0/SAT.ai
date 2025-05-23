@@ -93,44 +93,6 @@ if (isCheckingAuth) {
   return <View style={{ flex: 1, backgroundColor: 'white' }} />;
 }
 
-
-  // const checkExistingSession = async () => {
-  //   try {
-  //     const [sessionToken, lastActiveTime] = await AsyncStorage.multiGet([
-  //       'sessionToken',
-  //       'lastActiveTime'
-  //     ]);
-
-  //     if (sessionToken[1] && lastActiveTime[1]) {
-  //       const lastActive = new Date(lastActiveTime[1]).getTime();
-  //       const now = new Date().getTime();
-  //       const thirtyDaysInMs = 30 * 24 * 60 * 60 * 1000;
-
-  //       if (now - lastActive <= thirtyDaysInMs) {
-  //         // Try to restore Firebase auth state
-  //         try {
-  //           const userCredential = await signInWithCustomToken(auth, sessionToken[1]);
-  //           if (userCredential.user) {
-  //             // Get user role from Firestore
-  //             const userDoc = await getDoc(doc(db, 'users', userCredential.user.uid));
-  //             if (userDoc.exists()) {
-  //               const userData = userDoc.data();
-  //               await AsyncStorage.setItem('userRole', userData.role.toLowerCase());
-  //               navigateBasedOnRole(userData.role.toLowerCase());
-  //             }
-  //           }
-  //         } catch (error) {
-  //           console.log('Failed to restore session:', error);
-  //           // Clear invalid session
-  //           await AsyncStorage.multiRemove(['sessionToken', 'lastActiveTime', 'userRole']);
-  //         }
-  //       }
-  //     }
-  //   } catch (error) {
-  //     console.error('Error checking session:', error);
-  //   }
-  // };
-
   const showCustomAlert = (message: string, type: 'error' | 'success' = 'error') => {
     setAlertMessage(message);
     setAlertType(type);

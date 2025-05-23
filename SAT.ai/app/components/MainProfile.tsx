@@ -113,6 +113,23 @@ const ProfileSkeleton = () => {
 };
 
 const ProfileScreen = () => {
+  // Updated Month Navigation Logic with year carry-over
+  const handlePrevMonth = (p0: (prev: any) => number) => {
+    setCalendarMonth((prevMonth) => {
+      const newMonth = prevMonth === 0 ? 11 : prevMonth - 1;
+      if (prevMonth === 0) setCalendarYear((prevYear) => prevYear - 1);
+      return newMonth;
+    });
+  };
+
+  const handleNextMonth = (p0: (prev: any) => any) => {
+    setCalendarMonth((prevMonth) => {
+      const newMonth = prevMonth === 11 ? 0 : prevMonth + 1;
+      if (prevMonth === 11) setCalendarYear((prevYear) => prevYear + 1);
+      return newMonth;
+    });
+  };
+
   const navigation = useNavigation();
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -162,6 +179,34 @@ const ProfileScreen = () => {
     fetchUserProfile();
   }, []);
 
+  // State hooks:
+  const [calendarVisible, setCalendarVisible] = useState(false);
+  const today = new Date();
+  const [selectedDate, setSelectedDate] = useState(formData.dateOfBirth);
+  const [calendarMonth, setCalendarMonth] = useState(today.getMonth());
+  const [calendarYear, setCalendarYear] = useState(today.getFullYear());
+  const [yearPickerVisible, setYearPickerVisible] = useState(false);
+
+  // Helper function:
+  const getCalendarMatrix = (year: number, month: number) => {
+    const matrix = [];
+    const firstDay = new Date(year, month, 1).getDay();
+    const totalDays = new Date(year, month + 1, 0).getDate();
+    let day = 1;
+    for (let i = 0; i < 6; i++) {
+      const row = [];
+      for (let j = 0; j < 7; j++) {
+        if ((i === 0 && j < firstDay) || day > totalDays) {
+          row.push(null);
+        } else {
+          row.push(day++);
+        }
+      }
+      matrix.push(row);
+    }
+    return matrix;
+  };
+
   // Update profile image when context changes
   useEffect(() => {
     if (contextProfileImage) {
@@ -178,7 +223,8 @@ const ProfileScreen = () => {
       const userDoc = await getDoc(doc(db, "users", userId));
       if (userDoc.exists()) {
         const data = userDoc.data();
-        const userRole = data.designation?.toLowerCase() === "bdm" ? "BDM" : "Telecaller";
+        const userRole =
+          data.designation?.toLowerCase() === "bdm" ? "BDM" : "Telecaller";
 
         setRole(userRole);
         setFormData({
@@ -452,22 +498,20 @@ const ProfileScreen = () => {
         title="Profile"
         showBackButton
         showDrawer={role === "BDM" || role === "Telecaller"}
-  rightComponent={
-  role === "BDM" || role === "Telecaller" ? (
-    <TouchableOpacity
-      onPress={() => setIsEditing(!isEditing)}
-      style={styles.editButton}
-    >
-      <MaterialIcons
-        name={isEditing ? "close" : "edit"}
-        size={24}
-        color="#FF8447"
-      />
-    </TouchableOpacity>
-  ) : null
-}
-        
-        
+        rightComponent={
+          role === "BDM" || role === "Telecaller" ? (
+            <TouchableOpacity
+              onPress={() => setIsEditing(!isEditing)}
+              style={styles.editButton}
+            >
+              <MaterialIcons
+                name={isEditing ? "close" : "edit"}
+                size={24}
+                color="#FF8447"
+              />
+            </TouchableOpacity>
+          ) : null
+        }
       >
         <Animated.ScrollView
           contentContainerStyle={styles.scrollContainer}
@@ -588,25 +632,21 @@ const ProfileScreen = () => {
                       leftIcon="phone"
                       autoComplete="tel"
                     />
+
+                    {/* Calendar Trigger */}
                     <TouchableOpacity
+                      onPress={() => setCalendarVisible(!calendarVisible)}
                       style={styles.datePickerButton}
-                      onPress={handleShowDatePicker}
                     >
                       <View style={styles.datePickerContent}>
                         <MaterialIcons
                           name="calendar-today"
                           size={24}
                           color="#777"
-                          style={styles.dateIcon}
                         />
-                        <View>
-                          <Text style={styles.datePickerLabel}>
-                            Date of Birth
-                          </Text>
-                          <Text style={styles.datePickerValue}>
-                            {formatDate(formData.dateOfBirth)}
-                          </Text>
-                        </View>
+                        <Text style={styles.datePickerValue}>
+                          {formatDate(selectedDate)}
+                        </Text>
                         <MaterialIcons
                           name="arrow-drop-down"
                           size={24}
@@ -614,15 +654,154 @@ const ProfileScreen = () => {
                         />
                       </View>
                     </TouchableOpacity>
-                    {showDatePicker && (
-                      <DateTimePicker
-                        value={formData.dateOfBirth}
-                        mode="date"
-                        display={Platform.OS === "ios" ? "spinner" : "default"}
-                        onChange={handleDateChange}
-                        maximumDate={new Date()}
-                        minimumDate={new Date(1995,0, 1)}
-                      />
+
+                    {/* Custom Calendar */}
+                    {calendarVisible && (
+                      <View style={styles.calendarWrapper}>
+                        <View style={styles.calendarHeader}>
+                          <TouchableOpacity
+                            onPress={() =>
+                              handlePrevMonth((prev) =>
+                                prev === 0 ? 11 : prev - 1
+                              )
+                            }
+                          >
+                            <Text style={styles.arrow}>◀</Text>
+                          </TouchableOpacity>
+
+                          <TouchableOpacity
+                            onPress={() =>
+                              setYearPickerVisible(!yearPickerVisible)
+                            }
+                          >
+                            <Text style={styles.monthYear}>
+                              {new Date(
+                                calendarYear,
+                                calendarMonth
+                              ).toLocaleString("default", {
+                                month: "long",
+                              })}{" "}
+                              {calendarYear}
+                            </Text>
+                          </TouchableOpacity>
+
+                          <TouchableOpacity
+                            onPress={() =>
+                              handleNextMonth((prev) =>
+                                prev === 11 ? 0 : prev + 1
+                              )
+                            }
+                          >
+                            <Text style={styles.arrow}>▶</Text>
+                          </TouchableOpacity>
+                        </View>
+
+                        {yearPickerVisible && (
+                          <View style={styles.pickerContainer}>
+                            <ScrollView style={styles.yearScroll} horizontal>
+                              {[...Array(60)].map((_, i) => {
+                                const year = 1970 + i;
+                                return (
+                                  <TouchableOpacity
+                                    key={year}
+                                    onPress={() => setCalendarYear(year)}
+                                  >
+                                    <Text style={styles.pickerItem}>
+                                      {year}
+                                    </Text>
+                                  </TouchableOpacity>
+                                );
+                              })}
+                            </ScrollView>
+                            <ScrollView style={styles.monthScroll} horizontal>
+                              {Array.from({ length: 12 }, (_, i) => i).map(
+                                (month) => (
+                                  <TouchableOpacity
+                                    key={month}
+                                    onPress={() => {
+                                      setCalendarMonth(month); // ❗ Here 'month' is likely 1-based instead of 0-based
+                                      setYearPickerVisible(false);
+                                    }}
+                                  >
+                                    <Text style={styles.pickerItem}>
+                                      {new Date(0, month).toLocaleString(
+                                        "default",
+                                        {
+                                          month: "short",
+                                        }
+                                      )}
+                                    </Text>
+                                  </TouchableOpacity>
+                                )
+                              )}
+                            </ScrollView>
+                          </View>
+                        )}
+
+                        <View style={styles.daysRow}>
+                          {[
+                            "Sun",
+                            "Mon",
+                            "Tue",
+                            "Wed",
+                            "Thu",
+                            "Fri",
+                            "Sat",
+                          ].map((day, i) => (
+                            <Text key={i} style={styles.dayText}>
+                              {day}
+                            </Text>
+                          ))}
+                        </View>
+
+                        {getCalendarMatrix(calendarYear, calendarMonth).map(
+                          (week, rowIdx) => (
+                            <View key={rowIdx} style={styles.weekRow}>
+                              {week.map((date, colIdx) => (
+                                <TouchableOpacity
+                                  key={colIdx}
+                                  style={[
+                                    styles.dateCell,
+                                    date &&
+                                    new Date(
+                                      calendarYear,
+                                      calendarMonth,
+                                      date
+                                    ).toDateString() ===
+                                      selectedDate.toDateString()
+                                      ? styles.selectedDate
+                                      : null,
+                                  ]}
+                                  onPress={() => {
+                                    const chosenDate = new Date(
+                                      calendarYear,
+                                      calendarMonth,
+                                      date ?? 1
+                                    );
+
+                                    setSelectedDate(chosenDate);
+                                    setFormData((prev) => ({
+                                      ...prev,
+                                      dateOfBirth: chosenDate,
+                                    }));
+                                    setCalendarVisible(false);
+                                  }}
+                                  disabled={!date}
+                                >
+                                  <Text
+                                    style={[
+                                      styles.dateText,
+                                      !date && { color: "#ccc" },
+                                    ]}
+                                  >
+                                    {date || ""}
+                                  </Text>
+                                </TouchableOpacity>
+                              ))}
+                            </View>
+                          )
+                        )}
+                      </View>
                     )}
                   </>
                 ) : (
@@ -806,19 +985,7 @@ const styles = StyleSheet.create({
     padding: 16,
     backgroundColor: "#FFFFFF",
   },
-  datePickerButton: {
-    marginTop: 8,
-    marginBottom: 8,
-  },
-  datePickerContent: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#FFF5E6",
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: "#FFE0B2",
-    padding: 12,
-  },
+ 
   dateIcon: {
     marginRight: 12,
     color: "#FF8447",
@@ -828,11 +995,7 @@ const styles = StyleSheet.create({
     color: "#FF8447",
     fontFamily: "LexendDeca_400Regular",
   },
-  datePickerValue: {
-    fontSize: 16,
-    color: "#333",
-    fontFamily: "LexendDeca_400Regular",
-  },
+
   saveButton: {
     height: 56,
     borderRadius: 12,
@@ -899,6 +1062,113 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontFamily: "LexendDeca_500Medium",
     color: "#333",
+  },
+  calendarWrapper: {
+    marginTop: 10,
+    borderWidth: 1,
+    borderColor: "#ddd",
+    borderRadius: 8,
+    backgroundColor: "#fff",
+    padding: 10,
+    elevation: 2,
+  },
+  calendarHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 10,
+  },
+  monthYear: {
+    fontWeight: "bold",
+    fontSize: 16,
+    color: "#333",
+  },
+  arrow: {
+    fontSize: 20,
+    color: "#FF6D24",
+  },
+  daysRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 5,
+  },
+  dayText: {
+    width: 32,
+    textAlign: "center",
+    fontWeight: "bold",
+    color: "#555",
+  },
+  weekRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 5,
+  },
+  dateCell: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  selectedDate: {
+    backgroundColor: "#FF6D24",
+  },
+  dateText: {
+    color: "#333",
+  },
+  calendarButton: {
+    padding: 10,
+    backgroundColor: "#FF6D24",
+    borderRadius: 8,
+    alignItems: "center",
+  },
+  calendarButtonText: {
+    color: "#fff",
+    fontWeight: "bold",
+  },
+
+  pickerContainer: {
+    backgroundColor: "#f9f9f9",
+    padding: 8,
+    borderRadius: 8,
+    marginBottom: 10,
+    borderColor: "#ccc",
+    borderWidth: 1,
+  },
+  yearScroll: {
+    maxHeight: 120,
+    borderBottomWidth: 1,
+    borderColor: "#ddd",
+    marginBottom: 5,
+  },
+  monthScroll: {
+    paddingVertical: 6,
+  },
+  pickerItem: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    fontSize: 14,
+    color: "#333",
+    textAlign: "center",
+  },
+  datePickerButton: {
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderColor: "#ddd",
+    borderWidth: 1,
+    borderRadius: 8,
+    marginTop: 10,
+  },
+  datePickerContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  datePickerValue: {
+    marginLeft: 10,
+    fontSize: 14,
+    color: "#333",
+    flex: 1,
   },
 });
 

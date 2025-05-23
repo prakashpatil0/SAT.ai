@@ -26,6 +26,7 @@ import api from '@/app/services/api';
 import AppGradient from "@/app/components/AppGradient";
 import { getTargets } from '@/app/services/targetService';
 import { format, startOfDay, endOfDay } from 'date-fns';
+import { doc, getDoc } from "firebase/firestore";
 
 const PRODUCT_LIST = [
   { label: 'Health Insurance', value: 'health_insurance' },
@@ -371,27 +372,40 @@ const ReportScreen: React.FC = () => {
         Alert.alert('Error', 'Please login first');
         return;
       }
+      const userId = auth.currentUser.uid;
+
+const userDocRef = doc(db, "users", userId);
+const userDoc = await getDoc(userDocRef);
+
+let submittedBy = "Unknown";
+if (userDoc.exists()) {
+  const userData = userDoc.data();
+  submittedBy = userData.name || "Unnamed User";
+}
+
 
       const now = new Date();
       const reportData = {
-        userId: auth.currentUser.uid,
-        date: Timestamp.fromDate(now),
-        numMeetings: parseInt(numMeetings),
-        meetingDuration,
-        positiveLeads: parseInt(positiveLeads),
-        rejectedLeads: parseInt(rejectedLeads),
-        notAttendedCalls: parseInt(notAttendedCalls),
-        closingLeads: parseInt(closingLeads),
-        closingDetails: closingDetails.map(detail => ({
-          products: detail.selectedProducts,
-          otherProduct: detail.otherProduct,
-          amount: parseInt(detail.amount.replace(/[^0-9]/g, '')),
-          description: detail.description
-        })),
-        totalClosingAmount,
-        createdAt: Timestamp.fromDate(now),
-        updatedAt: Timestamp.fromDate(now)
-      };
+  userId,
+  submittedBy, // ✅ NEW FIELD
+  date: Timestamp.fromDate(now),
+  numMeetings: parseInt(numMeetings),
+  meetingDuration,
+  positiveLeads: parseInt(positiveLeads),
+  rejectedLeads: parseInt(rejectedLeads),
+  notAttendedCalls: parseInt(notAttendedCalls),
+  closingLeads: parseInt(closingLeads),
+  closingDetails: closingDetails.map(detail => ({
+    products: detail.selectedProducts,
+    otherProduct: detail.otherProduct,
+    amount: parseInt(detail.amount.replace(/[^0-9]/g, '')),
+    description: detail.description
+  })),
+  totalClosingAmount,
+  createdAt: Timestamp.fromDate(now),
+  updatedAt: Timestamp.fromDate(now)
+};
+
 
       // Save to Firebase
       const docRef = await addDoc(collection(db, 'telecaller_reports'), reportData);

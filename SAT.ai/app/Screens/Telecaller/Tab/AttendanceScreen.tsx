@@ -54,6 +54,7 @@ type RootStackParamList = {
     photo?: { uri: string };
     location?: { coords: { latitude: number; longitude: number } };
     isPunchIn?: boolean;
+    locationName?: string | null;
   };
 };
 
@@ -443,7 +444,8 @@ const AttendanceScreen = () => {
   const saveAttendance = async (
     isPunchIn: boolean,
     photoUri: string,
-    location: any
+    location: any,
+      locationNameFromCamera?: string | null
   ) => {
     try {
       const userId = auth.currentUser?.uid;
@@ -463,7 +465,7 @@ const AttendanceScreen = () => {
       const dayStr = format(currentTime, "EEE").toUpperCase();
       const timeStr = format(currentTime, "HH:mm");
       const roleCollection = `${role}_monthly_attendance`;
-
+ const locationName = locationNameFromCamera || 'Unknown Location';
       const attendanceRef = collection(db, roleCollection);
       
       const todayQuery = query(
@@ -473,7 +475,7 @@ const AttendanceScreen = () => {
       );
 
             const coords = location?.coords;
-let locationName = "Unknown Location";
+// let locationName = "Unknown Location";
 if (coords) {
   const geo = await Location.reverseGeocodeAsync({
     latitude: coords.latitude,
@@ -482,7 +484,7 @@ if (coords) {
 
   if (geo && geo.length > 0) {
     const { name, street, city, region } = geo[0];
-    locationName = `${name || street || ""}, ${city || region || ""}`;
+    // locationName = `${name || street || ""}, ${city || region || ""}`;
   }
 }
       const querySnapshot = await getDocs(todayQuery);
@@ -502,7 +504,8 @@ console.log("📄 Fetched User Data:", userData); // ADD THIS
        phoneNumber: userData.phoneNumber || '',
         role: userData.role || '',
         // totalHours: 0,
-        locationName: userData.locationName || '',
+        // locationName: userData.locationName || '',
+         locationName,
         email: userData.email || '',
         date: dateStr,
         day: dayStr,
@@ -552,16 +555,16 @@ console.log("📄 Fetched User Data:", userData); // ADD THIS
     }
   };
 
-  useEffect(() => {
-    if (
-      route.params?.photo &&
-      route.params?.location &&
-      route.params?.isPunchIn !== undefined
-    ) {
-      const { photo, location, isPunchIn } = route.params;
-      saveAttendance(isPunchIn, photo.uri, location);
-    }
-  }, [route.params]);
+ useEffect(() => {
+  if (
+    route.params?.photo &&
+    route.params?.location &&
+    route.params?.isPunchIn !== undefined
+  ) {
+    const { photo, location, locationName, isPunchIn } = route.params;
+    saveAttendance(isPunchIn, photo.uri, location, locationName); // ✅ Pass locationName
+  }
+}, [route.params]);
 
   useEffect(() => {
     fetchAttendanceHistory();

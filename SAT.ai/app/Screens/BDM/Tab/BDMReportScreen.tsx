@@ -33,6 +33,7 @@ import AnimatedReanimated, {
   useSharedValue,
   withDelay
 } from 'react-native-reanimated';
+
 import CallLog from 'react-native-call-log';
 
 // Manually specify Picker type since we may not have the npm package installed yet
@@ -633,7 +634,18 @@ const BDMReportScreen = () => {
         Alert.alert("Error", "You must be logged in to submit a report");
         return;
       }
-      
+      let submittedBy = "Unknown";
+
+try {
+  const userDoc = await getDoc(doc(db, "users", userId));
+  if (userDoc.exists()) {
+    const userData = userDoc.data();
+    submittedBy = userData.name || "Unnamed User";
+  }
+} catch (error) {
+  console.error("Error fetching user name:", error);
+}
+
       const now = new Date();
       const reportId = `report_${now.getTime()}`;
       
@@ -643,9 +655,11 @@ const BDMReportScreen = () => {
       const weekNumber = Math.ceil((now.getDate() + new Date(year, now.getMonth(), 1).getDay()) / 7);
       const day = now.getDate();
       
+      
       const reportData = {
         id: reportId,
         userId,
+        submittedBy,
         date: now.toISOString(),
         month,
         year,

@@ -602,14 +602,13 @@ const ProfileScreen = () => {
                       leftIcon="account"
                     />
                     <FormInput
-                      label="Designation"
-                      value={formData.designation}
-                      onChangeText={(text) =>
-                        setFormData((prev) => ({ ...prev, designation: text }))
-                      }
-                      leftIcon="briefcase"
-                      disabled={role === "BDM"}
-                    />
+  label="Designation"
+  value={formData.designation}
+  onChangeText={() => {}}
+  leftIcon="briefcase"
+  disabled={true}
+/>
+
                     <FormInput
                       label="Email"
                       value={formData.email}
@@ -634,6 +633,7 @@ const ProfileScreen = () => {
                     />
 
                     {/* Calendar Trigger */}
+                    <Text style={styles.datePickerLabel}>Date of Birth</Text>
                     <TouchableOpacity
                       onPress={() => setCalendarVisible(!calendarVisible)}
                       style={styles.datePickerButton}
@@ -905,6 +905,12 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     paddingTop: 20,
   },
+datePickerLabel: {
+  fontSize: 12,
+  color: "#000000",  // ✅ Black color
+  fontFamily: "LexendDeca_400Regular",
+},
+
   profileImageContainer: {
     width: 120,
     height: 120,
@@ -990,11 +996,7 @@ const styles = StyleSheet.create({
     marginRight: 12,
     color: "#FF8447",
   },
-  datePickerLabel: {
-    fontSize: 12,
-    color: "#FF8447",
-    fontFamily: "LexendDeca_400Regular",
-  },
+ 
 
   saveButton: {
     height: 56,

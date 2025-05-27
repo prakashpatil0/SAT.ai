@@ -3,10 +3,10 @@ import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Linking, Platform
 import { MaterialIcons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
-import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
+import { useNavigation, useRoute } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { DEFAULT_LOCATION, DEFAULT_MAP_DELTA, GOOGLE_MAPS_STYLE } from '@/app/utils/MapUtils';
-import { format, startOfMonth, endOfMonth, eachMonthOfInterval, subMonths, addMonths } from 'date-fns';
+import { format, startOfMonth, endOfMonth, eachMonthOfInterval, subMonths } from 'date-fns';
 import { collection, addDoc, getDocs, query, where, Timestamp, updateDoc, doc, getDoc } from 'firebase/firestore';
 import { db, auth } from '@/firebaseConfig';
 import BDMMainLayout from '@/app/components/BDMMainLayout';
@@ -144,7 +144,6 @@ const BDMAttendanceScreen = () => {
     }
   };
 
-  // Add new function to save location to cache
   const saveLocationToCache = async (location: Location.LocationObject) => {
     try {
       const cacheData = {
@@ -157,7 +156,6 @@ const BDMAttendanceScreen = () => {
     }
   };
 
-  // Add new function to get location from cache
   const getLocationFromCache = async () => {
     try {
       const cachedData = await AsyncStorage.getItem(CACHE_KEY);
@@ -176,7 +174,6 @@ const BDMAttendanceScreen = () => {
     }
   };
 
-  // Modify checkLocationStatus to use cache
   const checkLocationStatus = async () => {
     try {
       setIsLocationLoading(true);
@@ -188,13 +185,11 @@ const BDMAttendanceScreen = () => {
         setPermissionStatus(status);
         
         if (status === 'granted') {
-          // Try to load from cache first
           const cachedLocation = await getLocationFromCache();
           if (cachedLocation) {
             setLocation(cachedLocation);
             setMapReady(true);
           }
-          // Then load current location
           await loadLocation();
         }
       }
@@ -207,27 +202,18 @@ const BDMAttendanceScreen = () => {
   };
 
   useEffect(() => {
-    // Initialize months list
     const months = eachMonthOfInterval({
       start: subMonths(new Date(), 11),
       end: new Date()
     });
     setMonthsList(months);
     
-    // Load user details
     loadUserDetails();
-    
-    // Check location status immediately
     checkLocationStatus();
-    
-    // Initialize the current date and update weekly days
     initializeDate();
-    
-    // Fetch attendance history
     fetchAttendanceHistory();
   }, []);
 
-  // Add effect for selected month changes
   useEffect(() => {
     if (attendanceHistory.length > 0) {
       updateChartData();
@@ -235,7 +221,6 @@ const BDMAttendanceScreen = () => {
     }
   }, [selectedMonth, attendanceHistory]);
 
-  // Add filtered history effect
   useEffect(() => {
     if (activeFilter) {
       setFilteredHistory(attendanceHistory.filter(record => record.status === activeFilter));
@@ -244,20 +229,17 @@ const BDMAttendanceScreen = () => {
     }
   }, [activeFilter, attendanceHistory]);
 
-  // Add punch button disabled effect
   useEffect(() => {
     const checkPunchButtonState = () => {
-      // If already punched out today, disable until 8 AM tomorrow
       if (punchInTime && punchOutTime) {
         const now = new Date();
         const tomorrow = new Date();
         tomorrow.setDate(tomorrow.getDate() + 1);
-        tomorrow.setHours(8, 0, 0, 0); // 8 AM tomorrow
+        tomorrow.setHours(8, 0, 0, 0);
         
         if (now < tomorrow) {
           setIsPunchButtonDisabled(true);
           
-          // Set a timeout to re-enable the button at 8 AM tomorrow
           const timeUntil8AM = tomorrow.getTime() - now.getTime();
           const timeoutId = setTimeout(() => {
             setIsPunchButtonDisabled(false);
@@ -271,14 +253,11 @@ const BDMAttendanceScreen = () => {
     };
     
     checkPunchButtonState();
-    
-    // Set up an interval to check every minute
     const intervalId = setInterval(checkPunchButtonState, 60000);
     return () => clearInterval(intervalId);
   }, [punchInTime, punchOutTime]);
 
   useEffect(() => {
-    // Process camera data when returned from BDMCameraScreen
     if (route.params && route.params.photo && route.params.location) {
       try {
         const { photo, location, isPunchIn } = route.params;
@@ -294,16 +273,13 @@ const BDMAttendanceScreen = () => {
     const today = new Date();
     setCurrentDate(today);
     
-    // Create default week days status first
-    const dayOfWeek = today.getDay(); // 0 = Sunday, 1 = Monday, etc.
-    const adjustedDay = dayOfWeek === 0 ? 6 : dayOfWeek - 1; // Adjust to our 0-indexed array (M=0, T=1, etc.)
+    const dayOfWeek = today.getDay();
+    const adjustedDay = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
     
-    // Calculate the date for Monday of this week
     const startOfWeek = new Date(today);
-    startOfWeek.setDate(today.getDate() - adjustedDay); // Go back to Monday
+    startOfWeek.setDate(today.getDate() - adjustedDay);
     
     const updatedWeekDays = weekDaysStatus.map((day, index) => {
-      // Calculate the date for this weekday
       const currentDate = new Date(startOfWeek);
       currentDate.setDate(startOfWeek.getDate() + index);
       const dateStr = format(currentDate, 'dd');
@@ -322,22 +298,19 @@ const BDMAttendanceScreen = () => {
     try {
       setMapError(false);
       
-      // First try to get location from cache
       const cachedLocation = await getLocationFromCache();
       if (cachedLocation) {
         setLocation(cachedLocation);
         setMapReady(true);
       }
 
-      // Then try to get last known location
       const lastKnownLocation = await Location.getLastKnownPositionAsync({
-        maxAge: 10000 // 10 seconds
+        maxAge: 10000
       });
 
       if (lastKnownLocation) {
         setLocation(lastKnownLocation);
         saveLocationToCache(lastKnownLocation);
-        // Then get current location in background
         Location.getCurrentPositionAsync({
           accuracy: Location.Accuracy.Balanced
         }).then(currentLocation => {
@@ -349,7 +322,6 @@ const BDMAttendanceScreen = () => {
           console.error('Error getting current location:', error);
         });
       } else {
-        // If no last known location, get current location
         const currentLocation = await Location.getCurrentPositionAsync({
           accuracy: Location.Accuracy.Balanced
         });
@@ -417,7 +389,6 @@ const BDMAttendanceScreen = () => {
           lastUpdated: data.lastUpdated.toDate()
         });
 
-        // Update today's punch in/out status
         if (data.date === today && data.month === format(new Date(), 'MM')) {
           setTodayRecord({
             date: data.date,
@@ -453,12 +424,10 @@ const BDMAttendanceScreen = () => {
       const sortedHistory = history.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
       setAttendanceHistory(sortedHistory);
 
-      // Check if there are any records for the selected month
       if (sortedHistory.length > 0) {
         calculateStatusCounts(sortedHistory);
         updateWeekDaysStatus(sortedHistory);
       } else {
-        // If no records, set absent days to zero
         setStatusCounts({ Present: 0, 'Half Day': 0, 'On Leave': 0 });
       }
     } catch (error) {
@@ -469,17 +438,15 @@ const BDMAttendanceScreen = () => {
   const updateWeekDaysStatus = (history: AttendanceRecord[]) => {
     const today = new Date();
     const startOfWeek = new Date(today);
-    startOfWeek.setDate(today.getDate() - today.getDay() + 1); // Start from Monday
+    startOfWeek.setDate(today.getDate() - today.getDay() + 1);
     
     const updatedWeekDays = weekDaysStatus.map((day, index) => {
       const currentDate = new Date(startOfWeek);
       currentDate.setDate(startOfWeek.getDate() + index);
       
-      // Find attendance record for this date
       const dateStr = format(currentDate, 'dd');
       const attendanceRecord = history.find(record => record.date === dateStr);
       
-      // Default to 'inactive' for future dates, use attendance status for past dates
       let status: 'active' | 'inactive' | 'Present' | 'Half Day' | 'On Leave';
       if (currentDate > today) {
         status = 'inactive';
@@ -509,10 +476,8 @@ const BDMAttendanceScreen = () => {
       'On Leave': 0
     };
 
-    // Get the number of days in current month
     const daysInMonth = new Date(parseInt(currentYear), parseInt(currentMonth), 0).getDate();
     
-    // Create array of all dates in current month (excluding Sundays)
     const allDates = Array.from({ length: daysInMonth }, (_, i) => {
       const date = new Date(parseInt(currentYear), parseInt(currentMonth) - 1, i + 1);
       return {
@@ -521,7 +486,6 @@ const BDMAttendanceScreen = () => {
       };
     });
 
-    // Filter records for current month and count statuses
     const currentMonthRecords = history.filter(record => {
       const recordDate = new Date(record.timestamp);
       return format(recordDate, 'MM') === currentMonth && 
@@ -534,20 +498,13 @@ const BDMAttendanceScreen = () => {
       }
     });
 
-    // Calculate On Leave days (days without any attendance record)
     const attendedDates = currentMonthRecords.map(record => record.date);
-    
-    // Get current date for comparison
     const today = format(new Date(), 'dd');
     
-    // Filter dates that are:
-    // 1. Not Sundays
-    // 2. Not attended
-    // 3. Are in the past or today
     const onLeaveDates = allDates.filter(({ dateStr, isSunday }) => 
-      !isSunday && // Exclude Sundays
-      !attendedDates.includes(dateStr) && // Not attended
-      parseInt(dateStr) <= parseInt(today) // Past or today
+      !isSunday && 
+      !attendedDates.includes(dateStr) && 
+      parseInt(dateStr) <= parseInt(today)
     );
     
     counts['On Leave'] = onLeaveDates.length;
@@ -584,17 +541,14 @@ const BDMAttendanceScreen = () => {
     const monthStart = startOfMonth(selectedMonth);
     const monthEnd = endOfMonth(selectedMonth);
     
-    // Filter attendance records for selected month
     const monthRecords = attendanceHistory.filter(record => {
       const recordDate = new Date(record.timestamp);
       return recordDate >= monthStart && recordDate <= monthEnd;
     });
 
-    // Create labels for each day of the month
     const daysInMonth = monthEnd.getDate();
     const labels = Array.from({ length: daysInMonth }, (_, i) => (i + 1).toString());
     
-    // Calculate attendance percentage for each day
     const data = labels.map(day => {
       const record = monthRecords.find(r => r.date === day);
       if (!record) return 0;
@@ -638,8 +592,12 @@ const BDMAttendanceScreen = () => {
     const [inHours, inMinutes] = punchIn.split(':').map(Number);
     const [outHours, outMinutes] = punchOut.split(':').map(Number);
     
-    const totalInMinutes = inHours * 60 + inMinutes;
-    const totalOutMinutes = outHours * 60 + outMinutes;
+    let totalInMinutes = inHours * 60 + inMinutes;
+    let totalOutMinutes = outHours * 60 + outMinutes;
+    
+    if (totalOutMinutes < totalInMinutes) {
+      totalOutMinutes += 24 * 60; // Handle overnight shifts
+    }
     
     return (totalOutMinutes - totalInMinutes) / 60;
   };
@@ -669,17 +627,22 @@ const BDMAttendanceScreen = () => {
       );
 
       const querySnapshot = await getDocs(todayQuery);
-      
+      let newStatus: 'Present' | 'Half Day' | 'On Leave' = 'On Leave';
+      let newPunchIn = isPunchIn ? timeStr : '';
+      let newPunchOut = !isPunchIn ? timeStr : '';
+      let totalHours = 0;
+
       if (querySnapshot.empty) {
         // Create new attendance record
+        newStatus = isPunchIn ? 'Present' : 'On Leave';
         await addDoc(attendanceRef, {
           date: dateStr,
           day: dayStr,
           month: monthStr,
           year: yearStr,
-          punchIn: isPunchIn ? timeStr : '',
-          punchOut: !isPunchIn ? timeStr : '',
-          status: isPunchIn ? 'Half Day' : 'On Leave',
+          punchIn: newPunchIn,
+          punchOut: newPunchOut,
+          status: newStatus,
           userId,
           timestamp: Timestamp.fromDate(currentTime),
           photoUri: isPunchIn ? photoUri : '',
@@ -690,7 +653,7 @@ const BDMAttendanceScreen = () => {
           employeeName: userDetails.employeeName,
           phoneNumber: userDetails.phoneNumber,
           email: userDetails.email,
-          totalHours: 0,
+          totalHours: totalHours,
           workMode: 'Office',
           locationName: isPunchIn ? await getLocationName(locationCoords) : '',
           punchOutLocationName: !isPunchIn ? await getLocationName(locationCoords) : '',
@@ -700,17 +663,18 @@ const BDMAttendanceScreen = () => {
         // Update existing record
         const docRef = querySnapshot.docs[0].ref;
         const existingData = querySnapshot.docs[0].data();
-        const newPunchIn = isPunchIn ? timeStr : existingData.punchIn;
-        const newPunchOut = !isPunchIn ? timeStr : existingData.punchOut;
-        
-        let newStatus = 'Half Day';
+        newPunchIn = isPunchIn ? timeStr : existingData.punchIn;
+        newPunchOut = !isPunchIn ? timeStr : existingData.punchOut;
+
         if (newPunchIn && newPunchOut) {
-          const totalHours = calculateTotalHours(newPunchIn, newPunchOut);
+          totalHours = calculateTotalHours(newPunchIn, newPunchOut);
           newStatus = totalHours >= 8 ? 'Present' : 'Half Day';
+        } else if (newPunchIn && !newPunchOut) {
+          newStatus = 'Present';
         } else if (!newPunchIn && !newPunchOut) {
           newStatus = 'On Leave';
         }
-        
+
         await updateDoc(docRef, {
           punchIn: newPunchIn,
           punchOut: newPunchOut,
@@ -719,14 +683,13 @@ const BDMAttendanceScreen = () => {
           punchOutPhotoUri: !isPunchIn ? photoUri : existingData.punchOutPhotoUri,
           location: isPunchIn ? locationCoords : existingData.location,
           punchOutLocation: !isPunchIn ? locationCoords : existingData.punchOutLocation,
-          totalHours: newPunchIn && newPunchOut ? calculateTotalHours(newPunchIn, newPunchOut) : 0,
+          totalHours: totalHours,
           locationName: isPunchIn ? await getLocationName(locationCoords) : existingData.locationName,
           punchOutLocationName: !isPunchIn ? await getLocationName(locationCoords) : existingData.punchOutLocationName,
           lastUpdated: Timestamp.fromDate(currentTime)
         });
       }
 
-      // Update local state
       if (isPunchIn) {
         setPunchInTime(format(currentTime, 'hh:mm a'));
         setIsPunchedIn(true);
@@ -735,7 +698,6 @@ const BDMAttendanceScreen = () => {
         setIsPunchedIn(false);
       }
 
-      // Refresh attendance history
       fetchAttendanceHistory();
     } catch (error) {
       console.error('Error saving attendance:', error);
@@ -768,7 +730,6 @@ const BDMAttendanceScreen = () => {
       return;
     }
 
-    // Check location status before proceeding
     const enabled = await Location.hasServicesEnabledAsync();
     if (!enabled) {
       openLocationSettings();
@@ -891,7 +852,6 @@ const BDMAttendanceScreen = () => {
 
   const handleSummaryItemPress = (status: 'Present' | 'Half Day' | 'On Leave') => {
     if (activeFilter === status) {
-      // If clicking the same filter again, clear it
       setActiveFilter(null);
     } else {
       setActiveFilter(status);
@@ -899,7 +859,6 @@ const BDMAttendanceScreen = () => {
   };
 
   const getSummaryItemStyle = (status: 'Present' | 'Half Day' | 'On Leave') => {
-    // Return different styles based on whether this item is the active filter
     return [
       styles.summaryItem,
       activeFilter && activeFilter !== status ? styles.summaryItemBlurred : null,
@@ -915,7 +874,6 @@ const BDMAttendanceScreen = () => {
         showDrawer={true}
       >
         <ScrollView style={styles.scrollView}>
-          {/* Map View */}
           <View style={styles.mapContainer}>
             {mapError ? (
               renderMapFallback()
@@ -968,7 +926,6 @@ const BDMAttendanceScreen = () => {
             )}
           </View>
 
-          {/* Punch In/Out Section */}
           <View style={styles.punchCard}>
             <View style={styles.punchInfo}>
               <Text style={styles.punchLabel}>Take Attendance</Text>
@@ -1006,15 +963,14 @@ const BDMAttendanceScreen = () => {
             )}
           </View>
 
-          {/* Week View */}
           <View style={styles.weekCard}>
             <Text style={styles.dateText}>{format(currentDate, 'dd MMMM (EEEE)')}</Text>
             <View style={styles.weekDays}>
               {weekDaysStatus.map((day, index) => (
                 <View key={index} style={styles.dayContainer}>
-                <View 
-                  style={[
-                    styles.dayCircle,
+                  <View 
+                    style={[
+                      styles.dayCircle,
                       { 
                         backgroundColor: getStatusCircleColor(day.status),
                         borderColor: getStatusBorderColor(day.status)
@@ -1030,7 +986,6 @@ const BDMAttendanceScreen = () => {
             </View>
           </View>
 
-          {/* Month Selection */}
           <ScrollView 
             horizontal 
             showsHorizontalScrollIndicator={false}
@@ -1055,7 +1010,6 @@ const BDMAttendanceScreen = () => {
             ))}
           </ScrollView>
 
-          {/* Attendance Summary */}
           <View style={styles.summaryContainer}>
             <TouchableOpacity 
               style={getSummaryItemStyle('Present')}
@@ -1080,7 +1034,6 @@ const BDMAttendanceScreen = () => {
             </TouchableOpacity>
           </View>
 
-          {/* Attendance History */}
           <View style={styles.historySection}>
             <View style={styles.historyHeader}>
               <Text style={styles.sectionTitle}>Attendance History</Text>
@@ -1576,4 +1529,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default BDMAttendanceScreen; 
+export default BDMAttendanceScreen;

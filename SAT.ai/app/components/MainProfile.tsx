@@ -173,14 +173,32 @@ const ProfileScreen = () => {
     outputRange: [1, 0.8],
     extrapolate: "clamp",
   });
+// Declare FIRST
+const scrollRef = useRef<ScrollView>(null); 
+const [calendarVisible, setCalendarVisible] = useState(false);
+
+// Then useEffect
+useEffect(() => {
+  if (calendarVisible) {
+    setTimeout(() => {
+      scrollRef.current?.scrollToEnd({ animated: true });
+    }, 300);
+  }
+}, [calendarVisible]);
 
   // Fetch user profile and role
   useEffect(() => {
     fetchUserProfile();
   }, []);
-
+useEffect(() => {
+  if (calendarVisible) {
+    setTimeout(() => {
+      scrollRef.current?.scrollToEnd({ animated: true });
+    }, 300);
+  }
+}, [calendarVisible]);
   // State hooks:
-  const [calendarVisible, setCalendarVisible] = useState(false);
+  // const [calendarVisible, setCalendarVisible] = useState(false);
   const today = new Date();
   const [selectedDate, setSelectedDate] = useState(formData.dateOfBirth);
   const [calendarMonth, setCalendarMonth] = useState(today.getMonth());
@@ -513,15 +531,19 @@ const ProfileScreen = () => {
           ) : null
         }
       >
-        <Animated.ScrollView
-          contentContainerStyle={styles.scrollContainer}
-          showsVerticalScrollIndicator={false}
-          scrollEventThrottle={16}
-          onScroll={Animated.event(
-            [{ nativeEvent: { contentOffset: { y: scrollY } } }],
-            { useNativeDriver: false }
-          )}
-        >
+     <Animated.ScrollView
+  ref={scrollRef} // attach scroll ref
+contentContainerStyle={[
+  styles.scrollContainer,
+  { paddingBottom: 100, minHeight: Dimensions.get("window").height + 100 },
+]}
+  showsVerticalScrollIndicator={false}
+  scrollEventThrottle={16}
+  onScroll={Animated.event(
+    [{ nativeEvent: { contentOffset: { y: scrollY } } }],
+    { useNativeDriver: false }
+  )}
+>
           {/* Profile Header */}
           <Animated.View
             style={[
@@ -892,8 +914,9 @@ const ProfileScreen = () => {
 };
 
 const styles = StyleSheet.create({
-  scrollContainer: {
+   scrollContainer: {
     flexGrow: 1,
+    paddingBottom: 200, // ✅ ensures calendar has room to scroll into view
   },
   headerContainer: {
     width: "100%",

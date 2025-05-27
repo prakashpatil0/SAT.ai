@@ -16,50 +16,72 @@ import { useNavigation } from "@react-navigation/native";
 import Ionicons from "react-native-vector-icons/Ionicons";
 import { Image } from "expo-image";
 import TelecallerMainLayout from "@/app/components/TelecallerMainLayout";
-import { LinearGradient } from 'expo-linear-gradient';
-import { Chip } from 'react-native-paper';
-import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
-import { auth, db } from '@/firebaseConfig';
-import { collection, addDoc, Timestamp, query, where, getDocs } from 'firebase/firestore';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import api from '@/app/services/api';
+import { LinearGradient } from "expo-linear-gradient";
+import { Chip } from "react-native-paper";
+import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
+import { auth, db } from "@/firebaseConfig";
+import {
+  collection,
+  addDoc,
+  Timestamp,
+  query,
+  where,
+  getDocs,
+} from "firebase/firestore";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import api from "@/app/services/api";
 import AppGradient from "@/app/components/AppGradient";
-import { getTargets } from '@/app/services/targetService';
-import { format, startOfDay, endOfDay } from 'date-fns';
+import { getTargets } from "@/app/services/targetService";
+import { format, startOfDay, endOfDay } from "date-fns";
 import { doc, getDoc } from "firebase/firestore";
 
 const PRODUCT_LIST = [
-  { label: 'Health Insurance', value: 'health_insurance' },
-  { label: 'Bike Insurance', value: 'bike_insurance' },
-  { label: 'Car Insurance', value: 'car_insurance' },
-  { label: 'Term Insurance', value: 'term_insurance' },
-  { label: 'Saving Plans', value: 'saving_plan' },
-  { label: 'Travel Insurance', value: 'travel_insurance' },
-  { label: 'Group Mediclaim', value: 'group_mediclaim' },
-  { label: 'Group Personal Accident', value: 'group_personal_accident' },
-  { label: 'Group Term Life', value: 'group_term_life' },
-  { label: 'Group Credit Life', value: 'group_credit_life' },
-  { label: 'Workmen Compensation', value: 'workmen_compensation' },
-  { label: 'Group Gratuity', value: 'group_gratuity' },
-  { label: 'Fire & Burglary Insurance', value: 'fire_burglary_insurance' },
-  { label: 'Shop Owner Insurance', value: 'shop_owner_insurance' },
-  { label: 'Motor Fleet Insurance', value: 'motor_fleet_insurance' },
-  { label: 'Marine Single Transit', value: 'marine_single_transit' },
-  { label: 'Marine Open Policy', value: 'marine_open_policy' },
-  { label: 'Marine Sales Turnover', value: 'marine_sales_turnover' },
-  { label: 'Directors & Officers Insurance', value: 'directors_officers_insurance' },
-  { label: 'General Liability Insurance', value: 'general_liability_insurance' },
-  { label: 'Product Liability Insurance', value: 'product_liability_insurance' },
-  { label: 'Professional Indemnity for Doctors', value: 'professional_indemnity_for_doctors' },
-  { label: 'Professional Indemnity for Companies', value: 'professional_indemnity_for_companies' },
-  { label: 'Cyber Insurance', value: 'cyber_insurance' },
-  { label: 'Office Package Policy', value: 'office_package_policy' },
-  { label: 'Crime Insurance', value: 'crime_insurance' },
-  { label: 'Other', value: 'other' },
+  { label: "Health Insurance", value: "health_insurance" },
+  { label: "Bike Insurance", value: "bike_insurance" },
+  { label: "Car Insurance", value: "car_insurance" },
+  { label: "Term Insurance", value: "term_insurance" },
+  { label: "Saving Plans", value: "saving_plan" },
+  { label: "Travel Insurance", value: "travel_insurance" },
+  { label: "Group Mediclaim", value: "group_mediclaim" },
+  { label: "Group Personal Accident", value: "group_personal_accident" },
+  { label: "Group Term Life", value: "group_term_life" },
+  { label: "Group Credit Life", value: "group_credit_life" },
+  { label: "Workmen Compensation", value: "workmen_compensation" },
+  { label: "Group Gratuity", value: "group_gratuity" },
+  { label: "Fire & Burglary Insurance", value: "fire_burglary_insurance" },
+  { label: "Shop Owner Insurance", value: "shop_owner_insurance" },
+  { label: "Motor Fleet Insurance", value: "motor_fleet_insurance" },
+  { label: "Marine Single Transit", value: "marine_single_transit" },
+  { label: "Marine Open Policy", value: "marine_open_policy" },
+  { label: "Marine Sales Turnover", value: "marine_sales_turnover" },
+  {
+    label: "Directors & Officers Insurance",
+    value: "directors_officers_insurance",
+  },
+  {
+    label: "General Liability Insurance",
+    value: "general_liability_insurance",
+  },
+  {
+    label: "Product Liability Insurance",
+    value: "product_liability_insurance",
+  },
+  {
+    label: "Professional Indemnity for Doctors",
+    value: "professional_indemnity_for_doctors",
+  },
+  {
+    label: "Professional Indemnity for Companies",
+    value: "professional_indemnity_for_companies",
+  },
+  { label: "Cyber Insurance", value: "cyber_insurance" },
+  { label: "Office Package Policy", value: "office_package_policy" },
+  { label: "Crime Insurance", value: "crime_insurance" },
+  { label: "Other", value: "other" },
 ];
 
 interface ClosingDetail {
-  selectedProducts: string[];
+  selectedProduct: string;
   otherProduct: string;
   amount: string;
   description: string;
@@ -79,31 +101,34 @@ interface DailyReport {
 }
 
 const STORAGE_KEYS = {
-  DRAFT_REPORT: 'telecaller_report_draft',
-  LAST_REPORT: 'telecaller_last_report'
+  DRAFT_REPORT: "telecaller_report_draft",
+  LAST_REPORT: "telecaller_last_report",
 };
 
 const ReportScreen: React.FC = () => {
   const navigation = useNavigation();
   const [modalVisible, setModalVisible] = useState(false);
-  const [numMeetings, setNumMeetings] = useState('');
-  const [meetingDuration, setMeetingDuration] = useState('');
-  const [positiveLeads, setPositiveLeads] = useState('');
-  const [rejectedLeads, setRejectedLeads] = useState('');
-  const [notAttendedCalls, setNotAttendedCalls] = useState('');
-  const [closingLeads, setClosingLeads] = useState('');
-  const [closingDetails, setClosingDetails] = useState<ClosingDetail[]>([{
-    selectedProducts: [],
-    otherProduct: '',
-    amount: '',
-    description: '',
-    showOtherInput: false
-  }]);
+  const [numMeetings, setNumMeetings] = useState("");
+  const [meetingDuration, setMeetingDuration] = useState("");
+  const [positiveLeads, setPositiveLeads] = useState("");
+  const [rejectedLeads, setRejectedLeads] = useState("");
+  const [notAttendedCalls, setNotAttendedCalls] = useState("");
+  const [closingLeads, setClosingLeads] = useState("");
+  const [closingDetails, setClosingDetails] = useState<ClosingDetail[]>([
+    {
+      selectedProduct: "",
+      otherProduct: "",
+      amount: "",
+      description: "",
+      showOtherInput: false,
+    },
+  ]);
+
   const [totalClosingAmount, setTotalClosingAmount] = useState(0);
   const [dropdownVisible, setDropdownVisible] = useState<number | null>(null);
-  const [searchQuery, setSearchQuery] = useState('');
+  const [searchQuery, setSearchQuery] = useState("");
   const [filteredProducts, setFilteredProducts] = useState(PRODUCT_LIST);
-  const [errors, setErrors] = useState<{[key: string]: string}>({});
+  const [errors, setErrors] = useState<{ [key: string]: string }>({});
   const [todayCalls, setTodayCalls] = useState(0);
   const [todayDuration, setTodayDuration] = useState(0);
   const [waveAnimation] = useState(new Animated.Value(0));
@@ -111,10 +136,10 @@ const ReportScreen: React.FC = () => {
 
   // Filter products based on search
   useEffect(() => {
-    if (searchQuery.trim() === '') {
+    if (searchQuery.trim() === "") {
       setFilteredProducts(PRODUCT_LIST);
     } else {
-      const filtered = PRODUCT_LIST.filter(product => 
+      const filtered = PRODUCT_LIST.filter((product) =>
         product.label.toLowerCase().includes(searchQuery.toLowerCase())
       );
       setFilteredProducts(filtered);
@@ -130,14 +155,22 @@ const ReportScreen: React.FC = () => {
   useEffect(() => {
     const autoSaveTimer = setTimeout(saveDraftData, 1000);
     return () => clearTimeout(autoSaveTimer);
-  }, [numMeetings, meetingDuration, positiveLeads, rejectedLeads, notAttendedCalls, closingLeads, closingDetails]);
+  }, [
+    numMeetings,
+    meetingDuration,
+    positiveLeads,
+    rejectedLeads,
+    notAttendedCalls,
+    closingLeads,
+    closingDetails,
+  ]);
 
   // Update the fetchTodayCallData function for faster updates
   const fetchTodayCallData = async () => {
     try {
       const userId = auth.currentUser?.uid;
       if (!userId) {
-        console.log('No user ID found');
+        console.log("No user ID found");
         return;
       }
 
@@ -146,11 +179,15 @@ const ReportScreen: React.FC = () => {
       const endOfToday = endOfDay(today);
 
       // First try to get from AsyncStorage
-      const storedLogs = await AsyncStorage.getItem('device_call_logs');
-      const lastUpdate = await AsyncStorage.getItem('call_logs_last_update');
+      const storedLogs = await AsyncStorage.getItem("device_call_logs");
+      const lastUpdate = await AsyncStorage.getItem("call_logs_last_update");
       const now = Date.now();
 
-      if (storedLogs && lastUpdate && (now - parseInt(lastUpdate)) < 5 * 60 * 1000) {
+      if (
+        storedLogs &&
+        lastUpdate &&
+        now - parseInt(lastUpdate) < 5 * 60 * 1000
+      ) {
         // Use stored logs if they're recent
         const parsedLogs = JSON.parse(storedLogs);
         const todayLogs = parsedLogs.filter((log: any) => {
@@ -162,7 +199,7 @@ const ReportScreen: React.FC = () => {
         let totalDuration = 0;
 
         todayLogs.forEach((log: any) => {
-          if (log.status === 'completed') {
+          if (log.status === "completed") {
             totalCalls++;
             if (log.duration) {
               totalDuration += Number(log.duration);
@@ -178,12 +215,12 @@ const ReportScreen: React.FC = () => {
       }
 
       // If no recent stored logs, fetch from Firebase
-      const callLogsRef = collection(db, 'callLogs');
+      const callLogsRef = collection(db, "callLogs");
       const q = query(
         callLogsRef,
-        where('userId', '==', userId),
-        where('timestamp', '>=', startOfToday),
-        where('timestamp', '<=', endOfToday)
+        where("userId", "==", userId),
+        where("timestamp", ">=", startOfToday),
+        where("timestamp", "<=", endOfToday)
       );
 
       const querySnapshot = await getDocs(q);
@@ -192,7 +229,7 @@ const ReportScreen: React.FC = () => {
 
       querySnapshot.forEach((doc) => {
         const data = doc.data();
-        if (data.status === 'completed') {
+        if (data.status === "completed") {
           totalCalls++;
           if (data.duration) {
             totalDuration += Number(data.duration);
@@ -207,12 +244,14 @@ const ReportScreen: React.FC = () => {
       setMeetingDuration(formatDuration(totalDuration));
 
       // Store in AsyncStorage for faster future access
-      await AsyncStorage.setItem('device_call_logs', JSON.stringify(querySnapshot.docs.map(doc => doc.data())));
-      await AsyncStorage.setItem('call_logs_last_update', now.toString());
-
+      await AsyncStorage.setItem(
+        "device_call_logs",
+        JSON.stringify(querySnapshot.docs.map((doc) => doc.data()))
+      );
+      await AsyncStorage.setItem("call_logs_last_update", now.toString());
     } catch (error) {
-      console.error('Error fetching today\'s call data:', error);
-      Alert.alert('Error', 'Failed to fetch today\'s call data');
+      console.error("Error fetching today's call data:", error);
+      Alert.alert("Error", "Failed to fetch today's call data");
     } finally {
       setIsLoading(false);
     }
@@ -246,23 +285,25 @@ const ReportScreen: React.FC = () => {
   useEffect(() => {
     // Fetch immediately on mount
     fetchTodayCallData();
-    
+
     // Set up interval to fetch every 10 seconds
     const interval = setInterval(fetchTodayCallData, 10000);
-    
+
     // Cleanup interval on unmount
     return () => clearInterval(interval);
   }, []);
 
   // Format duration to HH:mm:ss format
   const formatDuration = (seconds: number) => {
-    if (!seconds) return '00:00:00';
-    
+    if (!seconds) return "00:00:00";
+
     const hours = Math.floor(seconds / 3600);
     const minutes = Math.floor((seconds % 3600) / 60);
     const remainingSeconds = seconds % 60;
-    
-    return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${remainingSeconds.toString().padStart(2, '0')}`;
+
+    return `${hours.toString().padStart(2, "0")}:${minutes
+      .toString()
+      .padStart(2, "0")}:${remainingSeconds.toString().padStart(2, "0")}`;
   };
 
   const saveDraftData = async () => {
@@ -275,42 +316,52 @@ const ReportScreen: React.FC = () => {
         notAttendedCalls,
         closingLeads,
         closingDetails,
-        totalClosingAmount
+        totalClosingAmount,
       };
-      await AsyncStorage.setItem(STORAGE_KEYS.DRAFT_REPORT, JSON.stringify(draftData));
+      await AsyncStorage.setItem(
+        STORAGE_KEYS.DRAFT_REPORT,
+        JSON.stringify(draftData)
+      );
     } catch (error) {
-      console.error('Error saving draft:', error);
+      console.error("Error saving draft:", error);
     }
   };
 
   const loadDraftData = async () => {
     try {
-      const draftDataString = await AsyncStorage.getItem(STORAGE_KEYS.DRAFT_REPORT);
+      const draftDataString = await AsyncStorage.getItem(
+        STORAGE_KEYS.DRAFT_REPORT
+      );
       if (draftDataString) {
         const draftData = JSON.parse(draftDataString);
-        setNumMeetings(draftData.numMeetings || '');
-        setMeetingDuration(draftData.meetingDuration || '');
-        setPositiveLeads(draftData.positiveLeads || '');
-        setRejectedLeads(draftData.rejectedLeads || '');
-        setNotAttendedCalls(draftData.notAttendedCalls || '');
-        setClosingLeads(draftData.closingLeads || '');
-        setClosingDetails(draftData.closingDetails || [{
-          selectedProducts: [],
-          otherProduct: '',
-          amount: '',
-          description: '',
-          showOtherInput: false
-        }]);
+        setNumMeetings(draftData.numMeetings || "");
+        setMeetingDuration(draftData.meetingDuration || "");
+        setPositiveLeads(draftData.positiveLeads || "");
+        setRejectedLeads(draftData.rejectedLeads || "");
+        setNotAttendedCalls(draftData.notAttendedCalls || "");
+        setClosingLeads(draftData.closingLeads || "");
+        setClosingDetails(
+          draftData.closingDetails || [
+            {
+              selectedProduct: "",
+              otherProduct: "",
+              amount: "",
+              description: "",
+              showOtherInput: false,
+            },
+          ]
+        );
+
         setTotalClosingAmount(draftData.totalClosingAmount || 0);
       }
     } catch (error) {
-      console.error('Error loading draft:', error);
+      console.error("Error loading draft:", error);
     }
   };
 
   const validateForm = (): boolean => {
-    const newErrors: {[key: string]: string} = {};
-    
+    const newErrors: { [key: string]: string } = {};
+
     if (!numMeetings.trim()) {
       newErrors.numMeetings = "Number of calls is required";
     } else if (isNaN(Number(numMeetings)) || Number(numMeetings) < 0) {
@@ -335,7 +386,10 @@ const ReportScreen: React.FC = () => {
 
     if (!notAttendedCalls.trim()) {
       newErrors.notAttendedCalls = "Not attended calls is required";
-    } else if (isNaN(Number(notAttendedCalls)) || Number(notAttendedCalls) < 0) {
+    } else if (
+      isNaN(Number(notAttendedCalls)) ||
+      Number(notAttendedCalls) < 0
+    ) {
       newErrors.notAttendedCalls = "Please enter a valid number";
     }
 
@@ -344,11 +398,12 @@ const ReportScreen: React.FC = () => {
     } else if (isNaN(Number(closingLeads)) || Number(closingLeads) < 0) {
       newErrors.closingLeads = "Please enter a valid number";
     }
-    
+
     closingDetails.forEach((detail, index) => {
-      if (detail.selectedProducts.length === 0) {
-        newErrors[`closing_${index}_products`] = "Please select at least one product";
+      if (!detail.selectedProduct) {
+        newErrors[`closing_${index}_product`] = "Please select a product";
       }
+
       if (!detail.amount.trim()) {
         newErrors[`closing_${index}_amount`] = "Amount is required";
       }
@@ -356,7 +411,7 @@ const ReportScreen: React.FC = () => {
         newErrors[`closing_${index}_description`] = "Description is required";
       }
     });
-    
+
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -369,50 +424,55 @@ const ReportScreen: React.FC = () => {
 
     try {
       if (!auth.currentUser) {
-        Alert.alert('Error', 'Please login first');
+        Alert.alert("Error", "Please login first");
         return;
       }
       const userId = auth.currentUser.uid;
 
-const userDocRef = doc(db, "users", userId);
-const userDoc = await getDoc(userDocRef);
+      const userDocRef = doc(db, "users", userId);
+      const userDoc = await getDoc(userDocRef);
 
-let submittedBy = "Unknown";
-if (userDoc.exists()) {
-  const userData = userDoc.data();
-  submittedBy = userData.name || "Unnamed User";
-}
-
+      let submittedBy = "Unknown";
+      if (userDoc.exists()) {
+        const userData = userDoc.data();
+        submittedBy = userData.name || "Unnamed User";
+      }
 
       const now = new Date();
       const reportData = {
-  userId,
-  submittedBy, // ✅ NEW FIELD
-  date: Timestamp.fromDate(now),
-  numMeetings: parseInt(numMeetings),
-  meetingDuration,
-  positiveLeads: parseInt(positiveLeads),
-  rejectedLeads: parseInt(rejectedLeads),
-  notAttendedCalls: parseInt(notAttendedCalls),
-  closingLeads: parseInt(closingLeads),
-  closingDetails: closingDetails.map(detail => ({
-    products: detail.selectedProducts,
-    otherProduct: detail.otherProduct,
-    amount: parseInt(detail.amount.replace(/[^0-9]/g, '')),
-    description: detail.description
-  })),
-  totalClosingAmount,
-  createdAt: Timestamp.fromDate(now),
-  updatedAt: Timestamp.fromDate(now)
-};
+        userId,
+        submittedBy, // ✅ NEW FIELD
+        date: Timestamp.fromDate(now),
+        numMeetings: parseInt(numMeetings),
+        meetingDuration,
+        positiveLeads: parseInt(positiveLeads),
+        rejectedLeads: parseInt(rejectedLeads),
+        notAttendedCalls: parseInt(notAttendedCalls),
+        closingLeads: parseInt(closingLeads),
+        closingDetails: closingDetails.map((detail) => ({
+          product: detail.selectedProduct,
 
+          otherProduct: detail.otherProduct,
+          amount: parseInt(detail.amount.replace(/[^0-9]/g, "")),
+          description: detail.description,
+        })),
+        totalClosingAmount,
+        createdAt: Timestamp.fromDate(now),
+        updatedAt: Timestamp.fromDate(now),
+      };
 
       // Save to Firebase
-      const docRef = await addDoc(collection(db, 'telecaller_reports'), reportData);
-      
+      const docRef = await addDoc(
+        collection(db, "telecaller_reports"),
+        reportData
+      );
+
       // Save as last report in AsyncStorage
-      await AsyncStorage.setItem(STORAGE_KEYS.LAST_REPORT, JSON.stringify(reportData));
-      
+      await AsyncStorage.setItem(
+        STORAGE_KEYS.LAST_REPORT,
+        JSON.stringify(reportData)
+      );
+
       // Clear draft after successful submission
       await AsyncStorage.removeItem(STORAGE_KEYS.DRAFT_REPORT);
 
@@ -420,53 +480,40 @@ if (userDoc.exists()) {
       setTimeout(() => {
         setModalVisible(false);
         // Reset form
-        setNumMeetings('');
-        setMeetingDuration('');
-        setPositiveLeads('');
-        setRejectedLeads('');
-        setNotAttendedCalls('');
-        setClosingLeads('');
-        setClosingDetails([{
-          selectedProducts: [],
-          otherProduct: '',
-          amount: '',
-          description: '',
-          showOtherInput: false
-        }]);
+        setNumMeetings("");
+        setMeetingDuration("");
+        setPositiveLeads("");
+        setRejectedLeads("");
+        setNotAttendedCalls("");
+        setClosingLeads("");
+        setClosingDetails([
+          ...closingDetails,
+          {
+            selectedProduct: "",
+            otherProduct: "",
+            amount: "",
+            description: "",
+            showOtherInput: false,
+          },
+        ]);
+
         setTotalClosingAmount(0);
       }, 2000);
-
     } catch (error) {
-      console.error('Error submitting report:', error);
-      Alert.alert('Error', 'Failed to submit report. Please try again.');
+      console.error("Error submitting report:", error);
+      Alert.alert("Error", "Failed to submit report. Please try again.");
     }
   };
 
-  const toggleProductSelection = (index: number, productValue: string, isDeselect: boolean = false) => {
-    const newClosingDetails = [...closingDetails];
-    const selectedProducts = [...newClosingDetails[index].selectedProducts];
-    
-    if (isDeselect) {
-      const productIndex = selectedProducts.indexOf(productValue);
-      if (productIndex !== -1) {
-        selectedProducts.splice(productIndex, 1);
-      }
-    } else {
-      const productIndex = selectedProducts.indexOf(productValue);
-      if (productIndex === -1) {
-        selectedProducts.push(productValue);
-      } else {
-        selectedProducts.splice(productIndex, 1);
-      }
-    }
-
-    newClosingDetails[index] = {
-      ...newClosingDetails[index],
-      selectedProducts,
-      showOtherInput: selectedProducts.includes('other')
+  const handleProductSelection = (index: number, value: string) => {
+    const newDetails = [...closingDetails];
+    newDetails[index] = {
+      ...newDetails[index],
+      selectedProduct: value,
+      showOtherInput: value === "other",
     };
-
-    setClosingDetails(newClosingDetails);
+    setClosingDetails(newDetails);
+    setDropdownVisible(null); // auto-close dropdown
   };
 
   const renderWaveSkeleton = () => {
@@ -477,13 +524,13 @@ if (userDoc.exists()) {
 
     return (
       <View style={styles.skeletonContainer}>
-        <Animated.View 
+        <Animated.View
           style={[
             styles.skeletonWave,
             {
               transform: [{ translateY }],
-            }
-          ]} 
+            },
+          ]}
         />
         <View style={styles.skeletonContent}>
           <View style={styles.skeletonHeader} />
@@ -506,7 +553,11 @@ if (userDoc.exists()) {
   if (isLoading) {
     return (
       <AppGradient>
-        <TelecallerMainLayout showDrawer showBackButton={true} title="Daily Report">
+        <TelecallerMainLayout
+          showDrawer
+          showBackButton={true}
+          title="Daily Report"
+        >
           {renderWaveSkeleton()}
         </TelecallerMainLayout>
       </AppGradient>
@@ -515,7 +566,11 @@ if (userDoc.exists()) {
 
   return (
     <AppGradient>
-      <TelecallerMainLayout showDrawer showBackButton={true} title="Daily Report">
+      <TelecallerMainLayout
+        showDrawer
+        showBackButton={true}
+        title="Daily Report"
+      >
         <View style={styles.container}>
           <KeyboardAwareScrollView
             contentContainerStyle={styles.scrollContainer}
@@ -523,8 +578,10 @@ if (userDoc.exists()) {
             enableOnAndroid
           >
             <View style={styles.inputContainer}>
-              <Text style={styles.dateText}>{format(new Date(), 'dd MMMM (EEEE)')}</Text>
-              
+              <Text style={styles.dateText}>
+                {format(new Date(), "dd MMMM (EEEE)")}
+              </Text>
+
               {/* Number of Calls - Read Only with Auto Update */}
               <Text style={styles.label}>Number of Calls</Text>
               <View style={styles.readOnlyInput}>
@@ -534,12 +591,17 @@ if (userDoc.exists()) {
               {/* Call Duration - Read Only with Auto Update */}
               <Text style={styles.label}>Call Duration</Text>
               <View style={styles.readOnlyInput}>
-                <Text style={styles.readOnlyText}>{formatDuration(todayDuration)}</Text>
+                <Text style={styles.readOnlyText}>
+                  {formatDuration(todayDuration)}
+                </Text>
               </View>
 
               <Text style={styles.label}>Positive Leads</Text>
               <TextInput
-                style={[styles.input, errors.positiveLeads && styles.inputError]}
+                style={[
+                  styles.input,
+                  errors.positiveLeads && styles.inputError,
+                ]}
                 value={positiveLeads}
                 onChangeText={setPositiveLeads}
                 keyboardType="numeric"
@@ -551,7 +613,10 @@ if (userDoc.exists()) {
 
               <Text style={styles.label}>Rejected Leads</Text>
               <TextInput
-                style={[styles.input, errors.rejectedLeads && styles.inputError]}
+                style={[
+                  styles.input,
+                  errors.rejectedLeads && styles.inputError,
+                ]}
                 value={rejectedLeads}
                 onChangeText={setRejectedLeads}
                 keyboardType="numeric"
@@ -563,7 +628,10 @@ if (userDoc.exists()) {
 
               <Text style={styles.label}>Not Attended Calls</Text>
               <TextInput
-                style={[styles.input, errors.notAttendedCalls && styles.inputError]}
+                style={[
+                  styles.input,
+                  errors.notAttendedCalls && styles.inputError,
+                ]}
                 value={notAttendedCalls}
                 onChangeText={setNotAttendedCalls}
                 keyboardType="numeric"
@@ -595,31 +663,46 @@ if (userDoc.exists()) {
                       <TouchableOpacity
                         style={styles.removeButton}
                         onPress={() => {
-                          const newDetails = closingDetails.filter((_, i) => i !== index);
+                          const newDetails = closingDetails.filter(
+                            (_, i) => i !== index
+                          );
                           setClosingDetails(newDetails);
                         }}
                       >
-                        <Ionicons name="remove-circle" size={24} color="#FF5252" />
+                        <Ionicons
+                          name="remove-circle"
+                          size={24}
+                          color="#FF5252"
+                        />
                       </TouchableOpacity>
                     )}
-                    <Text style={styles.label}>Type of Product <Text style={styles.required}>*</Text></Text>
+                    <Text style={styles.label}>
+                      Type of Product <Text style={styles.required}>*</Text>
+                    </Text>
 
                     {/* Product Selection */}
                     <TouchableOpacity
                       style={styles.dropdownTrigger}
-                      onPress={() => setDropdownVisible(dropdownVisible === index ? null : index)}
+                      onPress={() =>
+                        setDropdownVisible(
+                          dropdownVisible === index ? null : index
+                        )
+                      }
                     >
-                      <Text style={styles.dropdownTriggerText}>
-                        {detail.selectedProducts.length > 0
-                          ? detail.selectedProducts.map(val => 
-                              PRODUCT_LIST.find(p => p.value === val)?.label
-                            ).join(', ')
-                          : 'Select Product(s)'}
+                      <Text>
+                        {PRODUCT_LIST.find(
+                          (p) => p.value === detail.selectedProduct
+                        )?.label || "Select Product"}
                       </Text>
-                      <Ionicons 
-                        name={dropdownVisible === index ? "chevron-up" : "chevron-down"} 
-                        size={20} 
-                        color="#666" 
+
+                      <Ionicons
+                        name={
+                          dropdownVisible === index
+                            ? "chevron-up"
+                            : "chevron-down"
+                        }
+                        size={20}
+                        color="#666"
                       />
                     </TouchableOpacity>
 
@@ -644,54 +727,55 @@ if (userDoc.exists()) {
                             <TouchableOpacity
                               style={[
                                 styles.dropdownItem,
-                                detail.selectedProducts.includes(item.value) && styles.dropdownItemSelected
+                                detail.selectedProduct === item.value &&
+                                  styles.dropdownItemSelected,
                               ]}
-                              onPress={() => toggleProductSelection(index, item.value)}
+                              onPress={() =>
+                                handleProductSelection(index, item.value)
+                              }
                             >
-                              <Text style={[
-                                styles.dropdownItemText,
-                                detail.selectedProducts.includes(item.value) && styles.dropdownItemTextSelected
-                              ]}>
+                              <Text
+                                style={[
+                                  styles.dropdownItemText,
+                                  detail.selectedProduct === item.value &&
+                                    styles.dropdownItemTextSelected,
+                                ]}
+                              >
                                 {item.label}
                               </Text>
-                              {detail.selectedProducts.includes(item.value) && (
-                                <TouchableOpacity
-                                  onPress={(e) => {
-                                    e.stopPropagation();
-                                    toggleProductSelection(index, item.value, true);
-                                  }}
-                                  style={styles.closeIcon}
-                                >
-                                  <Ionicons name="close" size={18} color="#FFFFFF" />
-                                </TouchableOpacity>
-                              )}
                             </TouchableOpacity>
                           )}
                         />
                       </View>
                     )}
-                    {errors[`closing_${index}_products`] && (
-                      <Text style={styles.errorText}>{errors[`closing_${index}_products`]}</Text>
+                    {errors[`closing_${index}_product`] && (
+                      <Text style={styles.errorText}>
+                        {errors[`closing_${index}_product`]}
+                      </Text>
                     )}
 
                     {/* Other fields */}
-                    <Text style={styles.label}>Closing Amount <Text style={styles.required}>*</Text></Text>
+                    <Text style={styles.label}>
+                      Closing Amount <Text style={styles.required}>*</Text>
+                    </Text>
                     <View style={styles.amountInputContainer}>
                       <Text style={styles.currencySymbol}>₹</Text>
                       <TextInput
                         style={[
                           styles.amountInput,
-                          errors[`closing_${index}_amount`] && styles.inputError
+                          errors[`closing_${index}_amount`] &&
+                            styles.inputError,
                         ]}
                         value={detail.amount}
                         onChangeText={(text) => {
                           const newDetails = [...closingDetails];
                           newDetails[index] = { ...detail, amount: text };
                           setClosingDetails(newDetails);
-                          
+
                           // Update total amount
                           const total = newDetails.reduce((sum, d) => {
-                            const amount = parseInt(d.amount.replace(/[^0-9]/g, '')) || 0;
+                            const amount =
+                              parseInt(d.amount.replace(/[^0-9]/g, "")) || 0;
                             return sum + amount;
                           }, 0);
                           setTotalClosingAmount(total);
@@ -701,14 +785,17 @@ if (userDoc.exists()) {
                       />
                     </View>
                     {errors[`closing_${index}_amount`] && (
-                      <Text style={styles.errorText}>{errors[`closing_${index}_amount`]}</Text>
+                      <Text style={styles.errorText}>
+                        {errors[`closing_${index}_amount`]}
+                      </Text>
                     )}
 
                     <Text style={styles.label}>Description</Text>
                     <TextInput
                       style={[
                         styles.textArea,
-                        errors[`closing_${index}_description`] && styles.inputError
+                        errors[`closing_${index}_description`] &&
+                          styles.inputError,
                       ]}
                       value={detail.description}
                       onChangeText={(text) => {
@@ -721,7 +808,9 @@ if (userDoc.exists()) {
                       placeholder="Enter description product wise, if multiple products are selected"
                     />
                     {errors[`closing_${index}_description`] && (
-                      <Text style={styles.errorText}>{errors[`closing_${index}_description`]}</Text>
+                      <Text style={styles.errorText}>
+                        {errors[`closing_${index}_description`]}
+                      </Text>
                     )}
                   </View>
                 ))}
@@ -729,22 +818,31 @@ if (userDoc.exists()) {
                 {/* Add More Button */}
                 <TouchableOpacity
                   style={styles.addButton}
-                  onPress={() => setClosingDetails([...closingDetails, {
-                    selectedProducts: [],
-                    otherProduct: '',
-                    amount: '',
-                    description: '',
-                    showOtherInput: false
-                  }])}
+                  onPress={() =>
+                    setClosingDetails([
+                      ...closingDetails,
+                      {
+                        selectedProduct: "", // ✅ Correct property
+                        otherProduct: "",
+                        amount: "",
+                        description: "",
+                        showOtherInput: false,
+                      },
+                    ])
+                  }
                 >
-                  <Text style={styles.addButtonText}>+ Add Another Closing</Text>
+                  <Text style={styles.addButtonText}>
+                    + Add Another Closing
+                  </Text>
                 </TouchableOpacity>
               </View>
 
               {/* Total Amount */}
               <View style={styles.totalContainer}>
                 <Text style={styles.totalLabel}>Total Closing Amount</Text>
-                <Text style={styles.totalAmount}>₹ {totalClosingAmount.toLocaleString()}</Text>
+                <Text style={styles.totalAmount}>
+                  ₹ {totalClosingAmount.toLocaleString()}
+                </Text>
               </View>
 
               {/* Submit Button */}
@@ -753,7 +851,7 @@ if (userDoc.exists()) {
                 onPress={handleSubmit}
               >
                 <LinearGradient
-                  colors={['#FF8447', '#FF6D24']}
+                  colors={["#FF8447", "#FF6D24"]}
                   style={styles.submitGradient}
                   start={{ x: 0, y: 0 }}
                   end={{ x: 1, y: 0 }}
@@ -779,7 +877,9 @@ if (userDoc.exists()) {
                 style={styles.gif}
                 contentFit="contain"
               />
-              <Text style={styles.modalTitle}>Report Submitted Successfully!</Text>
+              <Text style={styles.modalTitle}>
+                Report Submitted Successfully!
+              </Text>
               <Text style={styles.modalSubtitle}>
                 Your report has been recorded. Keep up the great work!
               </Text>
@@ -1044,22 +1144,22 @@ const styles = StyleSheet.create({
     fontFamily: "LexendDeca_500Medium",
   },
   removeButton: {
-    position: 'absolute',
+    position: "absolute",
     top: 10,
     right: 10,
     padding: 5,
   },
   skeletonContainer: {
     flex: 1,
-    overflow: 'hidden',
+    overflow: "hidden",
   },
   skeletonWave: {
-    position: 'absolute',
+    position: "absolute",
     top: 0,
     left: 0,
     right: 0,
     height: 200,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    backgroundColor: "rgba(255, 255, 255, 0.1)",
     transform: [{ translateY: 0 }],
   },
   skeletonContent: {
@@ -1068,31 +1168,31 @@ const styles = StyleSheet.create({
   },
   skeletonHeader: {
     height: 40,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    backgroundColor: "rgba(255, 255, 255, 0.2)",
     borderRadius: 8,
     marginBottom: 16,
-    width: '60%',
-    alignSelf: 'center',
+    width: "60%",
+    alignSelf: "center",
   },
   skeletonCard: {
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    backgroundColor: "rgba(255, 255, 255, 0.2)",
     borderRadius: 16,
     padding: 16,
     marginBottom: 16,
   },
   skeletonCardHeader: {
     height: 24,
-    backgroundColor: 'rgba(255, 255, 255, 0.3)',
+    backgroundColor: "rgba(255, 255, 255, 0.3)",
     borderRadius: 4,
     marginBottom: 16,
-    width: '40%',
+    width: "40%",
   },
   skeletonCardContent: {
     flex: 1,
   },
   skeletonProgress: {
     height: 8,
-    backgroundColor: 'rgba(255, 255, 255, 0.3)',
+    backgroundColor: "rgba(255, 255, 255, 0.3)",
     borderRadius: 4,
     marginBottom: 24,
   },
@@ -1101,7 +1201,7 @@ const styles = StyleSheet.create({
   },
   skeletonStatRow: {
     height: 20,
-    backgroundColor: 'rgba(255, 255, 255, 0.3)',
+    backgroundColor: "rgba(255, 255, 255, 0.3)",
     borderRadius: 4,
     marginBottom: 12,
   },

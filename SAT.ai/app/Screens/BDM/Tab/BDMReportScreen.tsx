@@ -36,18 +36,15 @@ import AnimatedReanimated, {
 
 import CallLog from 'react-native-call-log';
 
-// Manually specify Picker type since we may not have the npm package installed yet
-// You should install @react-native-picker/picker package:
-// npm install @react-native-picker/picker
-// or
-// yarn add @react-native-picker/picker
+
 const Picker = require('@react-native-picker/picker').Picker;
 
 interface ClosingDetail {
-  productType: string[];
+  productType: string; // ✅ updated
   closingAmount: number;
   description: string;
 }
+
 
 interface DailyReport {
   date: Date;
@@ -136,9 +133,8 @@ const BDMReportScreen = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'synced' | 'error'>('idle');
   const [errors, setErrors] = useState<{[key: string]: string}>({});
-  const [selectedProducts, setSelectedProducts] = useState<{[key: number]: string[]}>({
-    0: ["Health Insurance"]
-  });
+ const [selectedProducts, setSelectedProducts] = useState<{ [key: number]: string }>({ 0: "Health Insurance" });
+
   const [showProductDropdown, setShowProductDropdown] = useState<number | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [filteredProducts, setFilteredProducts] = useState<string[]>([]);
@@ -181,7 +177,7 @@ const BDMReportScreen = () => {
   const [meetingDuration, setMeetingDuration] = useState<string>("");
   const [positiveLeads, setPositiveLeads] = useState<string>("");
   const [closingDetails, setClosingDetails] = useState<ClosingDetail[]>([
-    { productType: ["Health Insurance"], closingAmount: 0, description: "" }
+    { productType: "Health Insurance", closingAmount: 0, description: "" }
   ]);
   const [totalAmount, setTotalAmount] = useState<number>(0);
   
@@ -515,7 +511,7 @@ const BDMReportScreen = () => {
           setMeetingDuration(draftData.meetingDuration || '');
           setPositiveLeads(draftData.positiveLeads || '');
           setClosingDetails(draftData.closingDetails || [{
-            productType: ["Health Insurance"],
+            productType: "Health Insurance",
             closingAmount: 0,
             description: ""
           }]);
@@ -695,7 +691,7 @@ try {
         // Clear form but keep auto-populated fields
         setPositiveLeads("");
         setClosingDetails([
-          { productType: ["Health Insurance"], closingAmount: 0, description: "" }
+          { productType: "Health Insurance", closingAmount: 0, description: "" }
         ]);
         setTotalAmount(0);
       }, 2000);
@@ -894,9 +890,10 @@ try {
   // Add new closing detail
   const addClosingDetail = () => {
     setClosingDetails([
-      ...closingDetails,
-      { productType: ["Health Insurance"], closingAmount: 0, description: "" }
-    ]);
+  ...closingDetails,
+  { productType: "Health Insurance", closingAmount: 0, description: "" }
+]);
+
   };
 
   // Remove closing detail at specific index
@@ -932,55 +929,38 @@ try {
   };
 
   // Toggle product selection
-  const toggleProductSelection = (index: number, product: string) => {
-    if (product === "Other") {
-      setShowOtherInput(index);
-      return;
-    }
-    
-    const currentProducts = selectedProducts[index] || [];
-    const newProducts = currentProducts.includes(product)
-      ? currentProducts.filter(p => p !== product)
-      : [...currentProducts, product];
-    
-    setSelectedProducts({
-      ...selectedProducts,
-      [index]: newProducts
-    });
+ const toggleProductSelection = (index: number, product: string) => {
+  if (product === "Other") {
+    setShowOtherInput(index);
+    return;
+  }
 
-    // Update closing details with new product selection
-    const newClosingDetails = [...closingDetails];
-    newClosingDetails[index] = {
-      ...newClosingDetails[index],
-      productType: newProducts
-    };
-    setClosingDetails(newClosingDetails);
-  };
+  setSelectedProducts({ ...selectedProducts, [index]: product });
 
+  const newClosingDetails = [...closingDetails];
+  newClosingDetails[index] = {
+  ...newClosingDetails[index],
+  productType: product, // ✅ store as string
+};
+
+  setClosingDetails(newClosingDetails);
+  setShowProductDropdown(null);
+};
   // Add custom product
-  const addCustomProduct = (index: number) => {
-    if (!otherProductInput.trim()) return;
-    
-    const currentProducts = selectedProducts[index] || [];
-    const newProducts = [...currentProducts, otherProductInput.trim()];
-    
-    setSelectedProducts({
-      ...selectedProducts,
-      [index]: newProducts
-    });
+ const addCustomProduct = (index: number) => {
+  if (!otherProductInput.trim()) return;
 
-    // Update closing details with new product selection
-    const newClosingDetails = [...closingDetails];
-    newClosingDetails[index] = {
-      ...newClosingDetails[index],
-      productType: newProducts
-    };
-    setClosingDetails(newClosingDetails);
-    
-    // Reset other input
-    setOtherProductInput('');
-    setShowOtherInput(null);
-  };
+  const newProduct = otherProductInput.trim();
+  setSelectedProducts(prev => ({ ...prev, [index]: newProduct }));
+
+  const newClosingDetails = [...closingDetails];
+ newClosingDetails[index].productType = newProduct; // ✅ correct
+
+  setClosingDetails(newClosingDetails);
+
+  setOtherProductInput('');
+  setShowOtherInput(null);
+};
 
   // Add periodic sync function
   const syncLocalWithFirebase = async () => {
@@ -1227,116 +1207,91 @@ try {
                         </Text>
                         
                         {/* Selected Products Display */}
-                        <View style={styles.selectedProductsContainer}>
-                          {selectedProducts[index]?.map((product, productIndex) => (
-                            <View key={productIndex} style={styles.selectedProductChip}>
-                              <Text style={styles.selectedProductText}>{product}</Text>
-                              <TouchableOpacity
-                                onPress={() => toggleProductSelection(index, product)}
-                                style={styles.removeProductButton}
-                              >
-                                <MaterialIcons name="close" size={16} color="#FFFFFF" />
-                              </TouchableOpacity>
-                            </View>
-                          ))}
-                        </View>
+                       {/* <View style={styles.selectedProductsContainer}>
+  {selectedProducts[index] && (
+    <View style={styles.selectedProductChip}>
+      <Text style={styles.selectedProductText}>{selectedProducts[index]}</Text>
+      <TouchableOpacity
+        onPress={() => toggleProductSelection(index, "")}
+        style={styles.removeProductButton}
+      >
+        <MaterialIcons name="close" size={16} color="#FFFFFF" />
+      </TouchableOpacity>
+    </View>
+  )}
+</View> */}
                         
                         {/* Product Dropdown Button */}
-                        <TouchableOpacity 
-                          style={styles.dropdownButton}
-                          onPress={() => toggleProductDropdown(index)}
-                        >
-                          <Text style={styles.dropdownButtonText}>
-                            {selectedProducts[index]?.length > 0
-                              ? `${selectedProducts[index].length} product(s) selected`
-                              : 'Select products'}
-                          </Text>
-                          <MaterialIcons 
-                            name={showProductDropdown === index ? "arrow-drop-up" : "arrow-drop-down"} 
-                            size={24} 
-                            color="#666" 
-                          />
-                        </TouchableOpacity>
+                       <TouchableOpacity style={styles.dropdownButton} onPress={() => toggleProductDropdown(index)}>
+  <Text style={styles.dropdownButtonText}>
+    {selectedProducts[index] ? selectedProducts[index] : 'Select product'}
+  </Text>
+  <MaterialIcons name={showProductDropdown === index ? "arrow-drop-up" : "arrow-drop-down"} size={24} color="#666" />
+</TouchableOpacity>
+
                         
                         {/* Product Dropdown Menu */}
-                        {showProductDropdown === index && (
-                          <View style={styles.dropdownContainer}>
-                            <View style={styles.searchContainer}>
-                              <TextInput
-                                style={styles.searchInput}
-                                placeholder="Search products..."
-                                value={searchQuery}
-                                onChangeText={setSearchQuery}
-                              />
-                              <MaterialIcons name="search" size={20} color="#666" />
-                            </View>
-                            <FlatList
-                              data={filteredProducts}
-                              keyExtractor={(item) => item}
-                              style={styles.dropdownList}
-                              nestedScrollEnabled
-                              renderItem={({ item }) => (
-                                <TouchableOpacity
-                                  style={[
-                                    styles.dropdownItem,
-                                    (selectedProducts[index] || []).includes(item) 
-                                      ? styles.dropdownItemSelected 
-                                      : null
-                                  ]}
-                                  onPress={() => toggleProductSelection(index, item)}
-                                >
-                                  <Text style={[
-                                    styles.dropdownItemText,
-                                    (selectedProducts[index] || []).includes(item) 
-                                      ? styles.dropdownItemTextSelected 
-                                      : null
-                                  ]}>
-                                    {item}
-                                  </Text>
-                                  {(selectedProducts[index] || []).includes(item) && (
-                                    <MaterialIcons 
-                                      name="check" 
-                                      size={20} 
-                                      color="#FFFFFF" 
-                                    />
-                                  )}
-                                </TouchableOpacity>
-                              )}
-                              ListEmptyComponent={
-                                <Text style={styles.noResultsText}>No products found</Text>
-                              }
-                            />
-                            
-                            {/* Other Product Input */}
-                            {showOtherInput === index && (
-                              <View style={styles.otherProductContainer}>
-                                <TextInput
-                                  style={styles.otherProductInput}
-                                  placeholder="Enter custom product name"
-                                  value={otherProductInput}
-                                  onChangeText={setOtherProductInput}
-                                />
-                                <TouchableOpacity
-                                  style={styles.addCustomButton}
-                                  onPress={() => addCustomProduct(index)}
-                                >
-                                  <Text style={styles.addCustomButtonText}>Add</Text>
-                                </TouchableOpacity>
-                              </View>
-                            )}
-                            
-                            <TouchableOpacity 
-                              style={styles.closeDropdownButton}
-                              onPress={() => {
-                                setShowProductDropdown(null);
-                                setShowOtherInput(null);
-                                setOtherProductInput('');
-                              }}
-                            >
-                              <Text style={styles.closeDropdownText}>Done</Text>
-                            </TouchableOpacity>
-                          </View>
-                        )}
+                       {showProductDropdown === index && (
+  <View style={styles.dropdownContainer}>
+    <View style={styles.searchContainer}>
+      <TextInput
+        style={styles.searchInput}
+        placeholder="Search products..."
+        value={searchQuery}
+        onChangeText={setSearchQuery}
+      />
+      <MaterialIcons name="search" size={20} color="#666" />
+    </View>
+    <FlatList
+      data={filteredProducts}
+      keyExtractor={(item) => item}
+      style={styles.dropdownList}
+      nestedScrollEnabled
+      renderItem={({ item }) => (
+        <TouchableOpacity
+          style={[
+            styles.dropdownItem,
+            selectedProducts[index] === item ? styles.dropdownItemSelected : null
+          ]}
+          onPress={() => toggleProductSelection(index, item)}
+        >
+          <Text style={[styles.dropdownItemText, selectedProducts[index] === item ? styles.dropdownItemTextSelected : null]}>
+            {item}
+          </Text>
+          {selectedProducts[index] === item && (
+            <MaterialIcons name="check" size={20} color="#FFFFFF" />
+          )}
+        </TouchableOpacity>
+      )}
+      ListEmptyComponent={<Text style={styles.noResultsText}>No products found</Text>}
+    />
+
+    {showOtherInput === index && (
+      <View style={styles.otherProductContainer}>
+        <TextInput
+          style={styles.otherProductInput}
+          placeholder="Enter custom product name"
+          value={otherProductInput}
+          onChangeText={setOtherProductInput}
+        />
+        <TouchableOpacity style={styles.addCustomButton} onPress={() => addCustomProduct(index)}>
+          <Text style={styles.addCustomButtonText}>Add</Text>
+        </TouchableOpacity>
+      </View>
+    )}
+
+    <TouchableOpacity
+      style={styles.closeDropdownButton}
+      onPress={() => {
+        setShowProductDropdown(null);
+        setShowOtherInput(null);
+        setOtherProductInput('');
+      }}
+    >
+      <Text style={styles.closeDropdownText}>Done</Text>
+    </TouchableOpacity>
+  </View>
+)}
                         
                         <Text style={styles.label}>
                           Closing Amount <Text style={styles.requiredStar}>*</Text>

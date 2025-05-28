@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Linking, Platform
 import { MaterialIcons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
-import { useNavigation, useRoute } from '@react-navigation/native';
+import { RouteProp, useNavigation, useRoute } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { DEFAULT_LOCATION, DEFAULT_MAP_DELTA, GOOGLE_MAPS_STYLE } from '@/app/utils/MapUtils';
 import { format, startOfMonth, endOfMonth, eachMonthOfInterval, subMonths } from 'date-fns';
@@ -634,7 +634,7 @@ const BDMAttendanceScreen = () => {
 
       if (querySnapshot.empty) {
         // Create new attendance record
-        newStatus = isPunchIn ? 'Present' : 'On Leave';
+        newStatus = isPunchIn ? 'On Leave' : 'On Leave'; // Default to On Leave for new punch-in
         await addDoc(attendanceRef, {
           date: dateStr,
           day: dayStr,
@@ -668,9 +668,15 @@ const BDMAttendanceScreen = () => {
 
         if (newPunchIn && newPunchOut) {
           totalHours = calculateTotalHours(newPunchIn, newPunchOut);
-          newStatus = totalHours >= 8 ? 'Present' : 'Half Day';
+          if (totalHours >= 8) {
+            newStatus = 'Present';
+          } else if (totalHours >= 4) {
+            newStatus = 'Half Day';
+          } else {
+            newStatus = 'On Leave';
+          }
         } else if (newPunchIn && !newPunchOut) {
-          newStatus = 'Present';
+          newStatus = 'On Leave'; // Pending punch-out
         } else if (!newPunchIn && !newPunchOut) {
           newStatus = 'On Leave';
         }

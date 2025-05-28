@@ -609,14 +609,14 @@ const BDMAttendanceScreen = () => {
         Alert.alert('Error', 'User not authenticated');
         return;
       }
-
+  
       const currentTime = new Date();
       const dateStr = format(currentTime, 'dd');
       const dayStr = format(currentTime, 'EEE').toUpperCase();
       const monthStr = format(currentTime, 'MM');
       const yearStr = format(currentTime, 'yyyy');
       const timeStr = format(currentTime, 'HH:mm');
-
+  
       const attendanceRef = collection(db, 'bdm_monthly_attendance');
       const todayQuery = query(
         attendanceRef,
@@ -625,16 +625,16 @@ const BDMAttendanceScreen = () => {
         where('year', '==', yearStr),
         where('userId', '==', userId)
       );
-
+  
       const querySnapshot = await getDocs(todayQuery);
       let newStatus: 'Present' | 'Half Day' | 'On Leave' = 'On Leave';
       let newPunchIn = isPunchIn ? timeStr : '';
       let newPunchOut = !isPunchIn ? timeStr : '';
       let totalHours = 0;
-
+  
       if (querySnapshot.empty) {
         // Create new attendance record
-        newStatus = isPunchIn ? 'Present' : 'Present'; // Default to On Leave for new punch-in
+        newStatus = isPunchIn ? 'Present' : 'On Leave'; // Set to Present for punch-in
         await addDoc(attendanceRef, {
           date: dateStr,
           day: dayStr,
@@ -665,8 +665,10 @@ const BDMAttendanceScreen = () => {
         const existingData = querySnapshot.docs[0].data();
         newPunchIn = isPunchIn ? timeStr : existingData.punchIn;
         newPunchOut = !isPunchIn ? timeStr : existingData.punchOut;
-
-        if (newPunchIn && newPunchOut) {
+  
+        if (isPunchIn) {
+          newStatus = 'Present'; // Set to Present for punch-in
+        } else if (newPunchIn && newPunchOut) {
           totalHours = calculateTotalHours(newPunchIn, newPunchOut);
           if (totalHours >= 8) {
             newStatus = 'Present';
@@ -675,12 +677,10 @@ const BDMAttendanceScreen = () => {
           } else {
             newStatus = 'On Leave';
           }
-        } else if (newPunchIn && !newPunchOut) {
-          newStatus = 'On Leave'; // Pending punch-out
-        } else if (!newPunchIn && !newPunchOut) {
+        } else {
           newStatus = 'On Leave';
         }
-
+  
         await updateDoc(docRef, {
           punchIn: newPunchIn,
           punchOut: newPunchOut,
@@ -695,15 +695,49 @@ const BDMAttendanceScreen = () => {
           lastUpdated: Timestamp.fromDate(currentTime)
         });
       }
-
+  
       if (isPunchIn) {
         setPunchInTime(format(currentTime, 'hh:mm a'));
         setIsPunchedIn(true);
+        setTodayRecord({
+          date: dateStr,
+          day: dayStr,
+          month: monthStr,
+          year: yearStr,
+          punchIn: newPunchIn,
+          punchOut: newPunchOut,
+          status: newStatus,
+          userId,
+          timestamp: currentTime,
+          photoUri: photoUri,
+          punchOutPhotoUri: '',
+          location: locationCoords,
+          punchOutLocation: undefined,
+          designation: userDetails.designation || '',
+          employeeName: userDetails.employeeName || '',
+          phoneNumber: userDetails.phoneNumber || '',
+          email: userDetails.email || '',
+          totalHours: totalHours,
+          workMode: 'Office',
+          locationName: await getLocationName(locationCoords),
+          punchOutLocationName: '',
+          lastUpdated: currentTime
+        });
       } else {
         setPunchOutTime(format(currentTime, 'hh:mm a'));
         setIsPunchedIn(false);
+        setTodayRecord({
+          ...todayRecord,
+          punchOut: newPunchOut,
+          status: newStatus,
+          punchOutPhotoUri: photoUri,
+          punchOutLocation: locationCoords,
+          totalHours: totalHours,
+          punchOutLocationName: await getLocationName(locationCoords),
+          lastUpdated: currentTime
+        } as AttendanceRecord);
       }
-
+  
       fetchAttendanceHistory();
     } catch (error) {
       console.error('Error saving attendance:', error);

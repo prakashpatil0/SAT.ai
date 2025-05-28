@@ -375,7 +375,7 @@ const BDMMyScheduleScreen = () => {
           </View>
 
           <View style={styles.followUpModalFooter}>
-            <Button
+            {/* <Button
               mode="contained"
               onPress={() => {
                 // Handle call action
@@ -386,7 +386,7 @@ const BDMMyScheduleScreen = () => {
               icon="phone"
             >
               Call Now
-            </Button>
+            </Button> */}
             
             <Button
               mode="contained"

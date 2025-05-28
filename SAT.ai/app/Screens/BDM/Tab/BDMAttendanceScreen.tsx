@@ -634,7 +634,7 @@ const BDMAttendanceScreen = () => {
 
       if (querySnapshot.empty) {
         // Create new attendance record
-        newStatus = isPunchIn ? 'On Leave' : 'On Leave'; // Default to On Leave for new punch-in
+        newStatus = isPunchIn ? 'Present' : 'Present'; // Default to On Leave for new punch-in
         await addDoc(attendanceRef, {
           date: dateStr,
           day: dayStr,

@@ -115,7 +115,7 @@ const SignUpScreen = () => {
         role: formData.role.toLowerCase(),
         designation: 
         formData.role.toLowerCase() === 'bdm'
-          ? 'Business Development Manager'
+          ? 'BDM'
           : formData.role.toLowerCase() === 'telecaller'
           ? 'Telecaller'
           : formData.role.toLowerCase() === 'hrmanager'

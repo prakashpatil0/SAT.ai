@@ -159,7 +159,7 @@ const AttendanceScreen = () => {
 
     // For punch in, check if it's before 2 PM
     if (!punchInTime) {
-      const punchInDeadline = "14:00"; // 2 PM
+      const punchInDeadline = "18:15"; // 2 PM
       const [deadlineHour, deadlineMinute] = punchInDeadline
         .split(":")
         .map(Number);
@@ -170,7 +170,7 @@ const AttendanceScreen = () => {
       setIsPunchButtonDisabled(currentMinutes > deadlineMinutes);
     } else if (punchInTime && !punchOutTime) {
       // Enable punch out button at 6:15 PM
-      const punchOutEnableTime = "18:15"; // 6:15 PM
+      const punchOutEnableTime = "09:15"; // 6:15 PM
       const [enableHour, enableMinute] = punchOutEnableTime
         .split(":")
         .map(Number);
@@ -192,35 +192,31 @@ const AttendanceScreen = () => {
     punchIn: string,
     punchOut: string
   ): AttendanceStatus => {
+    // No punch-in: On Leave
     if (!punchIn) return "On Leave";
-    if (!punchOut) return "Half Day";
 
-    // Convert time strings to minutes for easier comparison
+    // Punch-in exists, no punch-out: Present
+    if (punchIn && !punchOut) return "Present";
+
+    // Both punch-in and punch-out exist: Check duration
     const [punchInHours, punchInMinutes] = punchIn.split(":").map(Number);
     const [punchOutHours, punchOutMinutes] = punchOut.split(":").map(Number);
-    const [minOutHours, minOutMinutes] =
-      PUNCH_OUT_MINIMUM.split(":").map(Number);
-    const [maxInHours, maxInMinutes] = PUNCH_IN_DEADLINE.split(":").map(Number);
-    const [halfDayInHours, halfDayInMinutes] =
-      PUNCH_IN_HALF_DAY.split(":").map(Number);
 
-    const punchInMins = punchInHours * 60 + punchInMinutes;
-    const punchOutMins = punchOutHours * 60 + punchOutMinutes;
-    const minOutMins = minOutHours * 60 + minOutMinutes;
-    const maxInMins = maxInHours * 60 + maxInMinutes;
-    const halfDayInMins = halfDayInHours * 60 + halfDayInMinutes;
+    // Convert to minutes for calculation
+    const punchInTotalMinutes = punchInHours * 60 + punchInMinutes;
+    const punchOutTotalMinutes = punchOutHours * 60 + punchOutMinutes;
 
-    // If punch in is after 2 PM, mark as On Leave
-    if (punchInMins > halfDayInMins) {
-      return "On Leave";
+    // Handle case where punch-out is on the next day (e.g., after midnight)
+    let durationMinutes = punchOutTotalMinutes - punchInTotalMinutes;
+    if (durationMinutes < 0) {
+      durationMinutes += 24 * 60; // Add 24 hours if punch-out is next day
     }
 
-    // If punch in is after 9:45 AM or punch out is before 6:30 PM, mark as Half Day
-    if (punchInMins > maxInMins || punchOutMins < minOutMins) {
-      return "Half Day";
-    }
+    // Convert duration to hours
+    const durationHours = durationMinutes / 60;
 
-    return "Present";
+    // Less than 8 hours: Half Day, otherwise Present
+    return durationHours < 8 ? "Half Day" : "Present";
   };
 
   const handlePunchInOut = async (isPunchIn: boolean) => {
@@ -230,12 +226,12 @@ const AttendanceScreen = () => {
         if (!punchInTime) {
           Alert.alert(
             "Punch In Not Allowed",
-            "You can only punch in before 9:45 AM for a full day. Punching in after 9:45 AM will be counted as a half day."
+            "You can only punch in before 2:00 PM."
           );
         } else {
           Alert.alert(
             "Punch Out Not Allowed",
-            "You can punch in again tomorrow at 8:45 AM."
+            "You can punch out after 2:15 PM today or punch in again tomorrow at 8:45 AM."
           );
         }
         return;
@@ -277,9 +273,8 @@ const AttendanceScreen = () => {
         history.push({
           date: data.date,
           day: data.day,
-          punchIn: data.punchIn,
-          punchOut: data.punchOut,
-          // phoneNumber: data.phoneNumber,
+          punchIn: data.punchIn || "",
+          punchOut: data.punchOut || "",
           status,
           userId: data.userId,
           timestamp: data.timestamp.toDate(),
@@ -372,75 +367,6 @@ const AttendanceScreen = () => {
     setStatusCounts(counts);
   };
 
-  // const saveAttendance = async (isPunchIn: boolean, photoUri: string, location: any) => {
-  //   try {
-  //     const userId = auth.currentUser?.uid;
-  //     if (!userId) {
-  //       Alert.alert('Error', 'User not authenticated');
-  //       return;
-  //     }
-
-  //     const currentTime = new Date();
-  //     const dateStr = format(currentTime, 'dd');
-  //     const dayStr = format(currentTime, 'EEE').toUpperCase();
-  //     const timeStr = format(currentTime, 'HH:mm');
-
-  //     const attendanceRef = collection(db, 'users', userId, 'attendance');
-  //     const todayQuery = query(
-  //       attendanceRef,
-  //       where('date', '==', dateStr),
-  //       where('userId', '==', userId)
-  //     );
-
-  //     const querySnapshot = await getDocs(todayQuery);
-
-  //     if (querySnapshot.empty) {
-
-  //       const status = isPunchIn ? calculateStatus(timeStr, '') : 'On Leave';
-  //       await addDoc(attendanceRef, {
-  //         date: dateStr,
-  //         day: dayStr,
-  //         punchIn: isPunchIn ? timeStr : '',
-  //         punchOut: !isPunchIn ? timeStr : '',
-  //         status,
-  //         userId,
-  //         timestamp: Timestamp.fromDate(currentTime),
-  //         photoUri,
-  //         location
-  //       });
-  //     } else {
-
-  //       const docRef = querySnapshot.docs[0].ref;
-  //       const existingData = querySnapshot.docs[0].data();
-  //       const newPunchIn = isPunchIn ? timeStr : existingData.punchIn;
-  //       const newPunchOut = !isPunchIn ? timeStr : existingData.punchOut;
-
-  //       const newStatus = calculateStatus(newPunchIn, newPunchOut);
-
-  //       await updateDoc(docRef, {
-  //         punchIn: newPunchIn,
-  //         punchOut: newPunchOut,
-  //         status: newStatus,
-  //         photoUri: !isPunchIn ? photoUri : existingData.photoUri,
-  //         location: !isPunchIn ? location : existingData.location
-  //       });
-  //     }
-
-  //     if (isPunchIn) {
-  //       setPunchInTime(format(currentTime, 'hh:mm a'));
-  //       setIsPunchedIn(true);
-  //     } else {
-  //       setPunchOutTime(format(currentTime, 'hh:mm a'));
-  //       setIsPunchedIn(false);
-  //     }
-
-  //     fetchAttendanceHistory();
-  //   } catch (error) {
-  //     console.error('Error saving attendance:', error);
-  //     Alert.alert('Error', 'Failed to save attendance');
-  //   }
-  // };
-
   const saveAttendance = async (
     isPunchIn: boolean,
     photoUri: string,
@@ -489,35 +415,29 @@ if (coords) {
 }
       const querySnapshot = await getDocs(todayQuery);
 
-    if (querySnapshot.empty) {
-      const status = isPunchIn ? calculateStatus(timeStr, "") : "On Leave";
+      if (querySnapshot.empty) {
+        // New attendance record
+        const status = isPunchIn ? "Present" : "On Leave";
 
-      // Fetch user data from Firestore
-      const userDocSnap = await getDoc(doc(db, "users", userId));
-      const userData = userDocSnap.exists() ? userDocSnap.data() : {};
+        // Fetch user data from Firestore
+        const userDocSnap = await getDoc(doc(db, "users", userId));
+        const userData = userDocSnap.exists() ? userDocSnap.data() : {};
 
-console.log("📄 Fetched User Data:", userData); // ADD THIS
-
-      await addDoc(attendanceRef, {
-        userId,
-       employeeName: userData.name || '',
-       phoneNumber: userData.phoneNumber || '',
-        role: userData.role || '',
-        // totalHours: 0,
-        // locationName: userData.locationName || '',
-         locationName,
-        email: userData.email || '',
-        date: dateStr,
-        day: dayStr,
-        punchIn: isPunchIn ? timeStr : '',
-        punchOut: !isPunchIn ? timeStr : '',
-        status,
-        timestamp: Timestamp.fromDate(currentTime),
-        photoUri,
-        location,
-         totalHours: "",
-      });
-    } else {
+        await addDoc(attendanceRef, {
+          userId,
+          employeeName: userData.name || "",
+          email: userData.email || "",
+          date: dateStr,
+          day: dayStr,
+          punchIn: isPunchIn ? timeStr : "",
+          punchOut: !isPunchIn ? timeStr : "",
+          status,
+          timestamp: Timestamp.fromDate(currentTime),
+          photoUri,
+          location,
+        });
+      } else {
+        // Update existing record
         const docRef = querySnapshot.docs[0].ref;
         const existingData = querySnapshot.docs[0].data();
 
@@ -617,14 +537,14 @@ console.log("📄 Fetched User Data:", userData); // ADD THIS
       );
 
       if (currentDate > today) {
-        // 🔥 Future dates → Always On Leave
+        // Future dates → Always On Leave
         return {
           day: dayObj.day,
           date: dateStr,
           status: "On Leave" as AttendanceStatus,
         };
       } else {
-        // 🔥 Today or Past
+        // Today or Past
         return {
           day: dayObj.day,
           date: dateStr,
@@ -934,11 +854,15 @@ console.log("📄 Fetched User Data:", userData); // ADD THIS
                     <View style={styles.timeBlock}>
                       <View>
                         <Text style={styles.timeLabel}>Punch In</Text>
-                        <Text style={styles.timeValue}>{item.punchIn}</Text>
+                        <Text style={styles.timeValue}>
+                          {item.punchIn || "——"}
+                        </Text>
                       </View>
                       <View>
                         <Text style={styles.timeLabel}>Punch Out</Text>
-                        <Text style={styles.timeValue}>{item.punchOut}</Text>
+                        <Text style={styles.timeValue}>
+                          {item.punchOut || "——"}
+                        </Text>
                       </View>
                     </View>
                     <View

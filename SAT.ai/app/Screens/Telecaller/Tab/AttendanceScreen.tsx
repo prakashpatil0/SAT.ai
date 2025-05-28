@@ -415,39 +415,35 @@ if (coords) {
 }
       const querySnapshot = await getDocs(todayQuery);
 
-       
-if
- 
-(querySnapshot.empty)
- 
-{
- 
-        // New attendance record
-       const status = punchInTime? calculateStatus(timeStr, ""):"On Leave";
+    if (querySnapshot.empty) {
+      const status = isPunchIn ? calculateStatus(timeStr, "") : "On Leave";
 
-        // Fetch user data from Firestore
-        const userDocSnap = await getDoc(doc(db, "users", userId));
-        const userData = userDocSnap.exists() ? userDocSnap.data() : {};
-        console.log("Fetched User Data:", userData);
+      // Fetch user data from Firestore
+      const userDocSnap = await getDoc(doc(db, "users", userId));
+      const userData = userDocSnap.exists() ? userDocSnap.data() : {};
 
-        await addDoc(attendanceRef, {
-          userId,
-          employeeName: userData.name || "",
-          phoneNumber: userData.phoneNumber || "",
-          email: userData.email || "",
-          locationName,
-          date: dateStr,
-          day: dayStr,
-          punchIn: isPunchIn ? timeStr : "",
-          punchOut: !isPunchIn ? timeStr : "",
-          status,
-          timestamp: Timestamp.fromDate(currentTime),
-          photoUri,
-          location,
-          totalHours:"",
-        });
-      } else {
-        // Update existing record
+console.log("📄 Fetched User Data:", userData); // ADD THIS
+
+      await addDoc(attendanceRef, {
+        userId,
+       employeeName: userData.name || '',
+       phoneNumber: userData.phoneNumber || '',
+        role: userData.role || '',
+        // totalHours: 0,
+        // locationName: userData.locationName || '',
+         locationName,
+        email: userData.email || '',
+        date: dateStr,
+        day: dayStr,
+        punchIn: isPunchIn ? timeStr : '',
+        punchOut: !isPunchIn ? timeStr : '',
+        status,
+        timestamp: Timestamp.fromDate(currentTime),
+        photoUri,
+        location,
+         totalHours: "",
+      });
+    } else {
         const docRef = querySnapshot.docs[0].ref;
         const existingData = querySnapshot.docs[0].data();
 

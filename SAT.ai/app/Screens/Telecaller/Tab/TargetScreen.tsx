@@ -449,8 +449,8 @@ const WeeklyTargetScreen = () => {
           if (!snapshot.empty) {
             const targetDoc = snapshot.docs[0].data() as FirebaseTargetData;
             const newTargets = {
+            numCalls: targetDoc.numMeetings || TARGET_VALUES.numCalls,
               positiveLeads: targetDoc.positiveLeads || TARGET_VALUES.positiveLeads,
-              numCalls: targetDoc.numMeetings || TARGET_VALUES.numCalls,
               callDuration: parseInt(targetDoc.meetingDuration) || TARGET_VALUES.callDuration,
               closingAmount: targetDoc.closingAmount || TARGET_VALUES.closingAmount
             };

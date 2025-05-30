@@ -379,7 +379,7 @@ const ScheduleScreen = () => {
           </View>
 
           <View style={styles.followUpModalFooter}>
-            <Button
+            {/* <Button
               mode="contained"
               onPress={() => {
                 // Handle call action
@@ -389,7 +389,7 @@ const ScheduleScreen = () => {
               icon="phone"
             >
               Call Now
-            </Button>
+            </Button> */}
             
             <Button
               mode="contained"

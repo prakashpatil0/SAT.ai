@@ -448,6 +448,7 @@ const WeeklyTargetScreen = () => {
         const unsubscribeTarget = onSnapshot(q, (snapshot) => {
           if (!snapshot.empty) {
             const targetDoc = snapshot.docs[0].data() as FirebaseTargetData;
+            const updateDate = targetDoc.createdAt?.toDate().toLocaleDateString() || 'Unknown date';
             const newTargets = {
             numCalls: targetDoc.numMeetings || TARGET_VALUES.numCalls,
               positiveLeads: targetDoc.positiveLeads || TARGET_VALUES.positiveLeads,
@@ -461,7 +462,7 @@ const WeeklyTargetScreen = () => {
               Notifications.scheduleNotificationAsync({
                 content: {
                   title: 'Target Updated! 🎯',
-                  body: `Your weekly targets have been updated:\n• Calls: ${newTargets.numCalls}\n• Duration: ${formatDuration(newTargets.callDuration)}\n• Leads: ${newTargets.positiveLeads}\n• Amount: ₹${newTargets.closingAmount.toLocaleString()}`,
+                  body: `Your weekly targets have been updated on ${updateDate}:\n• Calls: ${newTargets.numCalls}\n• Duration: ${formatDuration(newTargets.callDuration)}\n• Leads: ${newTargets.positiveLeads}\n• Amount: ₹${newTargets.closingAmount.toLocaleString()}`,
                   sound: true,
                   priority: Notifications.AndroidNotificationPriority.HIGH,
                 },

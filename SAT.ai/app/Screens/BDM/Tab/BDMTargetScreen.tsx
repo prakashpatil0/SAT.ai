@@ -416,7 +416,7 @@ const BDMTargetScreen = () => {
         const unsubscribeTarget = onSnapshot(q, (snapshot) => {
           if (!snapshot.empty) {
             const targetDoc = snapshot.docs[0].data();
-            
+            const updateDate = targetDoc.createdAt.toDate().toLocaleDateString() || 'Unknown Date';
             // Create new target data object
             const newTargetData = {
               projectedMeetings: { 
@@ -443,7 +443,7 @@ const BDMTargetScreen = () => {
               Notifications.scheduleNotificationAsync({
                 content: {
                   title: 'Target Updated! 🎯',
-                  body: `Your weekly targets have been updated:\n• Meetings: ${newTargetData.projectedMeetings.target}\n• Prospective Meetings: ${newTargetData.attendedMeetings.target}\n• Duration: ${newTargetData.meetingDuration.target}\n• Amount: ₹${newTargetData.closing.target.toLocaleString()}`,
+                  body: `Your weekly targets have been updated on ${updateDate}:\n• Meetings: ${newTargetData.projectedMeetings.target}\n• Prospective Meetings: ${newTargetData.attendedMeetings.target}\n• Duration: ${newTargetData.meetingDuration.target}\n• Amount: ₹${newTargetData.closing.target.toLocaleString()}`,
                   sound: true,
                   priority: Notifications.AndroidNotificationPriority.HIGH,
                 },

@@ -9,6 +9,19 @@ import * as Haptics from 'expo-haptics';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '@/firebaseConfig';
 import { getAuth } from 'firebase/auth';
+import * as Notifications from 'expo-notifications';
+import { setNotificationHandler } from 'expo-notifications';
+import { Platform } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+// Notification handler setup (you already did this at the top)
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: true,
+    shouldSetBadge: true,
+  }),
+});
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -404,51 +417,86 @@ const ScheduleScreen = () => {
     </Modal>
   );
 
-  const fetchFollowUps = async () => {
-    try {
-      const auth = getAuth();
-      const userId = auth.currentUser?.uid;
+const fetchFollowUps = async () => {
+  try {
+    const auth = getAuth();
+    const userId = auth.currentUser?.uid;
+    if (!userId) return;
 
-      if (!userId) return;
+    const followupsRef = collection(db, 'followups');
+    const q = query(followupsRef, where('userId', '==', userId));
+    const querySnapshot = await getDocs(q);
+    const fetchedFollowUps: Event[] = [];
 
-      const followupsRef = collection(db, 'followups');
-      const q = query(
-        followupsRef,
-        where('userId', '==', userId)
-      );
+    querySnapshot.forEach(async (doc) => {
+      const data = doc.data();
+      const followupDate = data.date.toDate();
 
-      const querySnapshot = await getDocs(q);
-      const fetchedFollowUps: Event[] = [];
+      if (isDateInCurrentView(followupDate)) {
+        const followUp: Event = {
+          id: doc.id,
+          title: data.title || 'Follow Up',
+          startTime: data.startTime,
+          endTime: data.endTime,
+          type: 'followup',
+          date: followupDate,
+          description: data.description,
+          contactName: data.contactName,
+          phoneNumber: data.phoneNumber,
+          status: data.status
+        };
 
-      querySnapshot.forEach((doc) => {
-        const data = doc.data();
-        // Convert Firestore timestamp to Date
-        const followupDate = data.date.toDate();
-        
-        // Only add follow-ups for the current view period
-        if (isDateInCurrentView(followupDate)) {
-          fetchedFollowUps.push({
-            id: doc.id,
-            title: data.title || 'Follow Up',
-            startTime: data.startTime,
-            endTime: data.endTime,
-            type: 'followup',
-            date: followupDate,
-            description: data.description,
-            contactName: data.contactName,
-            phoneNumber: data.phoneNumber,
-            status: data.status
-          });
-        }
+        fetchedFollowUps.push(followUp);
+
+        // Parse start time
+        const [hours, minutes] = data.startTime.split(':').map(Number);
+
+        // 🔁 Helper to schedule notification at an offset
+       const scheduleNotification = async (offsetMinutes: number, label: string, eventId: string) => {
+  const notifyTime = new Date(followupDate);
+  notifyTime.setHours(hours);
+  notifyTime.setMinutes(minutes - offsetMinutes);
+  notifyTime.setSeconds(0);
+
+  const key = `${eventId}-${label}`; // Unique key for each event-time-label combo
+
+  if (notifyTime > new Date()) {
+    const alreadyScheduled = await AsyncStorage.getItem(key);
+    if (!alreadyScheduled) {
+      const notificationId = await Notifications.scheduleNotificationAsync({
+        content: {
+          title: `⏰ Follow-up Reminder (${label})`,
+          body: `${data.title || 'Follow-up'} with ${data.contactName || ''} at ${data.startTime}`,
+          sound: true,
+          priority: Notifications.AndroidNotificationPriority.HIGH,
+        },
+        trigger: notifyTime,
       });
 
-      console.log('Fetched follow-ups:', fetchedFollowUps); // Debug log
-      setFollowUps(fetchedFollowUps);
-
-    } catch (error) {
-      console.error('Error fetching follow-ups:', error);
+      // Store scheduled info to prevent future duplication
+      await AsyncStorage.setItem(key, notificationId);
     }
-  };
+  }
+};
+
+
+        // 🕐 Schedule notifications: 5min, 2hr, 1day before
+      await scheduleNotification(5, '5min', doc.id);
+await scheduleNotification(120, '2hr', doc.id);
+await scheduleNotification(1440, '1day', doc.id);
+
+      }
+    });
+
+    console.log('Fetched follow-ups:', fetchedFollowUps);
+    setFollowUps(fetchedFollowUps);
+
+  } catch (error) {
+    console.error('Error fetching follow-ups:', error);
+  }
+};
+
+
 
   // Helper function to check if a date falls within the current view
   const isDateInCurrentView = (date: Date) => {
@@ -503,6 +551,15 @@ const ScheduleScreen = () => {
   useEffect(() => {
     fetchFollowUps();
   }, [selectedDate, view]);
+useEffect(() => {
+  const requestPermission = async () => {
+    const { status } = await Notifications.requestPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission required', 'Enable notifications in your settings.');
+    }
+  };
+  requestPermission();
+}, []);
 
   return (
     <LinearGradient colors={['#FFF8F0', '#FFF']} style={styles.container}>

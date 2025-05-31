@@ -1,10 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Modal } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput } from 'react-native';
 import { IconButton, Chip, Provider } from 'react-native-paper';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
 import TelecallerMainLayout from '@/app/components/TelecallerMainLayout';
-import { MaterialIcons } from '@expo/vector-icons';
 import { addDoc, collection } from 'firebase/firestore';
 import { db } from '@/firebaseConfig';
 import { getAuth } from 'firebase/auth';
@@ -29,15 +28,10 @@ const CreateFollowUpScreen = () => {
   const [selectedTime, setSelectedTime] = useState('');
   const [selectedDate, setSelectedDate] = useState<number | null>(null);
   const [selectedMonth, setSelectedMonth] = useState(new Date());
-  const [hours, setHours] = useState('6');
-  const [minutes, setMinutes] = useState('10');
-  const [period, setPeriod] = useState('PM');
-  const [showTimePicker, setShowTimePicker] = useState(false);
   const [description, setDescription] = useState('');
   const [contactName, setContactName] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
 
-  // ✅ Auto-fill from meeting
   useEffect(() => {
     if (meeting) {
       setPhoneNumber(meeting.phoneNumber || '');
@@ -45,14 +39,21 @@ const CreateFollowUpScreen = () => {
     }
   }, [meeting]);
 
-  const times = [
-    '9:00', '9:30', '10:00', '10:30', '11:00', '11:30', '12:00',
-    '12:30', '13:00', '13:30', '14:00', '14:30', '15:00', '15:30', '16:00', '16:30', '17:00',
-    '17:30', '18:00', '18:30', '19:00'
-  ];
+  const times = [];
+  for (let hour = 9; hour <= 19; hour++) {
+    for (let min = 0; min < 60; min += 15) {
+      if (hour === 19 && min > 0) break;
+      times.push(
+        `${hour.toString().padStart(2, '0')}:${min.toString().padStart(2, '0')}`
+      );
+    }
+  }
 
-  const daysInMonth = (month: number, year: number) => new Date(year, month + 1, 0).getDate();
-  const firstDayOfMonth = (month: number, year: number) => new Date(year, month, 1).getDay();
+  const daysInMonth = (month: number, year: number) =>
+    new Date(year, month + 1, 0).getDate();
+
+  const firstDayOfMonth = (month: number, year: number) =>
+    new Date(year, month, 1).getDay();
 
   const renderCalendar = () => {
     const year = selectedMonth.getFullYear();
@@ -78,14 +79,20 @@ const CreateFollowUpScreen = () => {
     return dates;
   };
 
-  const changeMonth = (direction: string) => {
+  const changeMonth = (direction: 'prev' | 'next') => {
     const newMonth = new Date(selectedMonth);
     newMonth.setMonth(selectedMonth.getMonth() + (direction === 'next' ? 1 : -1));
     setSelectedMonth(newMonth);
   };
 
+  const addMinutes = (time: string, minutes: number) => {
+    const [hrs, mins] = time.split(':').map(Number);
+    const date = new Date(2000, 0, 1, hrs, mins + minutes);
+    return `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
+  };
+
   const handleSubmit = async () => {
-    if (!selectedDate || (!selectedTime && !`${hours}:${minutes} ${period}`)) {
+    if (!selectedDate || !selectedTime) {
       alert("Please select a date and time.");
       return;
     }
@@ -102,25 +109,17 @@ const CreateFollowUpScreen = () => {
       const month = selectedMonth.getMonth();
       const date = new Date(year, month, selectedDate);
 
-      let finalTime = selectedTime;
-      if (!selectedTime) {
-        let hour = parseInt(hours);
-        if (period === 'PM' && hour !== 12) hour += 12;
-        else if (period === 'AM' && hour === 12) hour = 0;
-        finalTime = `${hour.toString().padStart(2, '0')}:${minutes}`;
-      }
-
       const followUpEvent = {
         title: 'Follow Up: ' + (description || 'Client Call'),
-        startTime: finalTime,
-        endTime: addMinutes(finalTime, 30),
+        startTime: selectedTime,
+        endTime: addMinutes(selectedTime, 30),
         type: 'followup',
-        date: date,
-        description: description,
-        contactName: contactName,
-        phoneNumber: phoneNumber,
+        date,
+        description,
+        contactName,
+        phoneNumber,
         status: 'Pending',
-        userId: userId,
+        userId,
         createdAt: new Date(),
       };
 
@@ -133,69 +132,13 @@ const CreateFollowUpScreen = () => {
     }
   };
 
-  const addMinutes = (time: string, minutes: number) => {
-    const [hours, mins] = time.split(':').map(Number);
-    const date = new Date(2000, 0, 1, hours, mins + minutes);
-    return `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
-  };
-
-  const TimePickerModal = () => (
-    <Modal
-      visible={showTimePicker}
-      transparent
-      animationType="fade"
-      onRequestClose={() => setShowTimePicker(false)}
-    >
-      <TouchableOpacity
-        style={styles.modalOverlay}
-        activeOpacity={1}
-        onPress={() => setShowTimePicker(false)}
-      >
-        <View style={styles.timePickerContainer}>
-          <View style={styles.timeColumn}>
-            <TouchableOpacity onPress={() => setHours(String(Number(hours) + 1))}>
-              <MaterialIcons name="keyboard-arrow-up" size={24} color="#333" />
-            </TouchableOpacity>
-            <Text style={styles.timeValue}>{hours}</Text>
-            <TouchableOpacity onPress={() => setHours(String(Number(hours) - 1))}>
-              <MaterialIcons name="keyboard-arrow-down" size={24} color="#333" />
-            </TouchableOpacity>
-          </View>
-          <Text style={styles.timeSeparator}>:</Text>
-          <View style={styles.timeColumn}>
-            <TouchableOpacity onPress={() => setMinutes(String(Number(minutes) + 1))}>
-              <MaterialIcons name="keyboard-arrow-up" size={24} color="#333" />
-            </TouchableOpacity>
-            <Text style={styles.timeValue}>{minutes}</Text>
-            <TouchableOpacity onPress={() => setMinutes(String(Number(minutes) - 1))}>
-              <MaterialIcons name="keyboard-arrow-down" size={24} color="#333" />
-            </TouchableOpacity>
-          </View>
-          <View style={styles.periodContainer}>
-            <TouchableOpacity
-              style={[styles.periodButton, period === 'AM' && styles.periodButtonActive]}
-              onPress={() => setPeriod('AM')}
-            >
-              <Text style={[styles.periodText, period === 'AM' && styles.periodTextActive]}>AM</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.periodButton, period === 'PM' && styles.periodButtonActive]}
-              onPress={() => setPeriod('PM')}
-            >
-              <Text style={[styles.periodText, period === 'PM' && styles.periodTextActive]}>PM</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </TouchableOpacity>
-    </Modal>
-  );
-
   return (
     <LinearGradient colors={['#FFF8F0', '#FFF']} style={styles.gradient}>
-      <TelecallerMainLayout showDrawer showBackButton={true} showBottomTabs={true} title="Create Follow Up">
+      <TelecallerMainLayout showDrawer showBackButton showBottomTabs title="Create Follow Up">
         <Provider>
           <ScrollView contentContainerStyle={styles.scrollContainer}>
             <View style={styles.container}>
+              {/* Calendar */}
               <View style={styles.calendarContainer}>
                 <View style={styles.calendarHeader}>
                   <IconButton icon="chevron-left" size={30} onPress={() => changeMonth('prev')} />
@@ -212,16 +155,14 @@ const CreateFollowUpScreen = () => {
                 </View>
               </View>
 
+              {/* Time Slots */}
               <View style={styles.timeContainer}>
                 <Text style={styles.sectionTitle}>Select time for the follow up</Text>
                 <View style={styles.chipContainer}>
                   {times.map((time, index) => (
                     <Chip
                       key={index}
-                      style={[
-                        styles.chip,
-                        selectedTime === time && styles.selectedChip
-                      ]}
+                      style={[styles.chip, selectedTime === time && styles.selectedChip]}
                       onPress={() => setSelectedTime(time)}
                     >
                       {time}
@@ -230,22 +171,13 @@ const CreateFollowUpScreen = () => {
                 </View>
               </View>
 
-              <View style={styles.customTimeSection}>
-                <Text style={styles.sectionTitle}>Select Custom Time</Text>
-                <TouchableOpacity
-                  style={styles.customTimeButton}
-                  onPress={() => setShowTimePicker(true)}
-                >
-                  <Text style={styles.customTimeText}>{`${hours}:${minutes} ${period}`}</Text>
-                  <MaterialIcons name="access-time" size={20} color="#666" />
-                </TouchableOpacity>
-              </View>
-
+              {/* Submit */}
               <TouchableOpacity style={styles.submitButton} onPress={handleSubmit}>
                 <Text style={styles.submitText}>Submit</Text>
               </TouchableOpacity>
             </View>
 
+            {/* Contact & Description */}
             <View style={styles.formContainer}>
               <TextInput
                 style={styles.input}
@@ -269,7 +201,6 @@ const CreateFollowUpScreen = () => {
               />
             </View>
           </ScrollView>
-          <TimePickerModal />
         </Provider>
       </TelecallerMainLayout>
     </LinearGradient>
@@ -277,7 +208,6 @@ const CreateFollowUpScreen = () => {
 };
 
 export default CreateFollowUpScreen;
-
 const styles = StyleSheet.create({
   scrollContainer: {
     flexGrow: 1,

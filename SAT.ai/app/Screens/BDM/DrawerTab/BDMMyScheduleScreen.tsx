@@ -13,7 +13,12 @@ import { db } from '@/firebaseConfig';
 import { getAuth } from 'firebase/auth';
 import AppGradient from '@/app/components/AppGradient';
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
-
+// Request notification permissions on mount
+useEffect(() => {
+  (async () => {
+    await Notifications.requestPermissionsAsync();
+  })();
+}, []);
 // Configure notifications
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -454,9 +459,8 @@ const BDMMyScheduleScreen = () => {
     }
   };
 
- const scheduleFollowUpNotifications = async (followUp: Event) => {
+const scheduleFollowUpNotifications = async (followUp: Event) => {
   try {
-    // Cancel any previously scheduled notifications
     const existingIds = await AsyncStorage.getItem(`notifications_${followUp.id}`);
     if (existingIds) {
       const ids = JSON.parse(existingIds);
@@ -465,34 +469,68 @@ const BDMMyScheduleScreen = () => {
 
     const followUpDateTime = new Date(followUp.date);
     const [hours, minutes] = followUp.startTime.split(':').map(Number);
-    followUpDateTime.setHours(hours, minutes, 0);
+    followUpDateTime.setHours(hours, minutes, 0, 0); // full datetime of the meeting
 
-    const tenMinutesBefore = subMinutes(followUpDateTime, 10);
+    const now = new Date();
+    const notificationIds: string[] = [];
 
-    if (tenMinutesBefore > new Date()) {
-      const id = await Notifications.scheduleNotificationAsync({
+    // 1️⃣ Previous Day at 7 PM
+    const dayBefore7PM = new Date(followUpDateTime);
+    dayBefore7PM.setDate(dayBefore7PM.getDate() - 1);
+    dayBefore7PM.setHours(19, 0, 0, 0);
+    if (dayBefore7PM > now) {
+      const id1 = await Notifications.scheduleNotificationAsync({
         content: {
-          title: `⏰ Upcoming Follow-up`,
-          body: `In 10 min: ${followUp.contactName || 'Follow-up'} at ${followUp.startTime}`,
+          title: '📢 Tomorrow\'s Follow-up Reminder',
+          body: `${followUp.contactName || 'Follow-up'} at ${followUp.startTime}`,
           data: { followUpId: followUp.id },
-          sound: true,
         },
-        trigger: {
-          seconds: Math.floor((tenMinutesBefore.getTime() - Date.now()) / 1000),
-          repeats: false,
-          type: 'timeInterval',
-        },
+        trigger: dayBefore7PM,
       });
-
-      // Save notification ID
-      await AsyncStorage.setItem(`notifications_${followUp.id}`, JSON.stringify([id]));
-      setNotificationIds(prev => [...prev, id]);
+      console.log("✅ Scheduled 1-day before @ 7PM:", dayBefore7PM.toLocaleString());
+      notificationIds.push(id1);
     }
 
+    // 2️⃣ Same Day at 8 AM
+    const sameDay8AM = new Date(followUpDateTime);
+    sameDay8AM.setHours(8, 0, 0, 0);
+    if (sameDay8AM > now) {
+      const id2 = await Notifications.scheduleNotificationAsync({
+        content: {
+          title: '⏰ Today\'s Follow-up',
+          body: `${followUp.contactName || 'Follow-up'} at ${followUp.startTime}`,
+          data: { followUpId: followUp.id },
+        },
+        trigger: sameDay8AM,
+      });
+      console.log("✅ Scheduled same-day @ 8AM:", sameDay8AM.toLocaleString());
+      notificationIds.push(id2);
+    }
+
+    // 3️⃣ 5 Minutes Before the Meeting
+    const fiveMinBefore = subMinutes(followUpDateTime, 5);
+    if (fiveMinBefore > now) {
+      const id3 = await Notifications.scheduleNotificationAsync({
+        content: {
+          title: '📞 Follow-up in 5 minutes',
+          body: `${followUp.contactName || 'Follow-up'} at ${followUp.startTime}`,
+          data: { followUpId: followUp.id },
+        },
+        trigger: fiveMinBefore,
+      });
+      console.log("✅ Scheduled 5-min before:", fiveMinBefore.toLocaleString());
+      notificationIds.push(id3);
+    }
+
+    await AsyncStorage.setItem(`notifications_${followUp.id}`, JSON.stringify(notificationIds));
+    setNotificationIds(prev => [...prev, ...notificationIds]);
+
   } catch (error) {
-    console.error('Error scheduling 10-min follow-up notification:', error);
+    console.error('❌ Error scheduling follow-up notifications:', error);
   }
 };
+
+
 
 
   // Add notification listener for snooze action

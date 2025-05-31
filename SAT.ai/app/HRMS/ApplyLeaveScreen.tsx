@@ -52,7 +52,7 @@ const ApplyLeaveScreen = () => {
   const [showToDate, setShowToDate] = useState(false);
   const [reason, setReason] = useState("");
   const [uploadedFile, setUploadedFile] =
-    useState<DocumentPicker.DocumentPickerAsset | null>(null);
+  useState<DocumentPicker.DocumentPickerAsset | null>(null);
   const [fromDateSelected, setFromDateSelected] = useState(false);
   const [toDateSelected, setToDateSelected] = useState(false);
 

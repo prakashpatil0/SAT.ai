@@ -9,6 +9,8 @@ import * as Haptics from 'expo-haptics';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '@/firebaseConfig';
 import { getAuth } from 'firebase/auth';
+import * as Notifications from 'expo-notifications';
+import * as Device from 'expo-device';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -25,6 +27,34 @@ interface Event {
   phoneNumber?: string;
   status?: string;
 }
+
+const scheduleFollowUpNotifications = async (event: Event) => {
+  const date = event.date;
+  const [hour, minute] = event.startTime.split(':').map(Number);
+  const followUpDateTime = new Date(date);
+  followUpDateTime.setHours(hour, minute, 0, 0);
+
+  const reminders = [
+    { label: '1 day before', offsetMs: 24 * 60 * 60 * 1000 },
+    { label: '2 hours before', offsetMs: 2 * 60 * 60 * 1000 },
+    { label: '5 minutes before', offsetMs: 5 * 60 * 1000 }
+  ];
+
+  for (const reminder of reminders) {
+    const triggerTime = new Date(followUpDateTime.getTime() - reminder.offsetMs);
+
+    if (triggerTime > new Date()) {
+      await Notifications.scheduleNotificationAsync({
+        content: {
+          title: `Upcoming Follow-Up: ${event.contactName}`,
+          body: `${event.title} is scheduled ${reminder.label}`,
+          sound: 'default',
+        },
+        trigger: triggerTime,
+      });
+    }
+  }
+};
 
 const ScheduleScreen = () => {
   const [view, setView] = useState('day');
@@ -439,6 +469,21 @@ const ScheduleScreen = () => {
             phoneNumber: data.phoneNumber,
             status: data.status
           });
+          // Schedule reminders for upcoming follow-ups
+if (followupDate > new Date()) {
+  scheduleFollowUpNotifications({
+    id: doc.id,
+    title: data.title,
+    startTime: data.startTime,
+    endTime: data.endTime,
+    type: 'followup',
+    date: followupDate,
+    description: data.description,
+    contactName: data.contactName,
+    phoneNumber: data.phoneNumber,
+    status: data.status
+  });
+}
         }
       });
 

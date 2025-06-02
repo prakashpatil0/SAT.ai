@@ -13,12 +13,7 @@ import { db } from '@/firebaseConfig';
 import { getAuth } from 'firebase/auth';
 import AppGradient from '@/app/components/AppGradient';
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
-// Request notification permissions on mount
-useEffect(() => {
-  (async () => {
-    await Notifications.requestPermissionsAsync();
-  })();
-}, []);
+
 // Configure notifications
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -60,7 +55,12 @@ const BDMMyScheduleScreen = () => {
   const [followUps, setFollowUps] = useState<Event[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [notificationIds, setNotificationIds] = useState<string[]>([]);
-
+// Request notification permissions on mount
+useEffect(() => {
+  (async () => {
+    await Notifications.requestPermissionsAsync();
+  })();
+}, []);
   // Fixed daily schedule template with meetings and break times
   const dailyScheduleTemplate = [
     {
@@ -506,6 +506,21 @@ const scheduleFollowUpNotifications = async (followUp: Event) => {
       console.log("✅ Scheduled same-day @ 8AM:", sameDay8AM.toLocaleString());
       notificationIds.push(id2);
     }
+    // 🔔 2 Hours Before the Meeting
+const twoHoursBefore = subMinutes(followUpDateTime, 120);
+if (twoHoursBefore > now) {
+  const id4 = await Notifications.scheduleNotificationAsync({
+    content: {
+      title: '⏳ Follow-up in 2 hours',
+      body: `${followUp.contactName || 'Follow-up'} at ${followUp.startTime}`,
+      data: { followUpId: followUp.id },
+    },
+    trigger: twoHoursBefore,
+  });
+  console.log("✅ Scheduled 2-hours before:", twoHoursBefore.toLocaleString());
+  notificationIds.push(id4);
+}
+
 
     // 3️⃣ 5 Minutes Before the Meeting
     const fiveMinBefore = subMinutes(followUpDateTime, 5);

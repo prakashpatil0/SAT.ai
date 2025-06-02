@@ -13,6 +13,7 @@ import * as Notifications from 'expo-notifications';
 import { setNotificationHandler } from 'expo-notifications';
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { subMinutes } from 'date-fns';
 
 // Notification handler setup (you already did this at the top)
 Notifications.setNotificationHandler({
@@ -452,13 +453,14 @@ const fetchFollowUps = async () => {
         const [hours, minutes] = data.startTime.split(':').map(Number);
 
         // 🔁 Helper to schedule notification at an offset
-       const scheduleNotification = async (offsetMinutes: number, label: string, eventId: string) => {
-  const notifyTime = new Date(followupDate);
-  notifyTime.setHours(hours);
-  notifyTime.setMinutes(minutes - offsetMinutes);
-  notifyTime.setSeconds(0);
+const scheduleNotification = async (offsetMinutes: number, label: string, eventId: string) => {
+  const eventTime = new Date(followupDate);
+  eventTime.setHours(hours);
+  eventTime.setMinutes(minutes);
+  eventTime.setSeconds(0);
 
-  const key = `${eventId}-${label}`; // Unique key for each event-time-label combo
+  const notifyTime = subMinutes(eventTime, offsetMinutes);
+  const key = `${eventId}-${label}`;
 
   if (notifyTime > new Date()) {
     const alreadyScheduled = await AsyncStorage.getItem(key);
@@ -473,17 +475,39 @@ const fetchFollowUps = async () => {
         trigger: notifyTime,
       });
 
-      // Store scheduled info to prevent future duplication
       await AsyncStorage.setItem(key, notificationId);
     }
   }
 };
+const schedule8amNotification = async (followup: any) => {
+  const key = `notif_8am_${followup.id}`;
+  const alreadyScheduled = await AsyncStorage.getItem(key);
+  if (alreadyScheduled) return;
+
+  const date = followup.date.toDate?.() || new Date(followup.date); // handle Firestore Timestamp
+  const notifyTime = new Date(date);
+  notifyTime.setHours(8, 0, 0, 0); // 🕗 8:00 AM on that date
+
+  const now = new Date();
+  if (notifyTime <= now) return; // 🛑 Skip past times
+
+  const id = await Notifications.scheduleNotificationAsync({
+    content: {
+      title: 'Today’s Follow-up',
+      body: `${followup.title} at ${followup.startTime}`,
+      sound: 'default',
+    },
+    trigger: notifyTime,
+  });
+
+  await AsyncStorage.setItem(key, id);
+};
 
 
-        // 🕐 Schedule notifications: 5min, 2hr, 1day before
-      await scheduleNotification(5, '5min', doc.id);
+     await scheduleNotification(5, '5min', doc.id);
 await scheduleNotification(120, '2hr', doc.id);
 await scheduleNotification(1440, '1day', doc.id);
+await schedule8amNotification(doc); // 👈 Add this line
 
       }
     });

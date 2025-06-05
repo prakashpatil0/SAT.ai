@@ -22,12 +22,12 @@ const CustomDrawer = (props: DrawerContentComponentProps) => {
   const [imageLoading, setImageLoading] = useState(true);
 
   // Load recent screens from history
-  useEffect(() => {
+  // useEffect(() => {
     // This would normally load from AsyncStorage
     // For now using static recent screens
-    setRecentScreens(['HomeScreen', 'Target', 'ContactBook']);
-    loadDefaultProfileImage();
-  }, []);
+  //   setRecentScreens(['HomeScreen', 'Target', 'ContactBook']);
+  //   loadDefaultProfileImage();
+  // }, []);
 
   const loadDefaultProfileImage = async () => {
     try {
@@ -129,7 +129,7 @@ const CustomDrawer = (props: DrawerContentComponentProps) => {
 
       <DrawerContentScrollView {...props} contentContainerStyle={styles.drawerContent}>
         {/* Recent Screens Section */}
-        <View style={styles.sectionContainer}>
+        {/* <View style={styles.sectionContainer}>
           <Text style={styles.sectionTitle}>RECENT</Text>
           {recentScreens.map((screen, index) => (
             <TouchableOpacity 
@@ -141,7 +141,7 @@ const CustomDrawer = (props: DrawerContentComponentProps) => {
               <Text style={styles.recentItemText}>{screen}</Text>
             </TouchableOpacity>
           ))}
-        </View>
+        </View> */}
 
         {/* Main Menu */}
         <View style={styles.sectionContainer}>

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import {
   View,
   Text,
@@ -12,39 +12,23 @@ import {
   Alert,
   ActivityIndicator,
   FlatList,
-  TouchableWithoutFeedback,
-  Easing,
-  Animated
+  Button,
 } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import { MaterialIcons } from '@expo/vector-icons';
-import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import BDMMainLayout from '@/app/components/BDMMainLayout';
 import { auth, db } from '@/firebaseConfig';
 import { collection, addDoc, getDocs, query, where, Timestamp, orderBy, limit, doc, onSnapshot, getDoc, updateDoc, increment, setDoc } from 'firebase/firestore';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import AppGradient from "@/app/components/AppGradient";
-import AnimatedReanimated, { 
-  useAnimatedStyle, 
-  withRepeat, 
-  withSequence, 
-  withTiming,
-  useSharedValue,
-  withDelay
-} from 'react-native-reanimated';
-
-import CallLog from 'react-native-call-log';
-
-
-const Picker = require('@react-native-picker/picker').Picker;
+import Animated, { useAnimatedStyle, withRepeat, withSequence, withTiming, useSharedValue, withDelay } from 'react-native-reanimated';
 
 interface ClosingDetail {
-  productType: string; // ✅ updated
+  productType: string;
   closingAmount: number;
   description: string;
 }
-
 
 interface DailyReport {
   date: Date;
@@ -55,7 +39,6 @@ interface DailyReport {
   totalClosingAmount: number;
 }
 
-// Define CallLog interface
 interface CallLog {
   id: string;
   phoneNumber: string;
@@ -67,7 +50,6 @@ interface CallLog {
   contactName?: string;
 }
 
-// Add this new component for the wave skeleton
 const WaveSkeleton = ({ width, height, style }: { width: number | string; height: number; style?: any }) => {
   const translateX = useSharedValue(typeof width === 'number' ? -width : -100);
 
@@ -79,17 +61,15 @@ const WaveSkeleton = ({ width, height, style }: { width: number | string; height
       ),
       -1
     );
-  }, [width]);
+  }, [translateX, width]);
 
-  const animatedStyle = useAnimatedStyle(() => {
-    return {
-      transform: [{ translateX: translateX.value }],
-    };
-  });
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: translateX.value }],
+  }));
 
   return (
     <View style={[{ width, height, backgroundColor: '#E5E7EB', overflow: 'hidden' }, style]}>
-      <AnimatedReanimated.View
+      <Animated.View
         style={[
           {
             width: '100%',
@@ -105,44 +85,70 @@ const WaveSkeleton = ({ width, height, style }: { width: number | string; height
           end={{ x: 1, y: 0 }}
           style={{ width: '100%', height: '100%' }}
         />
-      </AnimatedReanimated.View>
+      </Animated.View>
     </View>
   );
 };
-
-// Add this new component for the form skeleton
-const FormSkeleton = () => {
-  return (
-    <View style={styles.skeletonContainer}>
-      <WaveSkeleton width="60%" height={24} style={styles.skeletonTitle} />
-      <WaveSkeleton width="100%" height={48} style={styles.skeletonInput} />
-      <WaveSkeleton width="100%" height={48} style={styles.skeletonInput} />
-      <WaveSkeleton width="100%" height={48} style={styles.skeletonInput} />
-      <WaveSkeleton width="100%" height={120} style={styles.skeletonTextArea} />
-      <WaveSkeleton width="100%" height={48} style={styles.skeletonButton} />
-    </View>
-  );
-};
+const FormSkeleton = () => (
+  <View style={{
+    gap: 16,
+    padding: 16
+  }}>
+    <WaveSkeleton width="100%" height={120} style={{ borderRadius: 8 }} />
+    <WaveSkeleton width="100%" height={48} style={{ borderRadius: 8 }} /> 
+  </View>
+);
 
 const BDMReportScreen = () => {
   const navigation = useNavigation();
   const [isLoading, setIsLoading] = useState(true);
-  const [waveAnimation] = useState(new Animated.Value(0));
   const [callLogs, setCallLogs] = useState<CallLog[]>([]);
   const [modalVisible, setModalVisible] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'synced' | 'error'>('idle');
   const [errors, setErrors] = useState<{[key: string]: string}>({});
- const [selectedProducts, setSelectedProducts] = useState<{ [key: number]: string }>({ 0: "Health Insurance" });
-
+  const [selectedProducts, setSelectedProducts] = useState<{ [key: number]: string }>({ 0: "Health Insurance" });
   const [showProductDropdown, setShowProductDropdown] = useState<number | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [filteredProducts, setFilteredProducts] = useState<string[]>([]);
   const [showOtherInput, setShowOtherInput] = useState<number | null>(null);
-  const [otherProductInput, setOtherProductInput] = useState<string>('');
-  
-  // Product list
-  const productList = [
+  const [otherProductInput, setOtherProductInput] = useState('');
+
+  const [numMeetings, setNumMeetings] = useState<string>("");
+  const [meetingDuration, setMeetingDuration] = useState<string>("");
+  const [positiveLeads, setPositiveLeads] = useState<string>("");
+  const [closingDetails, setClosingDetails] = useState<ClosingDetail[]>([
+    { productType: "Health Insurance", closingAmount: 0, description: "" }
+  ]);
+  const [totalAmount, setTotalAmount] = useState<number>(0);
+  const [currentDate, setCurrentDate] = useState<string>("");
+
+  const [numCalls, setNumCalls] = useState<string>("0");
+  const [callDuration, setCallDuration] = useState<string>("00:00");
+  const [positiveLeadsFromCalls, setPositiveLeadsFromCalls] = useState<string>("");
+  const [meetings, setMeetings] = useState<{
+    name: string;
+    duration: string;
+    locationUrl: string;
+    reachTime: string;
+    startTime: string;
+    endTime: string;
+  }[]>([
+    // Example static data for initial display
+    {
+      name: "Google",
+      duration: "3hr 40min",
+      locationUrl: "https://www.google.com/maps?q=48.8584,2.2945",
+      reachTime: "12:15 PM",
+      startTime: "1:05 PM",
+      endTime: "3:55 PM"
+    }
+  ]);
+  const [expandedMeetingIndex, setExpandedMeetingIndex] = useState<number | null>(null);
+  const [positiveLeadsFromMeetings, setPositiveLeadsFromMeetings] = useState<string>("");
+
+  const productList = useMemo(() => [
+    "None", // Added for deselect option
     "Car Insurance",
     "Bike Insurance",
     "Health Insurance",
@@ -170,188 +176,87 @@ const BDMReportScreen = () => {
     "Office Package Policy",
     "Crime Insurance",
     "Other"
-  ];
-  
-  // Form state
-  const [numMeetings, setNumMeetings] = useState<string>("");
-  const [meetingDuration, setMeetingDuration] = useState<string>("");
-  const [positiveLeads, setPositiveLeads] = useState<string>("");
-  const [closingDetails, setClosingDetails] = useState<ClosingDetail[]>([
-    { productType: "Health Insurance", closingAmount: 0, description: "" }
-  ]);
-  const [totalAmount, setTotalAmount] = useState<number>(0);
-  
-  // Current date
-  const [currentDate, setCurrentDate] = useState<string>("");
-  
-  // Add state for today's call data
-  const [todayCalls, setTodayCalls] = useState(0);
-  const [todayDuration, setTodayDuration] = useState(0);
+  ], []);
 
-  // Filter products based on search query
-  useEffect(() => {
-    if (searchQuery.trim() === '') {
-      setFilteredProducts(productList);
-    } else {
-      const filtered = productList.filter(product => 
-        product.toLowerCase().includes(searchQuery.toLowerCase())
-      );
-      setFilteredProducts(filtered);
-    }
-  }, [searchQuery]);
+  const STORAGE_KEYS = useMemo(() => ({
+    DRAFT_REPORT: 'bdm_report_draft',
+    LAST_REPORT: 'bdm_last_report',
+    PENDING_REPORTS: 'bdm_pending_reports'
+  }), []);
 
-  // Add real-time listener for call logs
-  useEffect(() => {
-    let unsubscribe: (() => void) | undefined;
-
-    const setupCallLogsListener = async () => {
-      try {
-        const userId = auth.currentUser?.uid;
-        if (!userId) return;
-
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-
-        const callLogsRef = collection(db, 'callLogs');
-        const q = query(
-          callLogsRef,
-          where('userId', '==', userId),
-          where('timestamp', '>=', today),
-          orderBy('timestamp', 'desc')
-        );
-
-        // Set up real-time listener
-        unsubscribe = onSnapshot(q, async (snapshot) => {
-          const logs = await processCallLogs(snapshot);
-          setCallLogs(logs);
-          updateMeetingDuration(logs);
-        });
-
-        // Initial fetch of device call logs
-        if (Platform.OS === 'android') {
-          await fetchDeviceCallLogs();
-        }
-      } catch (error) {
-        console.error('Error setting up call logs listener:', error);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    setupCallLogsListener();
-
-    return () => {
-      if (unsubscribe) {
-        unsubscribe();
-      }
-    };
+  const formatDuration = useCallback((seconds: number) => {
+    if (!seconds || seconds === 0) return '00:00:00';
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const remainingSeconds = seconds % 60;
+    return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${remainingSeconds.toString().padStart(2, '0')}`;
   }, []);
 
-  // Add useEffect for periodic refresh of call data
-  useEffect(() => {
-    // Fetch immediately on mount
-    fetchTodayCallData();
-    
-    // Set up interval to fetch every 10 seconds
-    const interval = setInterval(fetchTodayCallData, 10000);
-    
-    // Cleanup interval on unmount
-    return () => clearInterval(interval);
-  }, []);
+  const updateMeetingDuration = useCallback((logs: CallLog[]) => {
+    const totalDuration = logs.reduce((sum, log) => sum + (log.duration || 0), 0);
+    setMeetingDuration(formatDuration(totalDuration));
+    setNumMeetings(logs.length.toString());
+  }, [formatDuration]);
 
-  // Add function to fetch today's call data
-  const fetchTodayCallData = async () => {
+  const fetchTodayCallData = useCallback(async () => {
+    const userId = auth.currentUser?.uid;
+    if (!userId) return;
+
+    const today = new Date();
+    const startOfToday = new Date(today.setHours(0, 0, 0, 0));
+    const endOfToday = new Date(today.setHours(23, 59, 59, 999));
+
     try {
-      const userId = auth.currentUser?.uid;
-      if (!userId) {
-        console.log('No user ID found');
-        return;
-      }
-
-      const today = new Date();
-      const startOfToday = new Date(today);
-      startOfToday.setHours(0, 0, 0, 0);
-      const endOfToday = new Date(today);
-      endOfToday.setHours(23, 59, 59, 999);
-
-      // First try to get from AsyncStorage
+      // Try local cache first
       const storedLogs = await AsyncStorage.getItem('device_call_logs');
       const lastUpdate = await AsyncStorage.getItem('call_logs_last_update');
       const now = Date.now();
 
+      let todayLogs = [];
       if (storedLogs && lastUpdate && (now - parseInt(lastUpdate)) < 5 * 60 * 1000) {
-        // Use stored logs if they're recent
         const parsedLogs = JSON.parse(storedLogs);
-        const todayLogs = parsedLogs.filter((log: any) => {
+        todayLogs = parsedLogs.filter((log: any) => {
           const logDate = new Date(log.timestamp);
           return logDate >= startOfToday && logDate <= endOfToday;
         });
-
-        let totalCalls = 0;
-        let totalDuration = 0;
-
-        todayLogs.forEach((log: any) => {
-          if (log.status === 'completed') {
-            totalCalls++;
-            if (log.duration) {
-              totalDuration += Number(log.duration);
-            }
-          }
-        });
-
-        setTodayCalls(totalCalls);
-        setTodayDuration(totalDuration);
-        setNumMeetings(totalCalls.toString());
-        setMeetingDuration(formatDuration(totalDuration));
-        return;
+      } else {
+        // Fetch from Firestore
+        const callLogsRef = collection(db, 'callLogs');
+        const q = query(
+          callLogsRef,
+          where('userId', '==', userId),
+          where('timestamp', '>=', startOfToday),
+          where('timestamp', '<=', endOfToday)
+        );
+        const querySnapshot = await getDocs(q);
+        todayLogs = querySnapshot.docs.map(doc => doc.data());
+        await AsyncStorage.setItem('device_call_logs', JSON.stringify(todayLogs));
+        await AsyncStorage.setItem('call_logs_last_update', now.toString());
       }
 
-      // If no recent stored logs, fetch from Firebase
-      const callLogsRef = collection(db, 'callLogs');
-      const q = query(
-        callLogsRef,
-        where('userId', '==', userId),
-        where('timestamp', '>=', startOfToday),
-        where('timestamp', '<=', endOfToday)
-      );
-
-      const querySnapshot = await getDocs(q);
       let totalCalls = 0;
       let totalDuration = 0;
-
-      querySnapshot.forEach((doc) => {
-        const data = doc.data();
-        if (data.status === 'completed') {
+      todayLogs.forEach((log: any) => {
+        if (log.status === 'completed') {
           totalCalls++;
-          if (data.duration) {
-            totalDuration += Number(data.duration);
-          }
+          totalDuration += Number(log.duration) || 0;
         }
       });
 
-      // Update state with fetched data
-      setTodayCalls(totalCalls);
-      setTodayDuration(totalDuration);
-      setNumMeetings(totalCalls.toString());
-      setMeetingDuration(formatDuration(totalDuration));
-
-      // Store in AsyncStorage for faster future access
-      await AsyncStorage.setItem('device_call_logs', JSON.stringify(querySnapshot.docs.map(doc => doc.data())));
-      await AsyncStorage.setItem('call_logs_last_update', now.toString());
-
+      setNumCalls(totalCalls.toString());
+      // Format duration as 'X hr Y min'
+      const hours = Math.floor(totalDuration / 3600);
+      const minutes = Math.floor((totalDuration % 3600) / 60);
+      setCallDuration(`${hours} hr ${minutes} min`);
     } catch (error) {
-      console.error('Error fetching today\'s call data:', error);
       Alert.alert('Error', 'Failed to fetch today\'s call data');
     }
-  };
+  }, []);
 
-  // Process call logs
-  const processCallLogs = async (snapshot: any) => {
+  const processCallLogs = useCallback(async (snapshot: any) => {
     const logs: CallLog[] = [];
-    
     for (const docSnapshot of snapshot.docs) {
       const data = docSnapshot.data();
-      
       const log: CallLog = {
         id: docSnapshot.id,
         phoneNumber: data.phoneNumber || '',
@@ -364,121 +269,73 @@ const BDMReportScreen = () => {
       };
 
       if (data.contactId) {
-        try {
-          const contactDocRef = doc(db, 'contacts', data.contactId);
-          const contactDoc = await getDoc(contactDocRef);
-          if (contactDoc.exists()) {
-            const contactData = contactDoc.data();
-            log.contactName = contactData.name || '';
-          }
-        } catch (err) {
-          console.error('Error fetching contact:', err);
+        const contactDocRef = doc(db, 'contacts', data.contactId);
+        const contactDoc = await getDoc(contactDocRef);
+        if (contactDoc.exists()) {
+          log.contactName = contactDoc.data().name || '';
         }
       }
 
       logs.push(log);
     }
-
     return logs;
-  };
+  }, []);
 
-  // Update meeting duration based on call logs
-  const updateMeetingDuration = (logs: CallLog[]) => {
-    const totalDuration = logs.reduce((sum, log) => sum + (log.duration || 0), 0);
-    setMeetingDuration(formatDuration(totalDuration));
-    setNumMeetings(logs.length.toString());
-  };
-
-  // Fetch device call logs
-  const fetchDeviceCallLogs = async () => {
-    if (Platform.OS === 'android') {
-      try {
-        const logs = await CallLog.loadAll();
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        
-        // Filter logs from today
-        const todayLogs = logs.filter((log: any) => {
-          const logTimestamp = parseInt(log.timestamp);
-          return logTimestamp >= today.getTime();
-        });
-
-        const formattedLogs = todayLogs.map((log: any) => ({
-          id: String(log.timestamp),
-          phoneNumber: log.phoneNumber,
-          contactName: log.name && log.name !== "Unknown" ? log.name : log.phoneNumber,
-          timestamp: new Date(parseInt(log.timestamp)),
-          duration: parseInt(log.duration) || 0,
-          type: (log.type || 'OUTGOING').toLowerCase() as 'incoming' | 'outgoing' | 'missed',
-          status: (log.type === 'MISSED' ? 'missed' : 'completed') as 'missed' | 'completed' | 'in-progress'
-        }));
-
-        setCallLogs(formattedLogs);
-        updateMeetingDuration(formattedLogs);
-      } catch (error) {
-        console.error('Error fetching device call logs:', error);
-      }
-    }
-  };
-
-  // Add wave animation effect
   useEffect(() => {
-    if (isLoading) {
-      Animated.loop(
-        Animated.sequence([
-          Animated.timing(waveAnimation, {
-            toValue: 1,
-            duration: 1000,
-            useNativeDriver: true,
-            easing: Easing.inOut(Easing.ease),
-          }),
-          Animated.timing(waveAnimation, {
-            toValue: 0,
-            duration: 1000,
-            useNativeDriver: true,
-            easing: Easing.inOut(Easing.ease),
-          }),
-        ])
-      ).start();
+    if (searchQuery.trim() === '') { 
+      setFilteredProducts(productList);
     } else {
-      waveAnimation.setValue(0);
+      setFilteredProducts(productList.filter(product => 
+        product.toLowerCase().includes(searchQuery.toLowerCase())
+      ));
     }
-  }, [isLoading]);
+  }, [searchQuery, productList]);
 
-  // Format duration helper function
-  const formatDuration = (seconds: number) => {
-    if (!seconds || seconds === 0) return '00:00:00';
-    
-    const hours = Math.floor(seconds / 3600);
-    const minutes = Math.floor((seconds % 3600) / 60);
-    const remainingSeconds = seconds % 60;
-    
-    return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${remainingSeconds.toString().padStart(2, '0')}`;
-  };
+  useEffect(() => {
+    let unsubscribe: (() => void) | undefined;
+    const setupCallLogsListener = async () => {
+      const userId = auth.currentUser?.uid;
+      if (!userId) return;
 
-  // Format current date on load
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      const callLogsRef = collection(db, 'callLogs');
+      const q = query(
+        callLogsRef,
+        where('userId', '==', userId),
+        where('timestamp', '>=', today),
+        orderBy('timestamp', 'desc')
+      );
+
+      unsubscribe = onSnapshot(q, async (snapshot) => {
+        const logs = await processCallLogs(snapshot);
+        setCallLogs(logs);
+        updateMeetingDuration(logs);
+      });
+    };
+
+    setupCallLogsListener().finally(() => setIsLoading(false));
+    return () => unsubscribe?.();
+  }, [processCallLogs, updateMeetingDuration]);
+
+  useEffect(() => {
+    fetchTodayCallData();
+    const interval = setInterval(fetchTodayCallData, 10000);
+    return () => clearInterval(interval);
+  }, [fetchTodayCallData]);
+
   useEffect(() => {
     const date = new Date();
+    const monthNames = ["January", "February", "March", "April", "May", "June",
+      "July", "August", "September", "October", "November", "December"];
     const day = date.getDate();
-    const monthNames = [
-      "January", "February", "March", "April", "May", "June",
-      "July", "August", "September", "October", "November", "December"
-    ];
     const month = monthNames[date.getMonth()];
     const dayOfWeek = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][date.getDay()];
-    
     setCurrentDate(`${day} ${month} (${dayOfWeek})`);
   }, []);
 
-  // Add storage keys
-  const STORAGE_KEYS = {
-    DRAFT_REPORT: 'bdm_report_draft',
-    LAST_REPORT: 'bdm_last_report',
-    PENDING_REPORTS: 'bdm_pending_reports'
-  };
-
-  // Save draft data
-  const saveDraftData = async () => {
+  const saveDraftData = useCallback(async () => {
     try {
       const draftData = {
         numMeetings,
@@ -490,22 +347,19 @@ const BDMReportScreen = () => {
       };
       await AsyncStorage.setItem(STORAGE_KEYS.DRAFT_REPORT, JSON.stringify(draftData));
     } catch (error) {
-      console.error('Error saving draft:', error);
+      // Handle silently
     }
-  };
+  }, [numMeetings, meetingDuration, positiveLeads, closingDetails, totalAmount, STORAGE_KEYS]);
 
-  // Load draft data
-  const loadDraftData = async () => {
+  const loadDraftData = useCallback(async () => {
     try {
       const draftDataString = await AsyncStorage.getItem(STORAGE_KEYS.DRAFT_REPORT);
       if (draftDataString) {
         const draftData = JSON.parse(draftDataString);
-        
-        // Check if draft is from today
         const draftDate = new Date(draftData.date);
         const today = new Date();
         today.setHours(0, 0, 0, 0);
-        
+
         if (draftDate.getTime() === today.getTime()) {
           setNumMeetings(draftData.numMeetings || '');
           setMeetingDuration(draftData.meetingDuration || '');
@@ -517,82 +371,66 @@ const BDMReportScreen = () => {
           }]);
           setTotalAmount(draftData.totalAmount || 0);
         } else {
-          // If draft is not from today, clear it
           await AsyncStorage.removeItem(STORAGE_KEYS.DRAFT_REPORT);
         }
       }
     } catch (error) {
-      console.error('Error loading draft:', error);
+      // Handle silently
     }
-  };
+  }, [STORAGE_KEYS]);
 
-  // Check for pending reports that need to be synced
-  const checkPendingReports = async () => {
+  const checkPendingReports = useCallback(async () => {
     try {
       const pendingReportsString = await AsyncStorage.getItem(STORAGE_KEYS.PENDING_REPORTS);
       if (pendingReportsString) {
         const pendingReports = JSON.parse(pendingReportsString);
         if (pendingReports.length > 0) {
-          syncPendingReports(pendingReports);
+          await syncPendingReports(pendingReports);
         }
       }
     } catch (error) {
-      console.error('Error checking pending reports:', error);
+      // Handle silently
     }
-  };
+  }, [STORAGE_KEYS]);
 
-  // Sync pending reports to Firebase
-  const syncPendingReports = async (pendingReports: any[]) => {
+  const syncPendingReports = useCallback(async (pendingReports: any[]) => {
     try {
       setSyncStatus('syncing');
       const userId = auth.currentUser?.uid;
-      if (!userId) {
-        throw new Error("User not authenticated");
-      }
+      if (!userId) return;
 
       const syncedReports: string[] = [];
-      const failedReports: any[] = [];
-
       for (const report of pendingReports) {
         try {
-          // Add to Firebase
-          const docRef = await addDoc(collection(db, 'bdm_reports'), {
+          await addDoc(collection(db, 'bdm_reports'), {
             ...report,
             userId,
             syncedAt: Timestamp.fromDate(new Date())
           });
-          
           syncedReports.push(report.id);
-          console.log("Report synced with ID:", docRef.id);
         } catch (error) {
-          console.error("Error syncing report:", error);
-          failedReports.push(report);
+          // Handle silently
         }
       }
 
-      // Update pending reports in AsyncStorage
       if (syncedReports.length > 0) {
         const updatedPendingReports = pendingReports.filter(
           report => !syncedReports.includes(report.id)
         );
         await AsyncStorage.setItem(
-          STORAGE_KEYS.PENDING_REPORTS, 
+          STORAGE_KEYS.PENDING_REPORTS,
           JSON.stringify(updatedPendingReports)
         );
       }
 
       setSyncStatus('synced');
     } catch (error) {
-      console.error("Error syncing pending reports:", error);
       setSyncStatus('error');
     }
-  };
+  }, [STORAGE_KEYS]);
 
-  // Update validateForm function
-  const validateForm = (): boolean => {
+  const validateForm = useCallback(() => {
     const newErrors: {[key: string]: string} = {};
-    
-    // No need to validate numMeetings and meetingDuration as they are auto-populated
     
     if (!positiveLeads.trim()) {
       newErrors.positiveLeads = "Positive leads is required";
@@ -600,58 +438,49 @@ const BDMReportScreen = () => {
       newErrors.positiveLeads = "Please enter a valid number";
     }
     
-    // Existing closing detail validations
     closingDetails.forEach((detail, index) => {
       if (!detail.closingAmount) {
         newErrors[`closing_${index}_closingAmount`] = "Amount is required";
       }
-      
       if (!detail.description.trim()) {
         newErrors[`closing_${index}_description`] = "Description is required";
+      }
+      if (!detail.productType || detail.productType === "None") {
+        newErrors[`closing_${index}_productType`] = "Product type is required";
       }
     });
     
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
-  };
+  }, [closingDetails, positiveLeads]);
 
-  // Update handleSubmit function
-  const handleSubmit = async () => {
+  const handleSubmit = useCallback(async () => {
     if (!validateForm()) {
       Alert.alert("Validation Error", "Please fill in all required fields");
       return;
     }
     
     setIsSubmitting(true);
-    
     try {
       const userId = auth.currentUser?.uid;
       if (!userId) {
         Alert.alert("Error", "You must be logged in to submit a report");
         return;
       }
-      let submittedBy = "Unknown";
 
-try {
-  const userDoc = await getDoc(doc(db, "users", userId));
-  if (userDoc.exists()) {
-    const userData = userDoc.data();
-    submittedBy = userData.name || "Unnamed User";
-  }
-} catch (error) {
-  console.error("Error fetching user name:", error);
-}
+      let submittedBy = "Unknown";
+      const userDoc = await getDoc(doc(db, "users", userId));
+      if (userDoc.exists()) {
+        submittedBy = userDoc.data().name || "Unnamed User";
+      }
 
       const now = new Date();
       const reportId = `report_${now.getTime()}`;
-      
-      // Create month>week>day structure
-      const month = now.getMonth() + 1; // 1-12
+      const month = now.getMonth() + 1;
       const year = now.getFullYear();
       const weekNumber = Math.ceil((now.getDate() + new Date(year, now.getMonth(), 1).getDay()) / 7);
       const day = now.getDate();
-      
-      
+
       const reportData = {
         id: reportId,
         userId,
@@ -666,65 +495,51 @@ try {
         positiveLeads: Number(positiveLeads),
         closingDetails,
         totalClosingAmount: totalAmount,
+        numCalls: Number(numCalls),
+        callDuration,
+        positiveLeadsFromCalls: Number(positiveLeadsFromCalls),
+        meetings,
+        positiveLeadsFromMeetings: Number(positiveLeadsFromMeetings),
         createdAt: now.toISOString(),
         updatedAt: now.toISOString(),
         synced: false
       };
-      
-      // Save to local storage first
+
       await saveReportLocally(reportData);
-      
-      // Try to sync to Firebase
       try {
         await syncReportToFirebase(reportData);
       } catch (error) {
-        console.error("Error syncing report to Firebase:", error);
-        // Report will be synced later
+        // Handle silently
       }
-      
-      // Clear draft after successful submission
+
       await AsyncStorage.removeItem(STORAGE_KEYS.DRAFT_REPORT);
-      
       setModalVisible(true);
       setTimeout(() => {
         setModalVisible(false);
-        // Clear form but keep auto-populated fields
         setPositiveLeads("");
-        setClosingDetails([
-          { productType: "Health Insurance", closingAmount: 0, description: "" }
-        ]);
+        setClosingDetails([{ productType: "Health Insurance", closingAmount: 0, description: "" }]);
         setTotalAmount(0);
+        setSelectedProducts({ 0: "Health Insurance" });
       }, 2000);
-      
     } catch (error) {
-      console.error("Error submitting report:", error);
       Alert.alert("Error", "Failed to submit report. Please try again.");
     } finally {
       setIsSubmitting(false);
     }
-  };
+  }, [numMeetings, meetingDuration, positiveLeads, closingDetails, totalAmount, numCalls, callDuration, positiveLeadsFromCalls, meetings, positiveLeadsFromMeetings, STORAGE_KEYS]);
 
-  // Save report to local storage
-  const saveReportLocally = async (reportData: any) => {
+  const saveReportLocally = useCallback(async (reportData: any) => {
     try {
-      // Save as last report
       await AsyncStorage.setItem(STORAGE_KEYS.LAST_REPORT, JSON.stringify(reportData));
-      
-      // Create structured storage key for month>week>day
       const { year, month, weekNumber, day } = reportData;
       const structuredKey = `bdm_reports_${year}_${month}_${weekNumber}_${day}`;
       
-      // Get existing reports for this day
       const existingReportsString = await AsyncStorage.getItem(structuredKey);
       const existingReports = existingReportsString ? JSON.parse(existingReportsString) : [];
-      
-      // Add new report
       existingReports.push(reportData);
       
-      // Save updated reports
       await AsyncStorage.setItem(structuredKey, JSON.stringify(existingReports));
       
-      // Add to pending reports if not synced
       if (!reportData.synced) {
         const pendingReportsString = await AsyncStorage.getItem(STORAGE_KEYS.PENDING_REPORTS);
         const pendingReports = pendingReportsString ? JSON.parse(pendingReportsString) : [];
@@ -732,22 +547,17 @@ try {
         await AsyncStorage.setItem(STORAGE_KEYS.PENDING_REPORTS, JSON.stringify(pendingReports));
       }
       
-      // Update weekly summary
       await updateWeeklySummary(reportData);
-      
     } catch (error) {
-      console.error("Error saving report locally:", error);
       throw error;
     }
-  };
-  
-  // Update weekly summary
-  const updateWeeklySummary = async (reportData: any) => {
+  }, [STORAGE_KEYS]);
+
+  const updateWeeklySummary = useCallback(async (reportData: any) => {
     try {
       const { year, month, weekNumber } = reportData;
       const weeklyKey = `bdm_weekly_summary_${year}_${month}_${weekNumber}`;
       
-      // Get existing weekly summary
       const existingSummaryString = await AsyncStorage.getItem(weeklyKey);
       const existingSummary = existingSummaryString ? JSON.parse(existingSummaryString) : {
         year,
@@ -760,304 +570,162 @@ try {
         reports: []
       };
       
-      // Update summary with new report data
       existingSummary.totalMeetings += reportData.numMeetings;
       existingSummary.totalPositiveLeads += reportData.positiveLeads;
       existingSummary.totalClosingAmount += reportData.totalClosingAmount;
       
-      // Parse duration string (e.g., "1 hr 30 mins" -> hours)
       const durationStr = reportData.meetingDuration || '';
-      const hrMatch = durationStr.match(/(\d+)\s*hr/);
-      const minMatch = durationStr.match(/(\d+)\s*min/);
-      const hours = (hrMatch ? parseInt(hrMatch[1]) : 0) +
-                   (minMatch ? parseInt(minMatch[1]) / 60 : 0);
-      existingSummary.totalDuration += hours;
+      let totalDurationHours = 0;
+      if (durationStr.includes(':')) {
+        const [hours, minutes, seconds] = durationStr.split(':').map(Number);
+        totalDurationHours = hours + (minutes / 60) + (seconds / 3600);
+      }
+      existingSummary.totalDuration += totalDurationHours;
       
-      // Add report to list if not already there
       if (!existingSummary.reports.some((r: any) => r.id === reportData.id)) {
         existingSummary.reports.push(reportData);
       }
       
-      // Save updated summary
       await AsyncStorage.setItem(weeklyKey, JSON.stringify(existingSummary));
-      
     } catch (error) {
-      console.error("Error updating weekly summary:", error);
+      // Handle silently
     }
-  };
+  }, []);
 
-  // Sync report to Firebase
-  const syncReportToFirebase = async (reportData: any) => {
-    try {
-      const userId = auth.currentUser?.uid;
-      if (!userId) {
-        throw new Error("User not authenticated");
-      }
+  const syncReportToFirebase = useCallback(async (reportData: any) => {
+    const userId = auth.currentUser?.uid;
+    if (!userId) throw new Error("User not authenticated");
 
-      // Create month>week>day structure in Firebase
-      const { year, month, weekNumber, day } = reportData;
-      
-      // Format meeting duration to HH:MM:SS if it's not already in that format
-      let formattedDuration = reportData.meetingDuration;
-      if (formattedDuration && !formattedDuration.includes(':')) {
-        // Parse "X hr Y mins" format
-        const hrMatch = formattedDuration.match(/(\d+)\s*hr/);
-        const minMatch = formattedDuration.match(/(\d+)\s*min/);
-        const hours = (hrMatch ? parseInt(hrMatch[1]) : 0);
-        const minutes = (minMatch ? parseInt(minMatch[1]) : 0);
-        const seconds = 0;
-        
-        formattedDuration = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
-      }
-      
-      // Add to Firebase with structured path
-      const reportsRef = collection(db, 'bdm_reports');
-      const docRef = await addDoc(reportsRef, {
-        ...reportData,
-        meetingDuration: formattedDuration, // Use formatted duration
-        synced: true,
-        syncedAt: Timestamp.fromDate(new Date())
+    let formattedDuration = reportData.meetingDuration;
+    if (formattedDuration && !formattedDuration.includes(':')) {
+      const hrMatch = formattedDuration.match(/(\d+)\s*hr/);
+      const minMatch = formattedDuration.match(/(\d+)\s*min/);
+      const hours = (hrMatch ? parseInt(hrMatch[1]) : 0);
+      const minutes = (minMatch ? parseInt(minMatch[1]) : 0);
+      formattedDuration = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:00`;
+    }
+
+    const reportsRef = collection(db, 'bdm_reports');
+    await addDoc(reportsRef, {
+      ...reportData,
+      meetingDuration: formattedDuration,
+      synced: true,
+      syncedAt: Timestamp.fromDate(new Date())
+    });
+
+    const weeklySummaryRef = doc(db, 'bdm_weekly_summaries', `${userId}_${reportData.year}_${reportData.month}_${reportData.weekNumber}`);
+    const weeklySummaryDoc = await getDoc(weeklySummaryRef);
+
+    let totalDurationHours = 0;
+    if (formattedDuration.includes(':')) {
+      const [hours, minutes, seconds] = formattedDuration.split(':').map(Number);
+      totalDurationHours = hours + (minutes / 60) + (seconds / 3600);
+    }
+
+    if (weeklySummaryDoc.exists()) {
+      await updateDoc(weeklySummaryRef, {
+        totalMeetings: increment(reportData.numMeetings),
+        totalDuration: increment(totalDurationHours),
+        totalPositiveLeads: increment(reportData.positiveLeads),
+        totalClosingAmount: increment(reportData.totalClosingAmount),
+        updatedAt: Timestamp.fromDate(new Date())
       });
-      
-      console.log("Report synced with ID:", docRef.id);
-      
-      // Update weekly summary in Firebase
-      const weeklySummaryRef = doc(db, 'bdm_weekly_summaries', `${userId}_${year}_${month}_${weekNumber}`);
-      const weeklySummaryDoc = await getDoc(weeklySummaryRef);
-      
-      if (weeklySummaryDoc.exists()) {
-        // Update existing summary
-        const existingSummary = weeklySummaryDoc.data();
-        await updateDoc(weeklySummaryRef, {
-          totalMeetings: increment(reportData.numMeetings),
-          totalPositiveLeads: increment(reportData.positiveLeads),
-          totalClosingAmount: increment(reportData.totalClosingAmount),
-          updatedAt: Timestamp.fromDate(new Date())
-        });
-      } else {
-        // Create new summary
-        // Parse duration string to hours
-        let totalDurationHours = 0;
-        if (formattedDuration.includes(':')) {
-          const [hours, minutes, seconds] = formattedDuration.split(':').map(Number);
-          totalDurationHours = hours + (minutes / 60) + (seconds / 3600);
-        } else {
-          // Parse "X hr Y mins" format
-          const hrMatch = formattedDuration.match(/(\d+)\s*hr/);
-          const minMatch = formattedDuration.match(/(\d+)\s*min/);
-          totalDurationHours = (hrMatch ? parseInt(hrMatch[1]) : 0) +
-                             (minMatch ? parseInt(minMatch[1]) / 60 : 0);
-        }
-        
-        await setDoc(weeklySummaryRef, {
-          userId,
-          year,
-          month,
-          weekNumber,
-          totalMeetings: reportData.numMeetings,
-          totalDuration: totalDurationHours,
-          totalPositiveLeads: reportData.positiveLeads,
-          totalClosingAmount: reportData.totalClosingAmount,
-          createdAt: Timestamp.fromDate(new Date()),
-          updatedAt: Timestamp.fromDate(new Date())
-        });
-      }
-      
-      // Update pending reports in AsyncStorage
-      const pendingReportsString = await AsyncStorage.getItem(STORAGE_KEYS.PENDING_REPORTS);
-      if (pendingReportsString) {
-        const pendingReports = JSON.parse(pendingReportsString);
-        const updatedPendingReports = pendingReports.filter(
-          (report: any) => report.id !== reportData.id
-        );
-        await AsyncStorage.setItem(
-          STORAGE_KEYS.PENDING_REPORTS, 
-          JSON.stringify(updatedPendingReports)
-        );
-      }
-    } catch (error) {
-      console.error("Error syncing report to Firebase:", error);
-      throw error;
-    }
-  };
-
-  // Add auto-save functionality
-  useEffect(() => {
-    const autoSaveTimer = setTimeout(saveDraftData, 1000);
-    return () => clearTimeout(autoSaveTimer);
-  }, [numMeetings, meetingDuration, positiveLeads, closingDetails, totalAmount]);
-
-  // Add new closing detail
-  const addClosingDetail = () => {
-    setClosingDetails([
-  ...closingDetails,
-  { productType: "Health Insurance", closingAmount: 0, description: "" }
-]);
-
-  };
-
-  // Remove closing detail at specific index
-  const removeClosingDetail = (index: number) => {
-    const newClosingDetails = closingDetails.filter((_, i) => i !== index);
-    setClosingDetails(newClosingDetails);
-  };
-
-  // Update closing detail at specific index
-  const updateClosingDetail = (index: number, field: keyof ClosingDetail, value: any) => {
-    const newClosingDetails = [...closingDetails];
-    if (field === 'closingAmount') {
-      newClosingDetails[index] = {
-        ...newClosingDetails[index],
-        [field]: Number(value) || 0
-      };
-      
-      // Calculate total amount after updating closing amount
-      const newTotalAmount = newClosingDetails.reduce((sum, detail) => sum + (detail.closingAmount || 0), 0);
-      setTotalAmount(newTotalAmount);
     } else {
-      newClosingDetails[index] = {
-        ...newClosingDetails[index],
-        [field]: value
-      };
+      await setDoc(weeklySummaryRef, {
+        userId,
+        year: reportData.year,
+        month: reportData.month,
+        weekNumber: reportData.weekNumber,
+        totalMeetings: reportData.numMeetings,
+        totalDuration: totalDurationHours,
+        totalPositiveLeads: reportData.positiveLeads,
+        totalClosingAmount: reportData.totalClosingAmount,
+        createdAt: Timestamp.fromDate(new Date()),
+        updatedAt: Timestamp.fromDate(new Date())
+      });
     }
-    setClosingDetails(newClosingDetails);
-  };
 
-  // Toggle product dropdown visibility
-  const toggleProductDropdown = (index: number) => {
-    setShowProductDropdown(showProductDropdown === index ? null : index);
-  };
-
-  // Toggle product selection
- const toggleProductSelection = (index: number, product: string) => {
-  if (product === "Other") {
-    setShowOtherInput(index);
-    return;
-  }
-
-  setSelectedProducts({ ...selectedProducts, [index]: product });
-
-  const newClosingDetails = [...closingDetails];
-  newClosingDetails[index] = {
-  ...newClosingDetails[index],
-  productType: product, // ✅ store as string
-};
-
-  setClosingDetails(newClosingDetails);
-  setShowProductDropdown(null);
-};
-  // Add custom product
- const addCustomProduct = (index: number) => {
-  if (!otherProductInput.trim()) return;
-
-  const newProduct = otherProductInput.trim();
-  setSelectedProducts(prev => ({ ...prev, [index]: newProduct }));
-
-  const newClosingDetails = [...closingDetails];
- newClosingDetails[index].productType = newProduct; // ✅ correct
-
-  setClosingDetails(newClosingDetails);
-
-  setOtherProductInput('');
-  setShowOtherInput(null);
-};
-
-  // Add periodic sync function
-  const syncLocalWithFirebase = async () => {
-    try {
-      const userId = auth.currentUser?.uid;
-      if (!userId) return;
-      
-      // Get all pending reports
-      const pendingReportsString = await AsyncStorage.getItem(STORAGE_KEYS.PENDING_REPORTS);
-      if (!pendingReportsString) return;
-      
+    const pendingReportsString = await AsyncStorage.getItem(STORAGE_KEYS.PENDING_REPORTS);
+    if (pendingReportsString) {
       const pendingReports = JSON.parse(pendingReportsString);
-      if (pendingReports.length === 0) return;
-      
+      const updatedPendingReports = pendingReports.filter(
+        (report: any) => report.id !== reportData.id
+      );
+      await AsyncStorage.setItem(
+        STORAGE_KEYS.PENDING_REPORTS,
+        JSON.stringify(updatedPendingReports)
+      );
+    }
+  }, [STORAGE_KEYS]);
+
+  const syncLocalWithFirebase = useCallback(async () => {
+    const userId = auth.currentUser?.uid;
+    if (!userId) return;
+
+    try {
       setSyncStatus('syncing');
-      
-      // Group reports by week for efficient syncing
+      const pendingReportsString = await AsyncStorage.getItem(STORAGE_KEYS.PENDING_REPORTS);
+      if (!pendingReportsString) {
+        setSyncStatus('synced');
+        return;
+      }
+
+      const pendingReports = JSON.parse(pendingReportsString);
+      if (pendingReports.length === 0) {
+        setSyncStatus('synced');
+        return;
+      }
+
       const reportsByWeek: {[key: string]: any[]} = {};
-      
       pendingReports.forEach((report: any) => {
-        const { year, month, weekNumber } = report;
-        const weekKey = `${year}_${month}_${weekNumber}`;
-        
-        if (!reportsByWeek[weekKey]) {
-          reportsByWeek[weekKey] = [];
-        }
-        
+        const weekKey = `${report.year}_${report.month}_${report.weekNumber}`;
+        reportsByWeek[weekKey] = reportsByWeek[weekKey] || [];
         reportsByWeek[weekKey].push(report);
       });
-      
-      // Sync each week's reports
+
       for (const weekKey in reportsByWeek) {
         const reports = reportsByWeek[weekKey];
         const [year, month, weekNumber] = weekKey.split('_').map(Number);
-        
-        // Sync individual reports
+
         for (const report of reports) {
-          try {
-            // Format meeting duration to HH:MM:SS if it's not already in that format
-            let formattedDuration = report.meetingDuration;
-            if (formattedDuration && !formattedDuration.includes(':')) {
-              // Parse "X hr Y mins" format
-              const hrMatch = formattedDuration.match(/(\d+)\s*hr/);
-              const minMatch = formattedDuration.match(/(\d+)\s*min/);
-              const hours = (hrMatch ? parseInt(hrMatch[1]) : 0);
-              const minutes = (minMatch ? parseInt(minMatch[1]) : 0);
-              const seconds = 0;
-              
-              formattedDuration = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
-            }
-            
-            // Add to Firebase
-            const docRef = await addDoc(collection(db, 'bdm_reports'), {
-              ...report,
-              meetingDuration: formattedDuration, // Use formatted duration
-              synced: true,
-              syncedAt: Timestamp.fromDate(new Date())
-            });
-            
-            console.log("Report synced with ID:", docRef.id);
-          } catch (error) {
-            console.error("Error syncing report:", error);
+          let formattedDuration = report.meetingDuration;
+          if (formattedDuration && !formattedDuration.includes(':')) {
+            const hrMatch = formattedDuration.match(/(\d+)\s*hr/);
+            const minMatch = formattedDuration.match(/(\d+)\s*min/);
+            const hours = (hrMatch ? parseInt(hrMatch[1]) : 0);
+            const minutes = (minMatch ? parseInt(minMatch[1]) : 0);
+            formattedDuration = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:00`;
           }
+
+          await addDoc(collection(db, 'bdm_reports'), {
+            ...report,
+            meetingDuration: formattedDuration,
+            synced: true,
+            syncedAt: Timestamp.fromDate(new Date())
+          });
         }
-        
-        // Update weekly summary in Firebase
-        const weeklySummaryRef = doc(db, 'bdm_weekly_summaries', `${userId}_${year}_${month}_${weekNumber}`);
-        const weeklySummaryDoc = await getDoc(weeklySummaryRef);
-        
-        // Calculate totals for this week
+
         let totalMeetings = 0;
         let totalDuration = 0;
         let totalPositiveLeads = 0;
         let totalClosingAmount = 0;
-        
+
         reports.forEach((report: any) => {
           totalMeetings += report.numMeetings || 0;
           totalPositiveLeads += report.positiveLeads || 0;
           totalClosingAmount += report.totalClosingAmount || 0;
           
-          // Parse duration string
           const durationStr = report.meetingDuration || '';
           if (durationStr.includes(':')) {
             const [hours, minutes, seconds] = durationStr.split(':').map(Number);
             totalDuration += hours + (minutes / 60) + (seconds / 3600);
-          } else {
-            // Parse "X hr Y mins" format
-            const hrMatch = durationStr.match(/(\d+)\s*hr/);
-            const minMatch = durationStr.match(/(\d+)\s*min/);
-            const hours = (hrMatch ? parseInt(hrMatch[1]) : 0) +
-                         (minMatch ? parseInt(minMatch[1]) / 60 : 0);
-            totalDuration += hours;
           }
         });
-        
+
+        const weeklySummaryRef = doc(db, 'bdm_weekly_summaries', `${userId}_${year}_${month}_${weekNumber}`);
+        const weeklySummaryDoc = await getDoc(weeklySummaryRef);
+
         if (weeklySummaryDoc.exists()) {
-          // Update existing summary
           await updateDoc(weeklySummaryRef, {
             totalMeetings: increment(totalMeetings),
             totalDuration: increment(totalDuration),
@@ -1066,7 +734,6 @@ try {
             updatedAt: Timestamp.fromDate(new Date())
           });
         } else {
-          // Create new summary
           await setDoc(weeklySummaryRef, {
             userId,
             year,
@@ -1081,42 +748,96 @@ try {
           });
         }
       }
-      
-      // Clear pending reports after successful sync
+
       await AsyncStorage.setItem(STORAGE_KEYS.PENDING_REPORTS, JSON.stringify([]));
       setSyncStatus('synced');
-      
     } catch (error) {
-      console.error("Error syncing with Firebase:", error);
       setSyncStatus('error');
     }
-  };
-  
-  // Add useEffect for periodic sync
+  }, [STORAGE_KEYS]);
+
   useEffect(() => {
-    // Sync immediately on mount
+    const autoSaveTimer = setTimeout(saveDraftData, 1000);
+    return () => clearTimeout(autoSaveTimer);
+  }, [saveDraftData]);
+
+  useEffect(() => {
     syncLocalWithFirebase();
-    
-    // Set up interval to sync every 5 minutes
     const interval = setInterval(syncLocalWithFirebase, 5 * 60 * 1000);
-    
-    // Cleanup interval on unmount
     return () => clearInterval(interval);
+  }, [syncLocalWithFirebase]);
+
+  const addClosingDetail = useCallback(() => {
+    setClosingDetails(prev => [
+      ...prev,
+      { productType: "Health Insurance", closingAmount: 0, description: "" }
+    ]);
+    setSelectedProducts(prev => ({ ...prev, [closingDetails.length]: "Health Insurance" }));
+  }, [closingDetails.length]);
+
+  const removeClosingDetail = useCallback((index: number) => {
+    setClosingDetails(prev => prev.filter((_, i) => i !== index));
+    setSelectedProducts(prev => {
+      const newProducts = { ...prev };
+      delete newProducts[index];
+      return newProducts;
+    });
   }, []);
+
+  const updateClosingDetail = useCallback((index: number, field: keyof ClosingDetail, value: any) => {
+    setClosingDetails(prev => {
+      const newDetails = [...prev];
+      if (field === 'closingAmount') {
+        newDetails[index] = { ...newDetails[index], [field]: Number(value) || 0 };
+        setTotalAmount(newDetails.reduce((sum, detail) => sum + (detail.closingAmount || 0), 0));
+      } else {
+        newDetails[index] = { ...newDetails[index], [field]: value };
+      }
+      return newDetails;
+    });
+  }, []);
+
+  const toggleProductDropdown = useCallback((index: number) => {
+    setShowProductDropdown(prev => prev === index ? null : index);
+    setSearchQuery('');
+    setShowOtherInput(null);
+  }, []);
+
+  const toggleProductSelection = useCallback((index: number, product: string) => {
+    if (product === "Other") {
+      setShowOtherInput(index);
+      return;
+    }
+
+    setSelectedProducts(prev => ({ ...prev, [index]: product }));
+    setClosingDetails(prev => {
+      const newDetails = [...prev];
+      newDetails[index].productType = product === "None" ? "" : product;
+      return newDetails;
+    });
+    setShowProductDropdown(null);
+  }, []);
+
+  const addCustomProduct = useCallback((index: number) => {
+    if (!otherProductInput.trim()) return;
+
+    const newProduct = otherProductInput.trim();
+    setSelectedProducts(prev => ({ ...prev, [index]: newProduct }));
+    setClosingDetails(prev => {
+      const newDetails = [...prev];
+      newDetails[index].productType = newProduct;
+      return newDetails;
+    });
+    setOtherProductInput('');
+    setShowOtherInput(null);
+  }, [otherProductInput]);
 
   return (
     <AppGradient>
       <BDMMainLayout title="Daily Report" showBackButton>
         <View style={styles.container}>
           {isLoading ? (
-            <View style={styles.skeletonContainer}>
-              <WaveSkeleton width="60%" height={24} style={styles.skeletonTitle} />
-              <WaveSkeleton width="100%" height={48} style={styles.skeletonInput} />
-              <WaveSkeleton width="100%" height={48} style={styles.skeletonInput} />
-              <WaveSkeleton width="100%" height={48} style={styles.skeletonInput} />
-              <WaveSkeleton width="100%" height={120} style={styles.skeletonTextArea} />
-              <WaveSkeleton width="100%" height={48} style={styles.skeletonButton} />
-            </View>
+            <FormSkeleton />
           ) : (
             <KeyboardAvoidingView
               behavior={Platform.OS === "ios" ? "padding" : "height"}
@@ -1124,10 +845,8 @@ try {
             >
               <ScrollView contentContainerStyle={styles.scrollContainer}>
                 <View style={styles.contentContainer}>
-                  {/* Date Header */}
                   <Text style={styles.dateText}>{currentDate}</Text>
                   
-                  {/* Sync Status */}
                   {syncStatus === 'syncing' && (
                     <View style={styles.syncStatusContainer}>
                       <ActivityIndicator size="small" color="#FF8447" />
@@ -1147,47 +866,138 @@ try {
                     </View>
                   )}
                   
-                  {/* Meeting Information Section */}
                   <View style={styles.section}>
-                    <Text style={styles.label}>Number of Meetings</Text>
+                    <Text style={styles.label}>Number of Calls</Text>
                     <View style={styles.readOnlyInput}>
-                      <Text style={styles.readOnlyText}>{numMeetings}</Text>
+                      <Text style={styles.readOnlyText}>{numCalls}</Text>
                     </View>
 
-                    <Text style={styles.label}>Meeting Duration</Text>
+                    <Text style={styles.label}>Call Duration</Text>
                     <View style={styles.readOnlyInput}>
-                      <Text style={styles.readOnlyText}>{meetingDuration}</Text>
+                      <Text style={styles.readOnlyText}>{callDuration}</Text>
                     </View>
 
                     <Text style={styles.label}>
-                      Prospective No. of Meetings <Text style={styles.requiredStar}>*</Text>
+                      Positive Leads from Calls <Text style={styles.requiredStar}>*</Text>
                     </Text>
                     <TextInput
-                      style={[
-                        styles.input,
-                        errors.positiveLeads ? styles.inputError : null
-                      ]}
-                      placeholder="Enter prospective number of meetings"
-                      value={positiveLeads}
+                      style={[styles.input, errors.positiveLeadsFromCalls ? styles.inputError : null]}
+                      placeholder="Enter Positive Leads"
+                      value={positiveLeadsFromCalls}
                       onChangeText={(text) => {
-                        setPositiveLeads(text);
-                        if (errors.positiveLeads) {
-                          const newErrors = {...errors};
-                          delete newErrors.positiveLeads;
-                          setErrors(newErrors);
+                        setPositiveLeadsFromCalls(text);
+                        if (errors.positiveLeadsFromCalls) {
+                          setErrors(prev => ({ ...prev, positiveLeadsFromCalls: '' }));
                         }
                       }}
                       keyboardType="numeric"
                     />
-                    {errors.positiveLeads && (
-                      <Text style={styles.errorText}>{errors.positiveLeads}</Text>
+                    {errors.positiveLeadsFromCalls && (
+                      <Text style={styles.errorText}>{errors.positiveLeadsFromCalls}</Text>
                     )}
                   </View>
                   
-                  {/* Separator */}
                   <View style={styles.separator} />
                   
-                  {/* Closing Details Section */}
+                  <View style={styles.section}>
+                    <Text style={styles.label}>Number of Meetings</Text>
+                    <View style={styles.readOnlyInput}>
+                      <Text style={styles.readOnlyText}>{meetings.length}</Text>
+                    </View>
+
+                    <Text style={styles.label}>Meeting Duration</Text>
+                    <View style={styles.readOnlyInput}>
+                      <Text style={styles.readOnlyText}>{meetings.reduce((acc, m) => {
+                        // Sum durations in format 'X hr Y min'
+                        const match = m.duration.match(/(\d+)\s*hr\s*(\d+)?\s*min?/);
+                        if (match) {
+                          const hr = parseInt(match[1] || '0', 10);
+                          const min = parseInt(match[2] || '0', 10);
+                          return acc + hr * 60 + min;
+                        }
+                        return acc;
+                      }, 0) > 0 ? `${Math.floor(meetings.reduce((acc, m) => {
+                        const match = m.duration.match(/(\d+)\s*hr\s*(\d+)?\s*min?/);
+                        if (match) {
+                          const hr = parseInt(match[1] || '0', 10);
+                          const min = parseInt(match[2] || '0', 10);
+                          return acc + hr * 60 + min;
+                        }
+                        return acc;
+                      }, 0) / 60)} hr ${(meetings.reduce((acc, m) => {
+                        const match = m.duration.match(/(\d+)\s*hr\s*(\d+)?\s*min?/);
+                        if (match) {
+                          const hr = parseInt(match[1] || '0', 10);
+                          const min = parseInt(match[2] || '0', 10);
+                          return acc + hr * 60 + min;
+                        }
+                        return acc;
+                      }, 0) % 60)} min` : '0 hr 0 min'}</Text>
+                    </View>
+
+                    {/* Dynamic Meetings List */}
+                    {meetings.map((meeting, idx) => (
+                      <View key={idx} style={styles.meetingCard}>
+                        <TouchableOpacity
+                          style={styles.meetingRow}
+                          onPress={() => setExpandedMeetingIndex(expandedMeetingIndex === idx ? null : idx)}
+                          activeOpacity={0.8}
+                        >
+                          <View style={styles.meetingIcon}>
+                            <MaterialIcons name="person" size={24} color="#B48A00" />
+                          </View>
+                          <Text style={styles.meetingName}>{meeting.name}</Text>
+                          <Text style={styles.meetingDuration}>{meeting.duration}</Text>
+                          <MaterialIcons
+                            name={expandedMeetingIndex === idx ? "keyboard-arrow-up" : "keyboard-arrow-down"}
+                            size={28}
+                            color="#666"
+                          />
+                        </TouchableOpacity>
+                        {expandedMeetingIndex === idx && (
+                          <View style={styles.meetingDetails}>
+                            <Text style={styles.meetingDetailText}>
+                              <Text style={styles.meetingDetailLabel}>Location URL- </Text>
+                              {meeting.locationUrl}
+                            </Text>
+                            <Text style={styles.meetingDetailText}>
+                              <Text style={styles.meetingDetailLabel}>Location Reach Time- </Text>
+                              {meeting.reachTime}
+                            </Text>
+                            <Text style={styles.meetingDetailText}>
+                              <Text style={styles.meetingDetailLabel}>Meeting Start Time- </Text>
+                              {meeting.startTime}
+                            </Text>
+                            <Text style={styles.meetingDetailText}>
+                              <Text style={styles.meetingDetailLabel}>Meeting End Time- </Text>
+                              {meeting.endTime}
+                            </Text>
+                          </View>
+                        )}
+                      </View>
+                    ))}
+                    <Text style={styles.label}>
+                      Positive Leads from Meeting <Text style={styles.requiredStar}>*</Text>
+                    </Text>
+                    <TextInput
+                      style={[styles.input, errors.positiveLeadsFromMeetings ? styles.inputError : null]}
+                      placeholder="Enter Positive Leads"
+                      value={positiveLeadsFromMeetings}
+                      onChangeText={(text) => {
+                        setPositiveLeadsFromMeetings(text);
+                        if (errors.positiveLeadsFromMeetings) {
+                          setErrors(prev => ({ ...prev, positiveLeadsFromMeetings: '' }));
+                        }
+                      }}
+                      keyboardType="numeric"
+                    />
+                    {errors.positiveLeadsFromMeetings && (
+                      <Text style={styles.errorText}>{errors.positiveLeadsFromMeetings}</Text>
+                    )}
+                  </View>
+
+                  <View style={styles.separator} />
+                  
                   <View style={styles.section}>
                     <Text style={styles.sectionTitle}>Closing Details</Text>
                     
@@ -1206,92 +1016,81 @@ try {
                           Type of Product <Text style={styles.requiredStar}>*</Text>
                         </Text>
                         
-                        {/* Selected Products Display */}
-                       {/* <View style={styles.selectedProductsContainer}>
-  {selectedProducts[index] && (
-    <View style={styles.selectedProductChip}>
-      <Text style={styles.selectedProductText}>{selectedProducts[index]}</Text>
-      <TouchableOpacity
-        onPress={() => toggleProductSelection(index, "")}
-        style={styles.removeProductButton}
-      >
-        <MaterialIcons name="close" size={16} color="#FFFFFF" />
-      </TouchableOpacity>
-    </View>
-  )}
-</View> */}
-                        
-                        {/* Product Dropdown Button */}
-                       <TouchableOpacity style={styles.dropdownButton} onPress={() => toggleProductDropdown(index)}>
-  <Text style={styles.dropdownButtonText}>
-    {selectedProducts[index] ? selectedProducts[index] : 'Select product'}
-  </Text>
-  <MaterialIcons name={showProductDropdown === index ? "arrow-drop-up" : "arrow-drop-down"} size={24} color="#666" />
-</TouchableOpacity>
+                        <TouchableOpacity style={styles.dropdownButton} onPress={() => toggleProductDropdown(index)}>
+                          <Text style={styles.dropdownButtonText}>
+                            {selectedProducts[index] || 'Select product'}
+                          </Text>
+                          <MaterialIcons name={showProductDropdown === index ? "arrow-drop-up" : "arrow-drop-down"} size={24} color="#666" />
+                        </TouchableOpacity>
 
-                        
-                        {/* Product Dropdown Menu */}
-                       {showProductDropdown === index && (
-  <View style={styles.dropdownContainer}>
-    <View style={styles.searchContainer}>
-      <TextInput
-        style={styles.searchInput}
-        placeholder="Search products..."
-        value={searchQuery}
-        onChangeText={setSearchQuery}
-      />
-      <MaterialIcons name="search" size={20} color="#666" />
-    </View>
-    <FlatList
-      data={filteredProducts}
-      keyExtractor={(item) => item}
-      style={styles.dropdownList}
-      nestedScrollEnabled
-      renderItem={({ item }) => (
-        <TouchableOpacity
-          style={[
-            styles.dropdownItem,
-            selectedProducts[index] === item ? styles.dropdownItemSelected : null
-          ]}
-          onPress={() => toggleProductSelection(index, item)}
-        >
-          <Text style={[styles.dropdownItemText, selectedProducts[index] === item ? styles.dropdownItemTextSelected : null]}>
-            {item}
-          </Text>
-          {selectedProducts[index] === item && (
-            <MaterialIcons name="check" size={20} color="#FFFFFF" />
-          )}
-        </TouchableOpacity>
-      )}
-      ListEmptyComponent={<Text style={styles.noResultsText}>No products found</Text>}
-    />
+                        {errors[`closing_${index}_productType`] && (
+                          <Text style={styles.errorText}>{errors[`closing_${index}_productType`]}</Text>
+                        )}
 
-    {showOtherInput === index && (
-      <View style={styles.otherProductContainer}>
-        <TextInput
-          style={styles.otherProductInput}
-          placeholder="Enter custom product name"
-          value={otherProductInput}
-          onChangeText={setOtherProductInput}
-        />
-        <TouchableOpacity style={styles.addCustomButton} onPress={() => addCustomProduct(index)}>
-          <Text style={styles.addCustomButtonText}>Add</Text>
-        </TouchableOpacity>
-      </View>
-    )}
+                        {showProductDropdown === index && (
+                          <View style={styles.dropdownContainer}>
+                            <View style={styles.searchContainer}>
+                              <TextInput
+                                style={styles.searchInput}
+                                placeholder="Search products..."
+                                value={searchQuery}
+                                onChangeText={setSearchQuery}
+                              />
+                              <MaterialIcons name="search" size={20} color="#666" />
+                            </View>
+                            <FlatList
+                              data={filteredProducts}
+                              keyExtractor={(item) => item}
+                              style={styles.dropdownList}
+                              nestedScrollEnabled
+                              renderItem={({ item }) => (
+                                <TouchableOpacity
+                                  style={[
+                                    styles.dropdownItem,
+                                    selectedProducts[index] === item ? styles.dropdownItemSelected : null
+                                  ]}
+                                  onPress={() => toggleProductSelection(index, item)}
+                                >
+                                  <Text style={[
+                                    styles.dropdownItemText,
+                                    selectedProducts[index] === item ? styles.dropdownItemTextSelected : null
+                                  ]}>
+                                    {item}
+                                  </Text>
+                                  {selectedProducts[index] === item && (
+                                    <MaterialIcons name="check" size={20} color="#FFFFFF" />
+                                  )}
+                                </TouchableOpacity>
+                              )}
+                              ListEmptyComponent={<Text style={styles.noResultsText}>No products found</Text>}
+                            />
 
-    <TouchableOpacity
-      style={styles.closeDropdownButton}
-      onPress={() => {
-        setShowProductDropdown(null);
-        setShowOtherInput(null);
-        setOtherProductInput('');
-      }}
-    >
-      <Text style={styles.closeDropdownText}>Done</Text>
-    </TouchableOpacity>
-  </View>
-)}
+                            {showOtherInput === index && (
+                              <View style={styles.otherProductContainer}>
+                                <TextInput
+                                  style={styles.otherProductInput}
+                                  placeholder="Enter custom product name"
+                                  value={otherProductInput}
+                                  onChangeText={setOtherProductInput}
+                                />
+                                <TouchableOpacity style={styles.addCustomButton} onPress={() => addCustomProduct(index)}>
+                                  <Text style={styles.addCustomButtonText}>Add</Text>
+                                </TouchableOpacity>
+                              </View>
+                            )}
+
+                            <TouchableOpacity
+                              style={styles.closeDropdownButton}
+                              onPress={() => {
+                                setShowProductDropdown(null);
+                                setShowOtherInput(null);
+                                setOtherProductInput('');
+                              }}
+                            >
+                              <Text style={styles.closeDropdownText}>Done</Text>
+                            </TouchableOpacity>
+                          </View>
+                        )}
                         
                         <Text style={styles.label}>
                           Closing Amount <Text style={styles.requiredStar}>*</Text>
@@ -1305,16 +1104,12 @@ try {
                             ]}
                             placeholder="Enter Amount"
                             value={detail.closingAmount ? detail.closingAmount.toString() : ''}
-                            onChangeText={(text) => 
-                              updateClosingDetail(index, 'closingAmount', text)
-                            }
+                            onChangeText={(text) => updateClosingDetail(index, 'closingAmount', text)}
                             keyboardType="numeric"
                           />
                         </View>
                         {errors[`closing_${index}_closingAmount`] && (
-                          <Text style={styles.errorText}>
-                            {errors[`closing_${index}_closingAmount`]}
-                          </Text>
+                          <Text style={styles.errorText}>{errors[`closing_${index}_closingAmount`]}</Text>
                         )}
                         
                         <Text style={styles.label}>Description Box</Text>
@@ -1325,45 +1120,33 @@ try {
                           ]}
                           placeholder="Enter description product wise, if multiple products are selected"
                           value={detail.description}
-                          onChangeText={(text) => 
-                            updateClosingDetail(index, 'description', text)
-                          }
+                          onChangeText={(text) => updateClosingDetail(index, 'description', text)}
                           multiline
                           numberOfLines={4}
                           textAlignVertical="top"
                         />
                         {errors[`closing_${index}_description`] && (
-                          <Text style={styles.errorText}>
-                            {errors[`closing_${index}_description`]}
-                          </Text>
+                          <Text style={styles.errorText}>{errors[`closing_${index}_description`]}</Text>
                         )}
                       </View>
                     ))}
                     
-                    {/* Add Another Closing Button */}
-                    <TouchableOpacity 
-                      style={styles.addButton}
-                      onPress={addClosingDetail}
-                    >
+                    <TouchableOpacity style={styles.addButton} onPress={addClosingDetail}>
                       <MaterialIcons name="add" size={24} color="#FF8447" />
                       <Text style={styles.addButtonText}>Add Another Closing</Text>
                     </TouchableOpacity>
                     
-                    {/* Total Closing Amount */}
                     <View style={styles.totalContainer}>
                       <Text style={styles.totalLabel}>
                         Total Closing Amount <Text style={styles.requiredStar}>*</Text>
                       </Text>
                       <View style={styles.totalAmountContainer}>
                         <Text style={styles.totalCurrencySymbol}>₹</Text>
-                        <Text style={styles.totalAmount}>
-                          {totalAmount.toLocaleString()}
-                        </Text>
+                        <Text style={styles.totalAmount}>{totalAmount.toLocaleString()}</Text>
                       </View>
                     </View>
                   </View>
 
-                {/* Submit Button */}
                   <TouchableOpacity 
                     style={styles.submitButton} 
                     onPress={handleSubmit}
@@ -1382,40 +1165,33 @@ try {
         </View>
       </BDMMainLayout>
 
-      {/* Success Modal */}
-        <Modal
-          transparent={true}
-          visible={modalVisible}
-          animationType="fade"
-          onRequestClose={() => setModalVisible(false)}
-        >
-          <View style={styles.modalOverlay}>
-            <View style={styles.modalContent}>
+      <Modal
+        transparent={true}
+        visible={modalVisible}
+        animationType="fade"
+        onRequestClose={() => setModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
             <MaterialIcons name="check-circle" size={60} color="#4CAF50" />
             <Text style={styles.modalTitle}>Report Submitted!</Text>
-              <Text style={styles.modalSubtitle}>
-              Your daily report has been successfully submitted.
-              </Text>
-            </View>
+            <Text style={styles.modalSubtitle}>Your daily report has been successfully submitted.</Text>
           </View>
-        </Modal>
+        </View>
+      </Modal>
     </AppGradient>
   );
 };
 
 const styles = StyleSheet.create({
-  scrollContainer: {
-    flexGrow: 1,
-  },
+  scrollContainer: { flexGrow: 1 },
   container: {
     flex: 1,
     backgroundColor: "#FFFFFF",
     borderRadius: 15,
     marginHorizontal: 10,
   },
-  contentContainer: {
-    padding: 20,
-  },
+  contentContainer: { padding: 20 },
   dateText: {
     fontSize: 20,
     color: "#FF8447",
@@ -1423,9 +1199,7 @@ const styles = StyleSheet.create({
     marginBottom: 20,
     fontFamily: "LexendDeca_500Medium",
   },
-  section: {
-    marginBottom: 20,
-  },
+  section: { marginBottom: 20 },
   sectionTitle: {
     fontSize: 18,
     fontFamily: "LexendDeca_600SemiBold",
@@ -1439,9 +1213,7 @@ const styles = StyleSheet.create({
     fontFamily: "LexendDeca_500Medium",
     marginTop: 10,
   },
-  requiredStar: {
-    color: "#FF5252",
-  },
+  requiredStar: { color: "#FF5252" },
   input: {
     borderWidth: 1,
     borderColor: "#E0E0E0",
@@ -1451,24 +1223,12 @@ const styles = StyleSheet.create({
     fontFamily: "LexendDeca_400Regular",
     fontSize: 16,
   },
-  inputError: {
-    borderColor: "#FF5252",
-  },
+  inputError: { borderColor: "#FF5252" },
   errorText: {
     color: "#FF5252",
     fontSize: 12,
     marginTop: 4,
     fontFamily: "LexendDeca_400Regular",
-  },
-  pickerContainer: {
-    borderWidth: 1,
-    borderColor: "#E0E0E0",
-    borderRadius: 8,
-    backgroundColor: "#F9F9F9",
-    marginBottom: 15,
-  },
-  picker: {
-    height: 50,
   },
   amountInputContainer: {
     flexDirection: "row",
@@ -1609,34 +1369,6 @@ const styles = StyleSheet.create({
     textAlign: "center",
     marginTop: 10,
   },
-  productSelectionContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    marginBottom: 15,
-  },
-  productButton: {
-    backgroundColor: '#F9F9F9',
-    borderWidth: 1,
-    borderColor: '#E0E0E0',
-    borderRadius: 20,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    margin: 4,
-  },
-  productButtonSelected: {
-    backgroundColor: '#FFF0E6',
-    borderColor: '#FF8447',
-  },
-  productButtonText: {
-    fontSize: 14,
-    color: '#4A4A4A',
-    fontFamily: "LexendDeca_400Regular",
-  },
-  productButtonTextSelected: {
-    color: '#FF8447',
-    fontFamily: "LexendDeca_500Medium",
-  },
-  // New dropdown styles
   dropdownButton: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -1676,9 +1408,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     fontFamily: 'LexendDeca_400Regular',
   },
-  dropdownList: {
-    maxHeight: 200,
-  },
+  dropdownList: { maxHeight: 200 },
   dropdownItem: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -1688,18 +1418,14 @@ const styles = StyleSheet.create({
     marginVertical: 4,
     marginHorizontal: 8,
   },
-  dropdownItemSelected: {
-    backgroundColor: '#FFF5E6',
-  },
+  dropdownItemSelected: { backgroundColor: '#FFF5E6' },
   dropdownItemText: {
     fontSize: 16,
     color: '#333',
     fontFamily: 'LexendDeca_400Regular',
     flex: 1,
   },
-  dropdownItemTextSelected: {
-    color: '#FF8447',
-  },
+  dropdownItemTextSelected: { color: '#FF8447' },
   noResultsText: {
     padding: 16,
     textAlign: 'center',
@@ -1730,51 +1456,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: "#333",
     fontFamily: "LexendDeca_500Medium",
-  },
-  closeIcon: {
-    marginLeft: 8,
-  },
-  selectedProductsContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    marginBottom: 10,
-  },
-  selectedProductChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FF8447',
-    borderRadius: 16,
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    marginRight: 8,
-    marginBottom: 8,
-  },
-  selectedProductText: {
-    fontSize: 14,
-    color: '#FFFFFF',
-    fontFamily: 'LexendDeca_500Medium',
-    marginRight: 6,
-  },
-  removeProductButton: {
-    padding: 2,
-  },
-  skeletonContainer: {
-    padding: 20,
-  },
-  skeletonTitle: {
-    marginBottom: 20,
-    borderRadius: 4,
-  },
-  skeletonInput: {
-    marginBottom: 16,
-    borderRadius: 8,
-  },
-  skeletonTextArea: {
-    marginBottom: 24,
-    borderRadius: 8,
-  },
-  skeletonButton: {
-    borderRadius: 8,
   },
   syncStatusContainer: {
     flexDirection: 'row',
@@ -1817,6 +1498,56 @@ const styles = StyleSheet.create({
   addCustomButtonText: {
     color: '#FFFFFF',
     fontFamily: 'LexendDeca_500Medium',
+  },
+  meetingCard: {
+    borderWidth: 1,
+    borderColor: "#EEE",
+    borderRadius: 10,
+    backgroundColor: "#FFF",
+    marginBottom: 12,
+    overflow: "hidden"
+  },
+  meetingRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 12,
+  },
+  meetingIcon: {
+    backgroundColor: "#FFE28A",
+    borderRadius: 20,
+    width: 32,
+    height: 32,
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 10,
+  },
+  meetingName: {
+    flex: 1,
+    fontSize: 16,
+    color: "#444",
+    fontFamily: "LexendDeca_500Medium",
+  },
+  meetingDuration: {
+    fontSize: 15,
+    color: "#444",
+    fontFamily: "LexendDeca_500Medium",
+    marginRight: 8,
+  },
+  meetingDetails: {
+    padding: 12,
+    borderTopWidth: 1,
+    borderTopColor: "#EEE",
+    backgroundColor: "#FAFAFA",
+  },
+  meetingDetailText: {
+    fontSize: 14,
+    color: "#444",
+    marginBottom: 4,
+    fontFamily: "LexendDeca_400Regular",
+  },
+  meetingDetailLabel: {
+    fontWeight: "bold",
+    color: "#444",
   },
 });
 

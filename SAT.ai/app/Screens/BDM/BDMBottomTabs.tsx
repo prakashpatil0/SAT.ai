@@ -127,14 +127,14 @@ const styles = StyleSheet.create({
     fontFamily: 'LexendDeca_400Regular',
   },
   centerTabContainer: {
-    flex: 1.2,
+    flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: -30,
     marginBottom: -20,
   },
   centerTabCircle: {
-    width: 67,
+    width: 65,
     height: 67,
     borderRadius: 35,
     backgroundColor: '#FF8447',

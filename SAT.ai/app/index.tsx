@@ -86,6 +86,7 @@ import CalendarViewScreen from "@/app/HRMS/CalendarViewScreen";
 import TelecallerLeaveApplication from "@/app/HRMS/TelecallerLeaveApplication";
 import BDMLeaderBoard from "./Screens/BDM/DrawerTab/BDMLeaderBoard";
 import HrSettings from "./HRMS/DrawerTab/HrSettings";
+import { initializeNotificationService } from '@/app/services/notificationService';
 
 export type RootStackParamList = {
   // Auth Screens
@@ -706,6 +707,9 @@ export default function App() {
     
     // Check for existing session on app start
     checkExistingSession();
+
+    // Initialize notification service
+    initializeNotificationService();
 
     return () => {
       subscription.remove();

@@ -7,7 +7,7 @@ import TelecallerMainLayout from "@/app/components/TelecallerMainLayout";
 import { LinearGradient } from 'expo-linear-gradient';
 import AppGradient from "@/app/components/AppGradient";
 import { auth } from '@/firebaseConfig';
-import targetService, { getTargets, getCurrentWeekAchievements, getPreviousWeekAchievement } from "@/app/services/targetService";
+import { getTargets, getCurrentWeekAchievements, getPreviousWeekAchievement } from "@/app/services/targetService";
 import { differenceInDays, endOfWeek, startOfWeek, startOfDay, endOfDay, startOfMonth, endOfMonth } from 'date-fns';
 import { collection, query, where, orderBy, limit, getDocs, Timestamp, addDoc, updateDoc, onSnapshot, doc } from 'firebase/firestore';
 import { db } from '@/firebaseConfig';
@@ -39,12 +39,14 @@ interface FirebaseTargetData {
   employeeId: string;
   employeeName: string;
   meetingDuration: string;
-  month: number;
-  monthName: string;
+  month?: number;
+  monthName?: string;
   numMeetings: number;
   positiveLeads: number;
-  updatedAt: Timestamp;
-  year: number;
+  updatedAt: Timestamp | string;
+  year?: number;
+  fromDate?: Timestamp;
+  toDate?: Timestamp;
 }
 
 // Define types for achievements and targets
@@ -389,7 +391,6 @@ const WeeklyTargetScreen = () => {
       }
 
     } catch (error) {
-      console.error('Error fetching target data:', error);
       setError(error instanceof Error ? error.message : 'Failed to fetch data');
     } finally {
       if (showLoading) {
@@ -403,7 +404,7 @@ const WeeklyTargetScreen = () => {
     const setupNotifications = async () => {
       const { status } = await Notifications.requestPermissionsAsync();
       if (status !== 'granted') {
-        console.log('Notification permissions not granted');
+        // Removed console.log
       }
     };
 
@@ -448,9 +449,12 @@ const WeeklyTargetScreen = () => {
         const unsubscribeTarget = onSnapshot(q, (snapshot) => {
           if (!snapshot.empty) {
             const targetDoc = snapshot.docs[0].data() as FirebaseTargetData;
-            const updateDate = targetDoc.createdAt?.toDate().toLocaleDateString() || 'Unknown date';
+            // Check if updatedAt is a string (custom date range) or Timestamp (monthly basis)
+            const updateDate = typeof targetDoc.updatedAt === 'string'
+              ? targetDoc.updatedAt // e.g., "2025-05-01 to 2025-05-31"
+              : targetDoc.updatedAt?.toDate().toLocaleDateString() || 'Unknown date';
             const newTargets = {
-            numCalls: targetDoc.numMeetings || TARGET_VALUES.numCalls,
+              numCalls: targetDoc.numMeetings || TARGET_VALUES.numCalls,
               positiveLeads: targetDoc.positiveLeads || TARGET_VALUES.positiveLeads,
               callDuration: parseInt(targetDoc.meetingDuration) || TARGET_VALUES.callDuration,
               closingAmount: targetDoc.closingAmount || TARGET_VALUES.closingAmount
@@ -596,73 +600,71 @@ const WeeklyTargetScreen = () => {
 
   return (
     <AppGradient>
-    <TelecallerMainLayout showDrawer showBackButton={true} title="Weekly Target">
-       <View style={styles.container}>
-
-        {/* Achievement Card */}
-        <View style={styles.achievementCard}>
-          <Text style={styles.achievementText}>
-            Last week you achieved <Text style={styles.achievementPercentage}>{previousAchievement}%</Text> of your target!
-          </Text>
-          <TouchableOpacity 
-            style={styles.viewReportButton}
-            onPress={() => navigation.navigate('ViewFullReport' as never)}
-          >
-            <Text style={styles.viewReportText}>
-              View Full Report <MaterialIcons name="arrow-forward" size={18} color="#FF8447" />
+      <TelecallerMainLayout showDrawer showBackButton={true} title="Weekly Target">
+        <View style={styles.container}>
+          {/* Achievement Card */}
+          <View style={styles.achievementCard}>
+            <Text style={styles.achievementText}>
+              Last week you achieved <Text style={styles.achievementPercentage}>{previousAchievement}%</Text> of your target!
             </Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* This Week Section */}
-        <View style={styles.weeklyCard}>
-          <View style={styles.weeklyHeader}>
-            <Text style={styles.weeklyTitle}>This Week</Text>
-            <Text style={styles.daysLeft}>{daysRemaining} days left until Saturday!</Text>
+            <TouchableOpacity 
+              style={styles.viewReportButton}
+              onPress={() => navigation.navigate('ViewFullReport' as never)}
+            >
+              <Text style={styles.viewReportText}>
+                View Full Report <MaterialIcons name="arrow-forward" size={18} color="#FF8447" />
+              </Text>
+            </TouchableOpacity>
           </View>
 
-          <ProgressBar 
-            progress={achievements.percentageAchieved > 0 ? achievements.percentageAchieved / 100 : 0} 
-            color="#FF8447" 
-            style={styles.progressBar} 
-          />
-          <Text style={styles.progressText}>{achievements.percentageAchieved.toFixed(1)}%</Text>
-
-          <View style={styles.statsTable}>
-            <View style={styles.tableHeader}>
-              <Text style={[styles.tableHeaderText, { flex: 1 }]}></Text>
-              <Text style={[styles.tableHeaderText, { flex: 2, textAlign: 'right' }]}>Achieved</Text>
-              <Text style={[styles.tableHeaderText, { flex: 1, textAlign: 'right' }]}>Target</Text>
+          {/* This Week Section */}
+          <View style={styles.weeklyCard}>
+            <View style={styles.weeklyHeader}>
+              <Text style={styles.weeklyTitle}>This Week</Text>
+              <Text style={styles.daysLeft}>{daysRemaining} days left until Saturday!</Text>
             </View>
 
-            <View style={styles.tableRow}>
-              <Text style={[styles.tableCell, { flex: 2 }]}>No. of Calls</Text>
-              <Text style={[styles.tableCell, { flex: 1, textAlign: 'right' }]}>{achievements.numCalls}</Text>
-              <Text style={[styles.targetCell, { flex: 1, textAlign: 'right' }]}>{targets.numCalls}</Text>
-            </View>
+            <ProgressBar 
+              progress={achievements.percentageAchieved > 0 ? achievements.percentageAchieved / 100 : 0} 
+              color="#FF8447" 
+              style={styles.progressBar} 
+            />
+            <Text style={styles.progressText}>{achievements.percentageAchieved.toFixed(1)}%</Text>
 
-            <View style={styles.tableRow}>
-              <Text style={[styles.tableCell, { flex: 2 }]}>Call Duration</Text>
-              <Text style={[styles.tableCell, { flex: 1, textAlign: 'right' }]}>{formatDuration(achievements.callDuration)}</Text>
-              <Text style={[styles.targetCell, { flex: 1, textAlign: 'right' }]}>{formatDuration(targets.callDuration)}</Text>
-            </View>
+            <View style={styles.statsTable}>
+              <View style={styles.tableHeader}>
+                <Text style={[styles.tableHeaderText, { flex: 1 }]}></Text>
+                <Text style={[styles.tableHeaderText, { flex: 2, textAlign: 'right' }]}>Achieved</Text>
+                <Text style={[styles.tableHeaderText, { flex: 1, textAlign: 'right' }]}>Target</Text>
+              </View>
 
-            <View style={styles.tableRow}>
-              <Text style={[styles.tableCell, { flex: 2 }]}>Positive Leads</Text>
-              <Text style={[styles.tableCell, { flex: 1, textAlign: 'right' }]}>{achievements.positiveLeads}</Text>
-              <Text style={[styles.targetCell, { flex: 1, textAlign: 'right' }]}>{targets.positiveLeads}</Text>
-            </View>
+              <View style={styles.tableRow}>
+                <Text style={[styles.tableCell, { flex: 2 }]}>No. of Calls</Text>
+                <Text style={[styles.tableCell, { flex: 1, textAlign: 'right' }]}>{achievements.numCalls}</Text>
+                <Text style={[styles.targetCell, { flex: 1, textAlign: 'right' }]}>{targets.numCalls}</Text>
+              </View>
 
-            <View style={styles.tableRow}>
-              <Text style={[styles.tableCell, { flex: 2 }]}>Closing Amount</Text>
-              <Text style={[styles.tableCell, { flex: 1, textAlign: 'right' }]}>₹{achievements.closingAmount.toLocaleString()}</Text>
-              <Text style={[styles.targetCell, { flex: 1, textAlign: 'right' }]}>{targets.closingAmount.toLocaleString()}</Text>
+              <View style={styles.tableRow}>
+                <Text style={[styles.tableCell, { flex: 2 }]}>Call Duration</Text>
+                <Text style={[styles.tableCell, { flex: 1, textAlign: 'right' }]}>{formatDuration(achievements.callDuration)}</Text>
+                <Text style={[styles.targetCell, { flex: 1, textAlign: 'right' }]}>{formatDuration(targets.callDuration)}</Text>
+              </View>
+
+              <View style={styles.tableRow}>
+                <Text style={[styles.tableCell, { flex: 2 }]}>Positive Leads</Text>
+                <Text style={[styles.tableCell, { flex: 1, textAlign: 'right' }]}>{achievements.positiveLeads}</Text>
+                <Text style={[styles.targetCell, { flex: 1, textAlign: 'right' }]}>{targets.positiveLeads}</Text>
+              </View>
+
+              <View style={styles.tableRow}>
+                <Text style={[styles.tableCell, { flex: 2 }]}>Closing Amount</Text>
+                <Text style={[styles.tableCell, { flex: 1, textAlign: 'right' }]}>₹{achievements.closingAmount.toLocaleString()}</Text>
+                <Text style={[styles.targetCell, { flex: 1, textAlign: 'right' }]}>{targets.closingAmount.toLocaleString()}</Text>
+              </View>
             </View>
           </View>
-
         </View>
-        </View>
-    </TelecallerMainLayout>
+      </TelecallerMainLayout>
     </AppGradient>
   );
 };
@@ -685,7 +687,6 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     alignSelf: 'center',
     alignItems: 'center',
-
   },
   profileImage: {
     width: 40,
@@ -880,4 +881,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default WeeklyTargetScreen;
+export default WeeklyTargetScreen;  

@@ -3,7 +3,6 @@ import { View, StyleSheet, TouchableOpacity, Image, Text, SafeAreaView } from 'r
 import { MaterialIcons } from '@expo/vector-icons';
 import { useNavigation, DrawerActions } from '@react-navigation/native';
 import { useProfile } from '@/app/context/ProfileContext';
-import { LinearGradient } from 'expo-linear-gradient';
 import TelecallerBottomTabs from '@/app/components/TelecallerBottomTabs';
 import AppGradient from './AppGradient';
 import { storage } from '@/firebaseConfig';
@@ -15,9 +14,8 @@ type TelecallerMainLayoutProps = {
   showBackButton?: boolean;
   showDrawer?: boolean;
   showBottomTabs?: boolean;
-  rightComponent?: React.ReactNode; // ✅ updated
+  rightComponent?: React.ReactNode;
 };
-
 
 const TelecallerMainLayout: React.FC<TelecallerMainLayoutProps> = ({
   children,
@@ -25,9 +23,8 @@ const TelecallerMainLayout: React.FC<TelecallerMainLayoutProps> = ({
   showBackButton = true,
   showDrawer = true,
   showBottomTabs = true,
-  rightComponent, // ✅ updated
+  rightComponent,
 }) => {
-
   const navigation = useNavigation();
   const { userProfile, profilePhotoUri } = useProfile();
   const [defaultProfileImage, setDefaultProfileImage] = useState<string | null>(null);
@@ -39,13 +36,11 @@ const TelecallerMainLayout: React.FC<TelecallerMainLayoutProps> = ({
 
   const loadDefaultProfileImage = async () => {
     try {
-      console.log('Loading default profile image from Firebase Storage');
       const imageRef = ref(storage, 'assets/girl.png');
       const url = await getDownloadURL(imageRef);
-      console.log('Successfully loaded default profile image URL:', url);
       setDefaultProfileImage(url);
     } catch (error) {
-      console.error('Error loading default profile image:', error);
+      // Removed console.error
     } finally {
       setLoading(false);
     }
@@ -122,7 +117,6 @@ const TelecallerMainLayout: React.FC<TelecallerMainLayoutProps> = ({
   );
 };
 
-// Same styles as BDMMainLayout but with fixed bottom tabs
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
@@ -203,4 +197,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default TelecallerMainLayout; 
+export default TelecallerMainLayout;

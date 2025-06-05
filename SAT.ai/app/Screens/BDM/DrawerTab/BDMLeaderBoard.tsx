@@ -820,7 +820,7 @@ const styles = StyleSheet.create({
   },
   rankContainer: {
     width: 25,
-    marginRight: 10,
+    marginRight: 15,
   },
   rankNumber: {
     fontSize: 14,
@@ -829,7 +829,7 @@ const styles = StyleSheet.create({
   },
   userImageContainer: {
     position: "relative",
-    marginRight: 12,
+    marginRight: 15,
   },
   userImage: {
     backgroundColor: "#F5F5F5",

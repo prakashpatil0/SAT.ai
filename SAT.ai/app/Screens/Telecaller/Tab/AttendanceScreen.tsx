@@ -10,7 +10,6 @@ import {
   Easing,
   Dimensions,
 } from "react-native";
-import { Button } from "react-native-paper";
 import { useNavigation, RouteProp, useRoute } from "@react-navigation/native";
 import { StackNavigationProp } from "@react-navigation/stack";
 import TelecallerMainLayout from "@/app/components/TelecallerMainLayout";
@@ -77,6 +76,7 @@ interface WeekDay {
 }
 
 const EIGHT_HOURS_IN_MS = 8 * 60 * 60 * 1000; // 8 hours in milliseconds
+const FOUR_HOURS_IN_MS = 4 * 60 * 60 * 1000; // 4 hours in milliseconds
 const PUNCH_IN_DEADLINE = "09:45"; // 9:45 AM for full day
 const PUNCH_IN_HALF_DAY = "14:00"; // 2:00 PM for half day
 const PUNCH_OUT_MINIMUM = "18:30"; // 6:30 PM
@@ -94,9 +94,7 @@ const AttendanceScreen = () => {
   const [selectedStatus, setSelectedStatus] = useState<AttendanceStatus | null>(
     null
   );
-  const [filteredHistory, setFilteredHistory] = useState<AttendanceRecord[]>(
-    []
-  );
+  const [filteredHistory, setFilteredHistory] = useState<AttendanceRecord[]>([]);
   const months = [
     "January",
     "February",
@@ -114,9 +112,7 @@ const AttendanceScreen = () => {
   const [punchInTime, setPunchInTime] = useState("");
   const [punchOutTime, setPunchOutTime] = useState("");
   const [isPunchedIn, setIsPunchedIn] = useState<boolean>(false);
-  const [attendanceHistory, setAttendanceHistory] = useState<
-    AttendanceRecord[]
-  >([]);
+  const [attendanceHistory, setAttendanceHistory] = useState<AttendanceRecord[]>([]);
   const [statusCounts, setStatusCounts] = useState({
     Present: 0,
     "Half Day": 0,
@@ -151,15 +147,13 @@ const AttendanceScreen = () => {
     tomorrow.setDate(tomorrow.getDate() + 1);
     tomorrow.setHours(8, 30, 0, 0); // Set to 8:30 AM next day
 
-    // If user has punched out today, disable punch button until tomorrow 8:30 AM
     if (punchOutTime) {
       setIsPunchButtonDisabled(now < tomorrow);
       return;
     }
 
-    // For punch in, check if it's before 2 PM
     if (!punchInTime) {
-      const punchInDeadline = "14:00"; // 2 PM
+      const punchInDeadline = "18:15"; // 2 PM
       const [deadlineHour, deadlineMinute] = punchInDeadline
         .split(":")
         .map(Number);
@@ -169,8 +163,7 @@ const AttendanceScreen = () => {
 
       setIsPunchButtonDisabled(currentMinutes > deadlineMinutes);
     } else if (punchInTime && !punchOutTime) {
-      // Enable punch out button at 6:15 PM
-      const punchOutEnableTime = "18:15"; // 6:15 PM
+      const punchOutEnableTime = "09:15"; // 6:15 PM
       const [enableHour, enableMinute] = punchOutEnableTime
         .split(":")
         .map(Number);
@@ -183,7 +176,6 @@ const AttendanceScreen = () => {
 
   useEffect(() => {
     checkPunchAvailability();
-    // Check availability every minute
     const interval = setInterval(checkPunchAvailability, 60000);
     return () => clearInterval(interval);
   }, [punchInTime, punchOutTime]);
@@ -192,50 +184,51 @@ const AttendanceScreen = () => {
     punchIn: string,
     punchOut: string
   ): AttendanceStatus => {
+    // No punch-in: On Leave
     if (!punchIn) return "On Leave";
-    if (!punchOut) return "Half Day";
 
-    // Convert time strings to minutes for easier comparison
+    // Punch-in exists, no punch-out: Present
+    if (punchIn && !punchOut) return "Present";
+
+    // Both punch-in and punch-out exist: Check duration
     const [punchInHours, punchInMinutes] = punchIn.split(":").map(Number);
     const [punchOutHours, punchOutMinutes] = punchOut.split(":").map(Number);
-    const [minOutHours, minOutMinutes] =
-      PUNCH_OUT_MINIMUM.split(":").map(Number);
-    const [maxInHours, maxInMinutes] = PUNCH_IN_DEADLINE.split(":").map(Number);
-    const [halfDayInHours, halfDayInMinutes] =
-      PUNCH_IN_HALF_DAY.split(":").map(Number);
 
-    const punchInMins = punchInHours * 60 + punchInMinutes;
-    const punchOutMins = punchOutHours * 60 + punchOutMinutes;
-    const minOutMins = minOutHours * 60 + minOutMinutes;
-    const maxInMins = maxInHours * 60 + maxInMinutes;
-    const halfDayInMins = halfDayInHours * 60 + halfDayInMinutes;
+    // Convert to minutes for calculation
+    const punchInTotalMinutes = punchInHours * 60 + punchInMinutes;
+    let punchOutTotalMinutes = punchOutHours * 60 + punchOutMinutes;
 
-    // If punch in is after 2 PM, mark as On Leave
-    if (punchInMins > halfDayInMins) {
+    // Handle case where punch-out is on the next day
+    if (punchOutTotalMinutes < punchInTotalMinutes) {
+      punchOutTotalMinutes += 24 * 60; // Add 24 hours
+    }
+
+    // Calculate duration in hours
+    const durationMinutes = punchOutTotalMinutes - punchInTotalMinutes;
+    const durationHours = durationMinutes / 60;
+
+    // Status logic: < 4 hours = On Leave, 4-8 hours = Half Day, >= 8 hours = Present
+    if (durationHours < 4) {
       return "On Leave";
-    }
-
-    // If punch in is after 9:45 AM or punch out is before 6:30 PM, mark as Half Day
-    if (punchInMins > maxInMins || punchOutMins < minOutMins) {
+    } else if (durationHours >= 4 && durationHours < 8) {
       return "Half Day";
+    } else {
+      return "Present";
     }
-
-    return "Present";
   };
 
   const handlePunchInOut = async (isPunchIn: boolean) => {
     try {
-      // Check if punch in/out is allowed
       if (isPunchButtonDisabled) {
         if (!punchInTime) {
           Alert.alert(
             "Punch In Not Allowed",
-            "You can only punch in before 9:45 AM for a full day. Punching in after 9:45 AM will be counted as a half day."
+            "You can only punch in before 2:00 PM."
           );
         } else {
           Alert.alert(
             "Punch Out Not Allowed",
-            "You can punch in again tomorrow at 8:45 AM."
+            "You can punch out after 2:15 PM today or punch in again tomorrow at 8:45 AM."
           );
         }
         return;
@@ -264,7 +257,6 @@ const AttendanceScreen = () => {
       if (!role) return;
 
       const attendanceRef = collection(db, `${role}_monthly_attendance`);
-
       const querySnapshot = await getDocs(attendanceRef);
 
       const history: AttendanceRecord[] = [];
@@ -277,9 +269,8 @@ const AttendanceScreen = () => {
         history.push({
           date: data.date,
           day: data.day,
-          punchIn: data.punchIn,
-          punchOut: data.punchOut,
-          // phoneNumber: data.phoneNumber,
+          punchIn: data.punchIn || "",
+          punchOut: data.punchOut || "",
           status,
           userId: data.userId,
           timestamp: data.timestamp.toDate(),
@@ -362,90 +353,21 @@ const AttendanceScreen = () => {
     const attendedDates = currentMonthRecords.map((record) => record.date);
     const onLeaveDates = allDates.filter(
       ({ dateStr, isSunday }) =>
-        !isSunday && // Exclude Sundays
-        !attendedDates.includes(dateStr) && // Not attended
-        parseInt(dateStr) < parseInt(today) // Only past dates
+        !isSunday &&
+        !attendedDates.includes(dateStr) &&
+        parseInt(dateStr) < parseInt(today)
     );
 
-    counts["On Leave"] = onLeaveDates.length;
+    counts["On Leave"] += onLeaveDates.length;
 
     setStatusCounts(counts);
   };
-
-  // const saveAttendance = async (isPunchIn: boolean, photoUri: string, location: any) => {
-  //   try {
-  //     const userId = auth.currentUser?.uid;
-  //     if (!userId) {
-  //       Alert.alert('Error', 'User not authenticated');
-  //       return;
-  //     }
-
-  //     const currentTime = new Date();
-  //     const dateStr = format(currentTime, 'dd');
-  //     const dayStr = format(currentTime, 'EEE').toUpperCase();
-  //     const timeStr = format(currentTime, 'HH:mm');
-
-  //     const attendanceRef = collection(db, 'users', userId, 'attendance');
-  //     const todayQuery = query(
-  //       attendanceRef,
-  //       where('date', '==', dateStr),
-  //       where('userId', '==', userId)
-  //     );
-
-  //     const querySnapshot = await getDocs(todayQuery);
-
-  //     if (querySnapshot.empty) {
-
-  //       const status = isPunchIn ? calculateStatus(timeStr, '') : 'On Leave';
-  //       await addDoc(attendanceRef, {
-  //         date: dateStr,
-  //         day: dayStr,
-  //         punchIn: isPunchIn ? timeStr : '',
-  //         punchOut: !isPunchIn ? timeStr : '',
-  //         status,
-  //         userId,
-  //         timestamp: Timestamp.fromDate(currentTime),
-  //         photoUri,
-  //         location
-  //       });
-  //     } else {
-
-  //       const docRef = querySnapshot.docs[0].ref;
-  //       const existingData = querySnapshot.docs[0].data();
-  //       const newPunchIn = isPunchIn ? timeStr : existingData.punchIn;
-  //       const newPunchOut = !isPunchIn ? timeStr : existingData.punchOut;
-
-  //       const newStatus = calculateStatus(newPunchIn, newPunchOut);
-
-  //       await updateDoc(docRef, {
-  //         punchIn: newPunchIn,
-  //         punchOut: newPunchOut,
-  //         status: newStatus,
-  //         photoUri: !isPunchIn ? photoUri : existingData.photoUri,
-  //         location: !isPunchIn ? location : existingData.location
-  //       });
-  //     }
-
-  //     if (isPunchIn) {
-  //       setPunchInTime(format(currentTime, 'hh:mm a'));
-  //       setIsPunchedIn(true);
-  //     } else {
-  //       setPunchOutTime(format(currentTime, 'hh:mm a'));
-  //       setIsPunchedIn(false);
-  //     }
-
-  //     fetchAttendanceHistory();
-  //   } catch (error) {
-  //     console.error('Error saving attendance:', error);
-  //     Alert.alert('Error', 'Failed to save attendance');
-  //   }
-  // };
 
   const saveAttendance = async (
     isPunchIn: boolean,
     photoUri: string,
     location: any,
-      locationNameFromCamera?: string | null
+    locationNameFromCamera?: string | null
   ) => {
     try {
       const userId = auth.currentUser?.uid;
@@ -465,59 +387,86 @@ const AttendanceScreen = () => {
       const dayStr = format(currentTime, "EEE").toUpperCase();
       const timeStr = format(currentTime, "HH:mm");
       const roleCollection = `${role}_monthly_attendance`;
- const locationName = locationNameFromCamera || 'Unknown Location';
+     const locationName = locationNameFromCamera || 'Unknown Location';
       const attendanceRef = collection(db, roleCollection);
-      
+
       const todayQuery = query(
         attendanceRef,
         where("date", "==", dateStr),
         where("userId", "==", userId)
       );
+          const coords = location?.coords;
 
-            const coords = location?.coords;
 // let locationName = "Unknown Location";
+
 if (coords) {
+
   const geo = await Location.reverseGeocodeAsync({
+
     latitude: coords.latitude,
+
     longitude: coords.longitude,
+
   });
 
+
+
   if (geo && geo.length > 0) {
+
     const { name, street, city, region } = geo[0];
+
     // locationName = `${name || street || ""}, ${city || region || ""}`;
+
   }
+
 }
       const querySnapshot = await getDocs(todayQuery);
 
-    if (querySnapshot.empty) {
-      const status = isPunchIn ? calculateStatus(timeStr, "") : "On Leave";
+      if (querySnapshot.empty) {
+        // New attendance record
+        const status = isPunchIn ? "Present" : "On Leave";
 
-      // Fetch user data from Firestore
-      const userDocSnap = await getDoc(doc(db, "users", userId));
-      const userData = userDocSnap.exists() ? userDocSnap.data() : {};
+        // Fetch user data from Firestore
+        const userDocSnap = await getDoc(doc(db, "users", userId));
+        const userData = userDocSnap.exists() ? userDocSnap.data() : {};
 
 console.log("📄 Fetched User Data:", userData); // ADD THIS
+        await addDoc(attendanceRef, {
+           userId,
 
-      await addDoc(attendanceRef, {
-        userId,
        employeeName: userData.name || '',
+
        phoneNumber: userData.phoneNumber || '',
+
         role: userData.role || '',
+
         // totalHours: 0,
+
         // locationName: userData.locationName || '',
+
          locationName,
+
         email: userData.email || '',
+
         date: dateStr,
+
         day: dayStr,
+
         punchIn: isPunchIn ? timeStr : '',
+
         punchOut: !isPunchIn ? timeStr : '',
+
         status,
         timestamp: Timestamp.fromDate(currentTime),
         photoUri,
         location,
+
          totalHours: "",
+
       });
+
     } else {
+        // Update existing record
         const docRef = querySnapshot.docs[0].ref;
         const existingData = querySnapshot.docs[0].data();
 
@@ -529,13 +478,12 @@ console.log("📄 Fetched User Data:", userData); // ADD THIS
           punchIn: newPunchIn,
           punchOut: newPunchOut,
           status: newStatus,
-           location: !isPunchIn ? location : existingData.location,
+               location: !isPunchIn ? location : existingData.location,
+
       photoUri: !isPunchIn ? photoUri : existingData.photoUri,
           totalHours: isPunchIn
             ? existingData.totalHours
             : existingData.totalHours + EIGHT_HOURS_IN_MS,
-            
-            
         });
       }
 
@@ -555,16 +503,16 @@ console.log("📄 Fetched User Data:", userData); // ADD THIS
     }
   };
 
- useEffect(() => {
-  if (
-    route.params?.photo &&
-    route.params?.location &&
-    route.params?.isPunchIn !== undefined
-  ) {
-    const { photo, location, locationName, isPunchIn } = route.params;
-    saveAttendance(isPunchIn, photo.uri, location, locationName); // ✅ Pass locationName
-  }
-}, [route.params]);
+  useEffect(() => {
+    if (
+      route.params?.photo &&
+      route.params?.location &&
+      route.params?.isPunchIn !== undefined
+    ) {
+      const { photo, location, locationName, isPunchIn } = route.params;
+      saveAttendance(isPunchIn, photo.uri, location, locationName);
+    }
+  }, [route.params]);
 
   useEffect(() => {
     fetchAttendanceHistory();
@@ -580,13 +528,11 @@ console.log("📄 Fetched User Data:", userData); // ADD THIS
     if (attendanceHistory.length > 0) {
       let filtered = [...attendanceHistory];
 
-      // Filter by month
       filtered = filtered.filter((record) => {
         const recordDate = new Date(record.timestamp);
         return format(recordDate, "MMMM") === selectedMonth;
       });
 
-      // Filter by status if selected
       if (selectedStatus) {
         filtered = filtered.filter(
           (record) => record.status === selectedStatus
@@ -601,7 +547,6 @@ console.log("📄 Fetched User Data:", userData); // ADD THIS
   const updateWeekDays = () => {
     const today = new Date();
     const startOfWeek = new Date(today);
-    // Set Monday as start of week
     const day = startOfWeek.getDay();
     const diff = startOfWeek.getDate() - day + (day === 0 ? -6 : 1);
     startOfWeek.setDate(diff);
@@ -617,14 +562,12 @@ console.log("📄 Fetched User Data:", userData); // ADD THIS
       );
 
       if (currentDate > today) {
-        // 🔥 Future dates → Always On Leave
         return {
           day: dayObj.day,
           date: dateStr,
           status: "On Leave" as AttendanceStatus,
         };
       } else {
-        // 🔥 Today or Past
         return {
           day: dayObj.day,
           date: dateStr,
@@ -692,7 +635,6 @@ console.log("📄 Fetched User Data:", userData); // ADD THIS
 
     return (
       <View style={styles.skeletonContainer}>
-        {/* Punch Card Skeleton */}
         <View style={styles.skeletonPunchCard}>
           <View style={styles.skeletonPunchHeader}>
             <View style={styles.skeletonPunchTitle} />
@@ -710,7 +652,6 @@ console.log("📄 Fetched User Data:", userData); // ADD THIS
           </View>
         </View>
 
-        {/* Calendar Card Skeleton */}
         <View style={styles.skeletonCalendarCard}>
           <View style={styles.skeletonDateHeader} />
           <View style={styles.skeletonWeekDays}>
@@ -724,35 +665,26 @@ console.log("📄 Fetched User Data:", userData); // ADD THIS
           </View>
         </View>
 
-        {/* Month Selector Skeleton */}
         <View style={styles.skeletonMonthSelector}>
           {[1, 2, 3, 4, 5].map((_, index) => (
             <View key={index} style={styles.skeletonMonthButton} />
           ))}
         </View>
 
-        {/* Status Badges Skeleton */}
         <View style={styles.skeletonStatusContainer}>
           {[1, 2, 3].map((_, index) => (
             <View key={index} style={styles.skeletonStatusBadge} />
           ))}
         </View>
 
-        {/* Wave Animation Overlay */}
         <Animated.View
-          style={[
-            styles.waveOverlay,
-            {
-              transform: [{ translateX }],
-            },
-          ]}
+          style={[styles.waveOverlay, { transform: [{ translateX }] }]}
         />
       </View>
     );
   };
 
   useEffect(() => {
-    // Simulate loading time
     const timer = setTimeout(() => {
       setIsLoading(false);
     }, 2000);
@@ -782,7 +714,6 @@ console.log("📄 Fetched User Data:", userData); // ADD THIS
           keyboardShouldPersistTaps="handled"
         >
           <View style={styles.container}>
-            {/* Punch Card */}
             <View style={styles.punchCard}>
               <View style={styles.punchHeader}>
                 <Text style={styles.punchTitle}>Take Attendance</Text>
@@ -838,7 +769,6 @@ console.log("📄 Fetched User Data:", userData); // ADD THIS
               </View>
             </View>
 
-            {/* Calendar Card */}
             {!isNewUser && (
               <View style={styles.calendarCard}>
                 <Text style={styles.dateHeader}>
@@ -881,7 +811,6 @@ console.log("📄 Fetched User Data:", userData); // ADD THIS
               </View>
             )}
 
-            {/* Month Selector */}
             {!isNewUser && (
               <ScrollView
                 horizontal
@@ -910,7 +839,6 @@ console.log("📄 Fetched User Data:", userData); // ADD THIS
               </ScrollView>
             )}
 
-            {/* Status Badges */}
             <View
               style={[
                 styles.statusContainer,
@@ -922,7 +850,6 @@ console.log("📄 Fetched User Data:", userData); // ADD THIS
               {renderStatusBadge("On Leave")}
             </View>
 
-            {/* Attendance History */}
             {!isNewUser && (
               <View style={styles.historyContainer}>
                 {filteredHistory.map((item, index) => (
@@ -934,11 +861,15 @@ console.log("📄 Fetched User Data:", userData); // ADD THIS
                     <View style={styles.timeBlock}>
                       <View>
                         <Text style={styles.timeLabel}>Punch In</Text>
-                        <Text style={styles.timeValue}>{item.punchIn}</Text>
+                        <Text style={styles.timeValue}>
+                          {item.punchIn || "——"}
+                        </Text>
                       </View>
                       <View>
                         <Text style={styles.timeLabel}>Punch Out</Text>
-                        <Text style={styles.timeValue}>{item.punchOut}</Text>
+                        <Text style={styles.timeValue}>
+                          {item.punchOut || "——"}
+                        </Text>
                       </View>
                     </View>
                     <View

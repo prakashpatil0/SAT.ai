@@ -196,6 +196,13 @@ const BDMDrawer = (props: DrawerContentComponentProps) => {
             onPress={() => handleNavigate("TelecallerLeaveApplication")}
           />
         </View>
+                <DrawerItem
+                  label="leave Application"
+                  icon={({ color, size }) => <MaterialCommunityIcons name="calendar-star" size={size} color="#09142D" />}
+                  labelStyle={styles.menuText}
+                  style={styles.drawerItem}
+                  onPress={() => handleNavigate("TelecallerLeaveApplication")}
+                  />
       </DrawerContentScrollView>
 
       <View style={styles.versionContainer}>

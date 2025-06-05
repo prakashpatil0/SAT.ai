@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Modal, ActivityIndicator, Dimensions, Platform } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { SegmentedButtons, Button, IconButton, Surface } from 'react-native-paper';
-import { format, addDays, isToday, isTomorrow, startOfWeek, isWithinInterval, subDays, startOfDay, endOfDay, addHours, subHours, addMinutes } from 'date-fns';
+import { format, addDays, isToday, isTomorrow, startOfWeek, isWithinInterval, subDays, startOfDay, endOfDay, addHours, subHours, addMinutes, subMinutes } from 'date-fns';
 import * as Notifications from 'expo-notifications';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import BDMMainLayout from '@/app/components/BDMMainLayout';
@@ -55,7 +55,12 @@ const BDMMyScheduleScreen = () => {
   const [followUps, setFollowUps] = useState<Event[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [notificationIds, setNotificationIds] = useState<string[]>([]);
-
+// Request notification permissions on mount
+useEffect(() => {
+  (async () => {
+    await Notifications.requestPermissionsAsync();
+  })();
+}, []);
   // Fixed daily schedule template with meetings and break times
   const dailyScheduleTemplate = [
     {
@@ -454,71 +459,94 @@ const BDMMyScheduleScreen = () => {
     }
   };
 
-  const scheduleFollowUpNotifications = async (followUp: Event) => {
-    try {
-      // Cancel any existing notifications for this follow-up
-      const existingIds = await AsyncStorage.getItem(`notifications_${followUp.id}`);
-      if (existingIds) {
-        const ids = JSON.parse(existingIds);
-        await Promise.all(ids.map((id: string) => Notifications.cancelScheduledNotificationAsync(id)));
-      }
-
-      const notifications: NotificationData[] = [];
-      const followUpDate = new Date(followUp.date);
-      const followUpTime = followUp.startTime.split(':');
-      followUpDate.setHours(parseInt(followUpTime[0]), parseInt(followUpTime[1]));
-
-      // Schedule notification for 8 AM on the scheduled day
-      const eightAMNotification = new Date(followUpDate);
-      eightAMNotification.setHours(8, 0);
-      if (eightAMNotification > new Date()) {
-        notifications.push({
-          followUpId: followUp.id,
-          title: 'Follow-up Today',
-          body: `Reminder: You have a follow-up with ${followUp.contactName} today at ${followUp.startTime}`,
-          triggerDate: eightAMNotification
-        });
-      }
-
-      // Schedule notification for 2 hours after the scheduled time
-      const twoHoursAfter = addHours(followUpDate, 2);
-      if (twoHoursAfter > new Date()) {
-        notifications.push({
-          followUpId: followUp.id,
-          title: 'Follow-up in 2 Hours',
-          body: `Upcoming follow-up with ${followUp.contactName} in 2 hours`,
-          triggerDate: twoHoursAfter
-        });
-      }
-
-      // Schedule all notifications
-      const notificationIds = await Promise.all(
-        notifications.map(async notification => {
-          const id = await Notifications.scheduleNotificationAsync({
-            content: {
-              title: notification.title,
-              body: notification.body,
-              data: { followUpId: notification.followUpId },
-              sound: true,
-            },
-            trigger: {
-              seconds: Math.floor((notification.triggerDate.getTime() - Date.now()) / 1000),
-              repeats: false,
-              type: 'timeInterval'
-            },
-          });
-          return id;
-        })
-      );
-
-      // Store notification IDs for later management
-      await AsyncStorage.setItem(`notifications_${followUp.id}`, JSON.stringify(notificationIds));
-      setNotificationIds(prev => [...prev, ...notificationIds]);
-
-    } catch (error) {
-      console.error('Error scheduling notifications:', error);
+const scheduleFollowUpNotifications = async (followUp: Event) => {
+  try {
+    const existingIds = await AsyncStorage.getItem(`notifications_${followUp.id}`);
+    if (existingIds) {
+      const ids = JSON.parse(existingIds);
+      await Promise.all(ids.map((id: string) => Notifications.cancelScheduledNotificationAsync(id)));
     }
-  };
+
+    const followUpDateTime = new Date(followUp.date);
+    const [hours, minutes] = followUp.startTime.split(':').map(Number);
+    followUpDateTime.setHours(hours, minutes, 0, 0); // full datetime of the meeting
+
+    const now = new Date();
+    const notificationIds: string[] = [];
+
+    // 1️⃣ Previous Day at 7 PM
+    const dayBefore7PM = new Date(followUpDateTime);
+    dayBefore7PM.setDate(dayBefore7PM.getDate() - 1);
+    dayBefore7PM.setHours(19, 0, 0, 0);
+    if (dayBefore7PM > now) {
+      const id1 = await Notifications.scheduleNotificationAsync({
+        content: {
+          title: '📢 Tomorrow\'s Follow-up Reminder',
+          body: `${followUp.contactName || 'Follow-up'} at ${followUp.startTime}`,
+          data: { followUpId: followUp.id },
+        },
+        trigger: dayBefore7PM,
+      });
+      console.log("✅ Scheduled 1-day before @ 7PM:", dayBefore7PM.toLocaleString());
+      notificationIds.push(id1);
+    }
+
+    // 2️⃣ Same Day at 8 AM
+    const sameDay8AM = new Date(followUpDateTime);
+    sameDay8AM.setHours(8, 0, 0, 0);
+    if (sameDay8AM > now) {
+      const id2 = await Notifications.scheduleNotificationAsync({
+        content: {
+          title: '⏰ Today\'s Follow-up',
+          body: `${followUp.contactName || 'Follow-up'} at ${followUp.startTime}`,
+          data: { followUpId: followUp.id },
+        },
+        trigger: sameDay8AM,
+      });
+      console.log("✅ Scheduled same-day @ 8AM:", sameDay8AM.toLocaleString());
+      notificationIds.push(id2);
+    }
+    // 🔔 2 Hours Before the Meeting
+const twoHoursBefore = subMinutes(followUpDateTime, 120);
+if (twoHoursBefore > now) {
+  const id4 = await Notifications.scheduleNotificationAsync({
+    content: {
+      title: '⏳ Follow-up in 2 hours',
+      body: `${followUp.contactName || 'Follow-up'} at ${followUp.startTime}`,
+      data: { followUpId: followUp.id },
+    },
+    trigger: twoHoursBefore,
+  });
+  console.log("✅ Scheduled 2-hours before:", twoHoursBefore.toLocaleString());
+  notificationIds.push(id4);
+}
+
+
+    // 3️⃣ 5 Minutes Before the Meeting
+    const fiveMinBefore = subMinutes(followUpDateTime, 5);
+    if (fiveMinBefore > now) {
+      const id3 = await Notifications.scheduleNotificationAsync({
+        content: {
+          title: '📞 Follow-up in 5 minutes',
+          body: `${followUp.contactName || 'Follow-up'} at ${followUp.startTime}`,
+          data: { followUpId: followUp.id },
+        },
+        trigger: fiveMinBefore,
+      });
+      console.log("✅ Scheduled 5-min before:", fiveMinBefore.toLocaleString());
+      notificationIds.push(id3);
+    }
+
+    await AsyncStorage.setItem(`notifications_${followUp.id}`, JSON.stringify(notificationIds));
+    setNotificationIds(prev => [...prev, ...notificationIds]);
+
+  } catch (error) {
+    console.error('❌ Error scheduling follow-up notifications:', error);
+  }
+};
+
+
+
 
   // Add notification listener for snooze action
   useEffect(() => {

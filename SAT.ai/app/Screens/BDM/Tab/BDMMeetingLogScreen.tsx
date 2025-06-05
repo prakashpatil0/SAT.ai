@@ -142,6 +142,36 @@ const BDMMeetingLogScreen = () => {
       setIsLocationLoading(false);
     }
   };
+const resetForm = () => {
+  const newMeetingId = generateMeetingId();
+  const now = new Date();
+  setSelectedDate(now);
+  setSelectedTime(now);
+  setSelectedStartTime(now);
+  setSelectedEndTime(now);
+  setErrors({});
+  setMeetingType('Individual');
+  setFormData({
+    date: '',
+    rawDate: undefined,
+    startTime: '',
+    rawStartTime: undefined,
+    endTime: '',
+    rawEndTime: undefined,
+    locationUrl: '',
+    companyName: '',
+    individuals: [{
+      name: '',
+      phoneNumber: '',
+      emailId: ''
+    }],
+    meetingType: 'Individual',
+    userId: auth.currentUser?.uid || '',
+    notes: '',
+    status: 'planned',
+    meetingId: newMeetingId
+  });
+};
 
   const validateForm = (): boolean => {
     const newErrors: Record<string, string> = {};
@@ -286,10 +316,12 @@ const BDMMeetingLogScreen = () => {
         setModalVisible(true);
         
         // Auto-hide the modal after 2 seconds and navigate back
-        setTimeout(() => {
-          setModalVisible(false);
-          navigation.goBack();
-        }, 2000);
+      setTimeout(() => {
+  setModalVisible(false);
+  resetForm();
+  // Optionally navigate: navigation.goBack();
+}, 2000);
+
         
       } catch (error) {
         console.error('Error saving meeting to AsyncStorage:', error);
@@ -380,7 +412,7 @@ const BDMMeetingLogScreen = () => {
   };
 
   const removeIndividual = (index: number) => {
-    if (index === 0) return; // Don't remove the first individual
+    if (index === 0) return; 
     
     const updatedIndividuals = formData.individuals.filter((_, i) => i !== index);
     setFormData({

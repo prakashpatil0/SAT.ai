@@ -143,7 +143,7 @@ const CameraScreen = () => {
               if (location && photo) {
                 try {
                   // Navigate to AttendanceScreen with the required data
-                 navigation.navigate('Attendance' as never, {
+ const params: any = {
   photo: { uri: photo.uri },
   location: {
     coords: {
@@ -151,10 +151,17 @@ const CameraScreen = () => {
       longitude: location.coords.longitude
     }
   },
-  locationName: locationAddress, // ✅ pass location name
-  dateTime: currentTime,
-  isPunchIn
-});
+  isPunchIn,
+};
+
+if (isPunchIn) {
+  params.locationName = locationAddress;
+} else {
+  params.locationPunchout = locationAddress;
+}
+
+navigation.navigate('Attendance' as never, params);
+
 
                 } catch (error) {
                   console.error('Navigation error:', error);

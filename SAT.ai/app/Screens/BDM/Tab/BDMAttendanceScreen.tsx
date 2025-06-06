@@ -22,6 +22,7 @@ type RootStackParamList = {
     location?: { coords: { latitude: number; longitude: number } };
     dateTime?: Date;
     isPunchIn?: boolean;
+     locationName?: string | null;
   };
 };
 
@@ -257,17 +258,23 @@ const BDMAttendanceScreen = () => {
     return () => clearInterval(intervalId);
   }, [punchInTime, punchOutTime]);
 
-  useEffect(() => {
-    if (route.params && route.params.photo && route.params.location) {
-      try {
-        const { photo, location, isPunchIn } = route.params;
-        saveAttendance(isPunchIn || false, photo.uri, location.coords);
-      } catch (error) {
-        console.error("Error processing camera data:", error);
-        Alert.alert("Error", "Failed to process camera data. Please try again.");
-      }
+useEffect(() => {
+  if (route.params && route.params.photo && route.params.location) {
+    try {
+      const { photo, location, isPunchIn, locationName } = route.params;
+      saveAttendance(
+        isPunchIn || false,
+        photo.uri,
+        location.coords,
+        locationName || 'Unknown Location'  // <-- explicitly pass locationName
+      );
+    } catch (error) {
+      console.error("Error processing camera data:", error);
+      Alert.alert("Error", "Failed to process camera data. Please try again.");
     }
-  }, [route.params]);
+  }
+}, [route.params]);
+
 
   const initializeDate = () => {
     const today = new Date();
@@ -602,7 +609,13 @@ const BDMAttendanceScreen = () => {
     return (totalOutMinutes - totalInMinutes) / 60;
   };
 
-  const saveAttendance = async (isPunchIn: boolean, photoUri: string, locationCoords: any) => {
+ const saveAttendance = async (
+  isPunchIn: boolean,
+  photoUri: string,
+  locationCoords: any,
+  locationNameFromCamera: string
+) => {
+
     try {
       const userId = auth.currentUser?.uid;
       if (!userId) {
@@ -655,8 +668,10 @@ const BDMAttendanceScreen = () => {
           email: userDetails.email,
           totalHours: totalHours,
           workMode: 'Office',
-          locationName: isPunchIn ? await getLocationName(locationCoords) : '',
-          punchOutLocationName: !isPunchIn ? await getLocationName(locationCoords) : '',
+          locationName: isPunchIn ? locationNameFromCamera : '',
+  punchOutLocationName: !isPunchIn ? locationNameFromCamera : '',
+          // locationName: isPunchIn ? await getLocationName(locationCoords) : '',
+          // punchOutLocationName: !isPunchIn ? await getLocationName(locationCoords) : '',
           lastUpdated: Timestamp.fromDate(currentTime)
         });
       } else {
@@ -690,8 +705,10 @@ const BDMAttendanceScreen = () => {
           location: isPunchIn ? locationCoords : existingData.location,
           punchOutLocation: !isPunchIn ? locationCoords : existingData.punchOutLocation,
           totalHours: totalHours,
-          locationName: isPunchIn ? await getLocationName(locationCoords) : existingData.locationName,
-          punchOutLocationName: !isPunchIn ? await getLocationName(locationCoords) : existingData.punchOutLocationName,
+          locationName: isPunchIn ? locationNameFromCamera : existingData.locationName,
+  punchOutLocationName: !isPunchIn ? locationNameFromCamera : existingData.punchOutLocationName,
+          // locationName: isPunchIn ? await getLocationName(locationCoords) : existingData.locationName,
+          // punchOutLocationName: !isPunchIn ? await getLocationName(locationCoords) : existingData.punchOutLocationName,
           lastUpdated: Timestamp.fromDate(currentTime)
         });
       }
@@ -745,21 +762,24 @@ const BDMAttendanceScreen = () => {
     }
   };
 
-  const getLocationName = async (coords: any): Promise<string> => {
-    try {
-      const response = await fetch(
-        `https://maps.googleapis.com/maps/api/geocode/json?latlng=${coords.latitude},${coords.longitude}&key=AIzaSyB1b5wiV2CnRX0iwhq0D7RSI9XTDfOXgD0`
-      );
-      const data = await response.json();
-      if (data.results && data.results[0]) {
-        return data.results[0].formatted_address;
-      }
-      return 'Unknown Location';
-    } catch (error) {
-      console.error('Error getting location name:', error);
+  const getLocationName = async (coords: { latitude: number; longitude: number }): Promise<string> => {
+  try {
+    const response = await fetch(
+      `https://maps.googleapis.com/maps/api/geocode/json?latlng=${coords.latitude},${coords.longitude}&key=AIzaSyB1b5wiV2CnRX0iwhq0D7RSI9XTDfOXgD0`
+    );
+    const data = await response.json();
+
+    if (data.status === 'OK' && data.results && data.results.length > 0) {
+      return data.results[0].formatted_address;
+    } else {
+      console.warn('Geocoding API response error:', data.status, data.error_message);
       return 'Unknown Location';
     }
-  };
+  } catch (error) {
+    console.error('Error fetching location name:', error);
+    return 'Unknown Location';
+  }
+};
 
   const handlePunch = async () => {
     if (isPunchButtonDisabled) {

@@ -11,6 +11,7 @@ type RootStackParamList = {
   BDMAttendanceScreen: {
     photo?: { uri: string };
     location?: { coords: { latitude: number; longitude: number } };
+    locationName?: string | null; 
     dateTime?: Date;
     isPunchIn?: boolean;
   };
@@ -44,7 +45,9 @@ const BDMCameraScreen = () => {
     (async () => {
       const { status: cameraStatus } = await Camera.requestCameraPermissionsAsync();
       const { status: locationStatus } = await Location.requestForegroundPermissionsAsync();
-      
+      const location = await Location.getCurrentPositionAsync({
+  accuracy: Location.Accuracy.Highest
+});
       setHasPermission(cameraStatus === 'granted' && locationStatus === 'granted');
       
       if (locationStatus === 'granted') {
@@ -56,6 +59,7 @@ const BDMCameraScreen = () => {
           
           // Get the address from coordinates
           const geocode = await Location.reverseGeocodeAsync({
+            
             latitude: location.coords.latitude,
             longitude: location.coords.longitude
           });
@@ -114,10 +118,9 @@ const BDMCameraScreen = () => {
         {photo && <Image source={{ uri: photo.uri }} style={styles.preview} />}
         <View style={styles.previewOverlay}>
           <View style={styles.previewAddress}>
-            <MaterialIcons name="location-on" size={20} color="#FF8447" />
-            <Text style={styles.previewAddressText}>
-              {locationAddress || 'Location captured'}
-            </Text>
+           <Text style={styles.previewAddressText}>
+                         {locationAddress || 'Location captured'}
+                       </Text>
           </View>
           <View style={styles.previewDate}>
             <MaterialIcons name="event" size={20} color="#FF8447" />
@@ -148,8 +151,14 @@ const BDMCameraScreen = () => {
                         longitude: location.coords.longitude
                       }
                     },
+                      // ✅ pass location name
                     dateTime: currentTime,
-                    isPunchIn: punchType === 'in'
+  
+                    // dateTime: currentTime,
+                    locationName: locationAddress, // ✅ pass location name
+                    isPunchIn: punchType === 'in', // Determine if it's a punch in or out
+  
+                   
                   });
                 } catch (error) {
                   console.error('Navigation error:', error);

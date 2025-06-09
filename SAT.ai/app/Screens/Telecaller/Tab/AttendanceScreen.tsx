@@ -395,7 +395,31 @@ const AttendanceScreen = () => {
         where("date", "==", dateStr),
         where("userId", "==", userId)
       );
+          const coords = location?.coords;
 
+// let locationName = "Unknown Location";
+
+if (coords) {
+
+  const geo = await Location.reverseGeocodeAsync({
+
+    latitude: coords.latitude,
+
+    longitude: coords.longitude,
+
+  });
+
+
+
+  if (geo && geo.length > 0) {
+
+    const { name, street, city, region } = geo[0];
+
+    // locationName = `${name || street || ""}, ${city || region || ""}`;
+
+  }
+
+}
       const querySnapshot = await getDocs(todayQuery);
 
       if (querySnapshot.empty) {
@@ -406,20 +430,42 @@ const AttendanceScreen = () => {
         const userDocSnap = await getDoc(doc(db, "users", userId));
         const userData = userDocSnap.exists() ? userDocSnap.data() : {};
 
+console.log("📄 Fetched User Data:", userData); // ADD THIS
         await addDoc(attendanceRef, {
-          userId,
-          employeeName: userData.name || "",
-          email: userData.email || "",
-          date: dateStr,
-          day: dayStr,
-          punchIn: isPunchIn ? timeStr : "",
-          punchOut: !isPunchIn ? timeStr : "",
-          status,
-          timestamp: Timestamp.fromDate(currentTime),
-          photoUri,
-          location,
-        });
-      } else {
+           userId,
+
+       employeeName: userData.name || '',
+
+       phoneNumber: userData.phoneNumber || '',
+
+        role: userData.role || '',
+
+        // totalHours: 0,
+
+        // locationName: userData.locationName || '',
+
+         locationName,
+
+        email: userData.email || '',
+
+        date: dateStr,
+
+        day: dayStr,
+
+        punchIn: isPunchIn ? timeStr : '',
+
+        punchOut: !isPunchIn ? timeStr : '',
+
+        status,
+        timestamp: Timestamp.fromDate(currentTime),
+        photoUri,
+        location,
+
+         totalHours: "",
+
+      });
+
+    } else {
         // Update existing record
         const docRef = querySnapshot.docs[0].ref;
         const existingData = querySnapshot.docs[0].data();
@@ -432,8 +478,9 @@ const AttendanceScreen = () => {
           punchIn: newPunchIn,
           punchOut: newPunchOut,
           status: newStatus,
-          location: !isPunchIn ? location : existingData.location,
-          photoUri: !isPunchIn ? photoUri : existingData.photoUri,
+               location: !isPunchIn ? location : existingData.location,
+
+      photoUri: !isPunchIn ? photoUri : existingData.photoUri,
           totalHours: isPunchIn
             ? existingData.totalHours
             : existingData.totalHours + EIGHT_HOURS_IN_MS,

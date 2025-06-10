@@ -307,7 +307,7 @@ const CustomDrawer = (props: DrawerContentComponentProps) => {
             onPress={() => handleNavigate("TelecallerLeaveApplication")}
           />
 
-          <DrawerItem
+          {/* <DrawerItem
             label="Financial Calendar"
             icon={({ color, size }) => (
               <MaterialIcons name="calendar-today" size={size} color={color} />
@@ -315,7 +315,7 @@ const CustomDrawer = (props: DrawerContentComponentProps) => {
             labelStyle={styles.menuText}
             style={styles.drawerItem}
             onPress={() => handleNavigate("FinancialCalendar")}
-          />
+          /> */}
         </View>
 
 

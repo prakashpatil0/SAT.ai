@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import {
   View,
   Text,
@@ -49,12 +49,13 @@ const getUserRole = async (): Promise<string | null> => {
 
 type RootStackParamList = {
   CameraScreen: { isPunchIn: boolean };
-  AttendanceScreen: {
-    photo?: { uri: string };
-    location?: { coords: { latitude: number; longitude: number } };
-    isPunchIn?: boolean;
-    locationName?: string | null;
-  };
+ AttendanceScreen: {
+  photo?: { uri: string };
+  location?: { coords: { latitude: number; longitude: number } };
+  isPunchIn?: boolean;
+  locationName?: string | null;
+  locationPunchout?: string | null; // ✅ Add this
+};
 };
 
 type AttendanceScreenNavigationProp = StackNavigationProp<RootStackParamList>;
@@ -363,12 +364,13 @@ const AttendanceScreen = () => {
     setStatusCounts(counts);
   };
 
-  const saveAttendance = async (
-    isPunchIn: boolean,
-    photoUri: string,
-    location: any,
-    locationNameFromCamera?: string | null
-  ) => {
+ const saveAttendance = async (
+  isPunchIn: boolean,
+  photoUri: string,
+  location: any,
+  locationNameFromCamera?: string | null,
+  locationPunchoutFromCamera?: string | null
+) => {
     try {
       const userId = auth.currentUser?.uid;
       if (!userId) {
@@ -387,7 +389,8 @@ const AttendanceScreen = () => {
       const dayStr = format(currentTime, "EEE").toUpperCase();
       const timeStr = format(currentTime, "HH:mm");
       const roleCollection = `${role}_monthly_attendance`;
-      const locationName = locationNameFromCamera || "Unknown Location";
+     const locationName = locationNameFromCamera || 'Unknown Location';
+  const locationPunchout = locationPunchoutFromCamera || 'Unknown Location';
       const attendanceRef = collection(db, roleCollection);
 
       const todayQuery = query(
@@ -395,7 +398,31 @@ const AttendanceScreen = () => {
         where("date", "==", dateStr),
         where("userId", "==", userId)
       );
+          const coords = location?.coords;
 
+// let locationName = "Unknown Location";
+
+if (coords) {
+
+  const geo = await Location.reverseGeocodeAsync({
+
+    latitude: coords.latitude,
+
+    longitude: coords.longitude,
+
+  });
+
+
+
+  if (geo && geo.length > 0) {
+
+    const { name, street, city, region } = geo[0];
+
+    // locationName = `${name || street || ""}, ${city || region || ""}`;
+
+  }
+
+}
       const querySnapshot = await getDocs(todayQuery);
 
       if (querySnapshot.empty) {
@@ -406,39 +433,48 @@ const AttendanceScreen = () => {
         const userDocSnap = await getDoc(doc(db, "users", userId));
         const userData = userDocSnap.exists() ? userDocSnap.data() : {};
 
-        await addDoc(attendanceRef, {
-          userId,
-          employeeName: userData.name || "",
-          email: userData.email || "",
-          date: dateStr,
-          day: dayStr,
-          punchIn: isPunchIn ? timeStr : "",
-          punchOut: !isPunchIn ? timeStr : "",
-          status,
-          timestamp: Timestamp.fromDate(currentTime),
-          photoUri,
-          location,
-        });
-      } else {
-        // Update existing record
-        const docRef = querySnapshot.docs[0].ref;
-        const existingData = querySnapshot.docs[0].data();
+console.log("📄 Fetched User Data:", userData); // ADD THIS
+           await addDoc(attendanceRef, {
+      userId,
+      employeeName: userData.name || '',
+      phoneNumber: userData.phoneNumber || '',
+      role: userData.role || '',
+      email: userData.email || '',
+      date: dateStr,
+      day: dayStr,
+      punchIn: isPunchIn ? timeStr : '',
+      punchOut: !isPunchIn ? timeStr : '',
+      status,
+      timestamp: Timestamp.fromDate(currentTime),
+      photoUri,
+      location,
+      locationName: isPunchIn ? locationName : '',
+      locationPunchout: !isPunchIn ? locationPunchout : '',
+      totalHours: "", // Init for new record
+    });
 
-        const newPunchIn = isPunchIn ? timeStr : existingData.punchIn;
-        const newPunchOut = !isPunchIn ? timeStr : existingData.punchOut;
-        const newStatus = calculateStatus(newPunchIn, newPunchOut);
+   } else {
+    // Update existing record
+    const docRef = querySnapshot.docs[0].ref;
+    const existingData = querySnapshot.docs[0].data();
+    const newPunchIn = isPunchIn ? timeStr : existingData.punchIn;
+    const newPunchOut = !isPunchIn ? timeStr : existingData.punchOut;
+    const newStatus = calculateStatus(newPunchIn, newPunchOut);
 
-        await updateDoc(docRef, {
-          punchIn: newPunchIn,
-          punchOut: newPunchOut,
-          status: newStatus,
-          location: !isPunchIn ? location : existingData.location,
-          photoUri: !isPunchIn ? photoUri : existingData.photoUri,
-          totalHours: isPunchIn
-            ? existingData.totalHours
-            : existingData.totalHours + EIGHT_HOURS_IN_MS,
-        });
-      }
+
+       await updateDoc(docRef, {
+      punchIn: newPunchIn,
+      punchOut: newPunchOut,
+      status: newStatus,
+      location: !isPunchIn ? location : existingData.location,
+      photoUri: !isPunchIn ? photoUri : existingData.photoUri,
+      totalHours: isPunchIn
+        ? existingData.totalHours
+        : existingData.totalHours + EIGHT_HOURS_IN_MS,
+      ...(isPunchIn ? { locationName } : { locationPunchout }),
+    });
+  }
+
 
       // Update UI
       if (isPunchIn) {
@@ -462,8 +498,9 @@ const AttendanceScreen = () => {
       route.params?.location &&
       route.params?.isPunchIn !== undefined
     ) {
-      const { photo, location, locationName, isPunchIn } = route.params;
-      saveAttendance(isPunchIn, photo.uri, location, locationName);
+    const { photo, location, locationName, locationPunchout, isPunchIn } = route.params;
+saveAttendance(isPunchIn, photo.uri, location, locationName, locationPunchout);
+
     }
   }, [route.params]);
 

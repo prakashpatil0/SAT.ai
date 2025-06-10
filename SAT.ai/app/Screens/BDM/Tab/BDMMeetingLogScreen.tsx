@@ -34,6 +34,8 @@ interface IndividualDetails {
 interface MeetingFormData {
   date: string;
   rawDate?: Date;
+   locationReachTime: string;           // <-- ADD
+  rawLocationReachTime?: Date;       
   startTime: string;
   rawStartTime?: Date;
   endTime: string;
@@ -74,10 +76,25 @@ const BDMMeetingLogScreen = () => {
   const [selectedStartTime, setSelectedStartTime] = useState(new Date());
   const [selectedEndTime, setSelectedEndTime] = useState(new Date());
   const [isLocationLoading, setIsLocationLoading] = useState(false);
-  
+  const [showLocationReachTimePicker, setShowLocationReachTimePicker] = useState(false);
+const [selectedLocationReachTime, setSelectedLocationReachTime] = useState(new Date());
+const onLocationReachTimeChange = (event: DateTimePickerEvent, time?: Date) => {
+  setShowLocationReachTimePicker(Platform.OS === 'ios');
+  if (time) {
+    setSelectedLocationReachTime(time);
+    setFormData({
+      ...formData,
+      locationReachTime: format(time, 'hh:mm a'),
+      rawLocationReachTime: time,
+    });
+  }
+};
+
   const [formData, setFormData] = useState<MeetingFormData>({
     date: '',
     rawDate: undefined,
+    locationReachTime: '',              // <-- ADD
+  rawLocationReachTime: undefined,    // <-- ADD
     startTime: '',
     rawStartTime: undefined,
     endTime: '',
@@ -154,6 +171,8 @@ const resetForm = () => {
   setFormData({
     date: '',
     rawDate: undefined,
+     locationReachTime: '',              // <-- ADD
+  rawLocationReachTime: undefined,    // <-- ADD
     startTime: '',
     rawStartTime: undefined,
     endTime: '',
@@ -223,117 +242,106 @@ const resetForm = () => {
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleSubmit = async () => {
-    if (!validateForm()) {
-      Alert.alert('All Fields are Required', 'Please fill all the fields correctly');
-      return;
+ const handleSubmit = async () => {
+  if (!validateForm()) {
+    Alert.alert('All Fields are Required', 'Please fill all the fields correctly');
+    return;
+  }
+
+  try {
+    setIsLoading(true);
+
+    // Construct meeting object
+    const meetingId = formData.meetingId || Date.now().toString();
+    const meetingStartDateTime = new Date(
+      selectedDate.getFullYear(),
+      selectedDate.getMonth(),
+      selectedDate.getDate(),
+      selectedStartTime.getHours(),
+      selectedStartTime.getMinutes()
+    );
+    const meetingEndDateTime = new Date(
+      selectedDate.getFullYear(),
+      selectedDate.getMonth(),
+      selectedDate.getDate(),
+      selectedEndTime.getHours(),
+      selectedEndTime.getMinutes()
+    );
+
+    const meetingData = {
+      ...formData,
+      id: meetingId,
+      meetingType,
+      createdAt: new Date().toISOString(),
+      meetingStartDateTime,
+      meetingEndDateTime,
+      individuals:
+        meetingType === 'Individual' ? [formData.individuals[0]] : formData.individuals,
+      syncStatus: 'pending',
+    };
+
+    // Save to AsyncStorage
+    const existingLogsStr = await AsyncStorage.getItem(MEETING_LOGS_STORAGE_KEY);
+    const existingLogs = existingLogsStr ? JSON.parse(existingLogsStr) : [];
+
+    const updatedLogs = [...existingLogs, meetingData];
+    await AsyncStorage.setItem(MEETING_LOGS_STORAGE_KEY, JSON.stringify(updatedLogs));
+
+    // Add to pending sync queue
+    const pendingSyncStr = await AsyncStorage.getItem(MEETING_LOGS_PENDING_SYNC);
+    const pendingSync = pendingSyncStr ? JSON.parse(pendingSyncStr) : [];
+
+    if (!pendingSync.includes(meetingId)) {
+      pendingSync.push(meetingId);
+      await AsyncStorage.setItem(MEETING_LOGS_PENDING_SYNC, JSON.stringify(pendingSync));
     }
-    
-    try {
-      setIsLoading(true);
-      
-      // Prepare meeting data
-      const meetingData = {
-        ...formData,
-        meetingType,
-        createdAt: new Date(),
-        meetingDateTime: new Date(
-          selectedDate.getFullYear(),
-          selectedDate.getMonth(),
-          selectedDate.getDate(),
-          selectedStartTime.getHours(),
-          selectedStartTime.getMinutes()
-        ),
-        meetingEndDateTime: new Date(
-          selectedDate.getFullYear(),
-          selectedDate.getMonth(),
-          selectedDate.getDate(),
-          selectedEndTime.getHours(),
-          selectedEndTime.getMinutes()
-        ),
-        // Include only the first individual if meeting type is Individual
-        individuals: meetingType === 'Individual' 
-          ? [formData.individuals[0]] 
-          : formData.individuals
-      };
 
-      // Save to AsyncStorage first
-      try {
-        const existingLogsStr = await AsyncStorage.getItem(MEETING_LOGS_STORAGE_KEY);
-        const existingLogs = existingLogsStr ? JSON.parse(existingLogsStr) : [];
-        
-        // Add new meeting to existing logs
-        existingLogs.push({
-          ...meetingData,
-          id: formData.meetingId,
-          syncStatus: 'pending'
-        });
+    // Trigger background sync (optionally delay by 10 mins, or immediate if online)
+   (async () => {
+  try {
+    const logsStr = await AsyncStorage.getItem(MEETING_LOGS_STORAGE_KEY);
+    const logs = logsStr ? JSON.parse(logsStr) : [];
 
-        // Save updated logs to AsyncStorage
-        await AsyncStorage.setItem(MEETING_LOGS_STORAGE_KEY, JSON.stringify(existingLogs));
-        
-        // Add to pending sync list
-        const pendingSyncStr = await AsyncStorage.getItem(MEETING_LOGS_PENDING_SYNC);
-        const pendingSync = pendingSyncStr ? JSON.parse(pendingSyncStr) : [];
-        pendingSync.push(formData.meetingId);
-        await AsyncStorage.setItem(MEETING_LOGS_PENDING_SYNC, JSON.stringify(pendingSync));
+    const syncData = logs.find((m: any) => m.id === meetingId);
+    if (syncData) {
+      await addDoc(collection(db, 'meetings'), {
+        ...syncData,
+        createdAt: serverTimestamp(),
+        meetingStartDateTime: new Date(syncData.meetingStartDateTime),
+        meetingEndDateTime: new Date(syncData.meetingEndDateTime),
+      });
 
-        // Schedule Firebase sync after 10 minutes
-        setTimeout(async () => {
-          try {
-            // Get the meeting data from AsyncStorage
-            const logsStr = await AsyncStorage.getItem(MEETING_LOGS_STORAGE_KEY);
-            const logs = logsStr ? JSON.parse(logsStr) : [];
-            const meetingToSync = logs.find((log: any) => log.id === formData.meetingId);
+      // Update syncStatus
+      const updatedLogs = logs.map((log: any) =>
+        log.id === meetingId ? { ...log, syncStatus: 'synced' } : log
+      );
+      await AsyncStorage.setItem(MEETING_LOGS_STORAGE_KEY, JSON.stringify(updatedLogs));
 
-            if (meetingToSync) {
-              // Save to Firebase
-              await addDoc(collection(db, 'meetings'), {
-                ...meetingToSync,
-                createdAt: serverTimestamp(),
-                meetingDateTime: meetingToSync.meetingDateTime,
-                meetingEndDateTime: meetingToSync.meetingEndDateTime
-              });
-
-              // Update sync status in AsyncStorage
-              const updatedLogs = logs.map((log: any) => 
-                log.id === formData.meetingId 
-                  ? { ...log, syncStatus: 'synced' }
-                  : log
-              );
-              await AsyncStorage.setItem(MEETING_LOGS_STORAGE_KEY, JSON.stringify(updatedLogs));
-
-              // Remove from pending sync list
-              const updatedPendingSync = pendingSync.filter((id: string) => id !== formData.meetingId);
-              await AsyncStorage.setItem(MEETING_LOGS_PENDING_SYNC, JSON.stringify(updatedPendingSync));
-            }
-          } catch (error) {
-            console.error('Error syncing meeting to Firebase:', error);
-          }
-        }, 10 * 60 * 1000); // 10 minutes
-        
-        // Show success modal
-        setModalVisible(true);
-        
-        // Auto-hide the modal after 2 seconds and navigate back
-      setTimeout(() => {
-  setModalVisible(false);
-  resetForm();
-  // Optionally navigate: navigation.goBack();
-}, 2000);
-
-        
-      } catch (error) {
-        console.error('Error saving meeting to AsyncStorage:', error);
-        Alert.alert('Error', 'Failed to save meeting. Please try again.');
-      }
-    } catch (error) {
-      console.error('Error in handleSubmit:', error);
-      Alert.alert('Error', 'An unexpected error occurred. Please try again.');
-    } finally {
-      setIsLoading(false);
+      // Remove from pending queue
+      const filteredQueue = pendingSync.filter((id: string) => id !== meetingId);
+      await AsyncStorage.setItem(MEETING_LOGS_PENDING_SYNC, JSON.stringify(filteredQueue));
     }
-  };
+  } catch (err) {
+    console.error('❌ Sync to Firebase failed:', err);
+  }
+})();
+
+
+    // UI Success
+    setModalVisible(true);
+    setTimeout(() => {
+      setModalVisible(false);
+      resetForm();
+      // navigation.goBack(); // Optional
+    }, 2000);
+  } catch (error) {
+    console.error('Error in handleSubmit:', error);
+    Alert.alert('Error', 'Unexpected error occurred. Please try again.');
+  } finally {
+    setIsLoading(false);
+  }
+};
+
 
   const onDateChange = (event: DateTimePickerEvent, date?: Date) => {
     setShowDatePicker(Platform.OS === 'ios');
@@ -412,7 +420,7 @@ const resetForm = () => {
   };
 
   const removeIndividual = (index: number) => {
-    if (index === 0) return; 
+    if (index === 0) return; // Don't remove the first individual
     
     const updatedIndividuals = formData.individuals.filter((_, i) => i !== index);
     setFormData({
@@ -529,22 +537,22 @@ const resetForm = () => {
           </View>
 
           {/* Time Picker */}
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>Location Reach Time</Text>
-            <TouchableOpacity 
-              style={[styles.input, errors.startTime && styles.inputError]}
-              onPress={() => setShowTimePicker(true)}
-            >
-              <Text style={[
-                styles.inputText,
-                formData.startTime ? styles.selectedText : styles.placeholderText
-              ]}>
-                {formData.startTime || 'Select Time'}
-              </Text>
-              <MaterialIcons name="access-time" size={24} color="#FF8447" />
-            </TouchableOpacity>
-            {errors.startTime && <Text style={styles.errorText}>{errors.startTime}</Text>}
-          </View>
+        <View style={styles.inputGroup}>
+  <Text style={styles.label}>Location Reach Time</Text>
+  <TouchableOpacity 
+    style={[styles.input, errors.locationReachTime && styles.inputError]}
+    onPress={() => setShowLocationReachTimePicker(true)}
+  >
+    <Text style={[
+      styles.inputText,
+      formData.locationReachTime ? styles.selectedText : styles.placeholderText
+    ]}>
+      {formData.locationReachTime || 'Select Time'}
+    </Text>
+    <MaterialIcons name="access-time" size={24} color="#FF8447" />
+  </TouchableOpacity>
+  {errors.locationReachTime && <Text style={styles.errorText}>{errors.locationReachTime}</Text>}
+</View>
 
           {/* Start Time Picker */}
           <View style={styles.inputGroup}>
@@ -770,6 +778,16 @@ const resetForm = () => {
               style={styles.dateTimePicker}
             />
           )}
+          {showLocationReachTimePicker && (
+  <DateTimePicker
+    value={selectedLocationReachTime}
+    mode="time"
+    display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+    onChange={onLocationReachTimeChange}
+    style={styles.dateTimePicker}
+  />
+)}
+
         </View>
       </ScrollView>
     </BDMMainLayout>

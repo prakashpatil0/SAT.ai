@@ -1,16 +1,38 @@
 import React, { useState, useEffect, FC } from "react";
-import { View, TouchableOpacity, StyleSheet, Image, Alert, AppState, ParamListBase, RouteProp } from "react-native";
-import { NavigationContainer, DrawerActions, useNavigation } from "@react-navigation/native";
+import {
+  View,
+  TouchableOpacity,
+  StyleSheet,
+  Image,
+  Alert,
+  AppState,
+  ParamListBase,
+  RouteProp,
+} from "react-native";
+import {
+  NavigationContainer,
+  DrawerActions,
+  useNavigation,
+} from "@react-navigation/native";
 import { createDrawerNavigator } from "@react-navigation/drawer";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
-import { createStackNavigator } from '@react-navigation/stack';
+import { createStackNavigator } from "@react-navigation/stack";
 import { MaterialIcons } from "@expo/vector-icons";
-import * as SplashScreen from 'expo-splash-screen';
-import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import * as SplashScreen from "expo-splash-screen";
+import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 
-import { useFonts, LexendDeca_400Regular, LexendDeca_500Medium, LexendDeca_600SemiBold, LexendDeca_700Bold } from '@expo-google-fonts/lexend-deca';
+import {
+  useFonts,
+  LexendDeca_400Regular,
+  LexendDeca_500Medium,
+  LexendDeca_600SemiBold,
+  LexendDeca_700Bold,
+} from "@expo-google-fonts/lexend-deca";
 import { Inter_400Regular, Inter_600SemiBold } from "@expo-google-fonts/inter";
-import { Poppins_500Medium, Poppins_600SemiBold } from "@expo-google-fonts/poppins";
+import {
+  Poppins_500Medium,
+  Poppins_600SemiBold,
+} from "@expo-google-fonts/poppins";
 
 // Import Screens
 import TargetScreen from "@/app/Screens/Telecaller/Tab/TargetScreen";
@@ -18,7 +40,7 @@ import HomeScreen from "@/app/Screens/Telecaller/Tab/HomeScreen";
 import AttendanceScreen from "@/app/Screens/Telecaller/Tab/AttendanceScreen";
 import CustomDrawerContent from "@/app/components/CustomDrawer";
 import MyScript from "@/app/Screens/Telecaller/DrawerTab/TelecallerMyScript";
-import DetailsScreen from '@/app/Screens/Telecaller/TelecallerDetailsScreen';
+import DetailsScreen from "@/app/Screens/Telecaller/TelecallerDetailsScreen";
 import ReportScreen from "@/app/Screens/Telecaller/Tab/DailyReportScreen";
 import Leaderboard from "@/app/Screens/Telecaller/DrawerTab/TelecallerLeaderBoard";
 import TelecallerCallNoteDetails from "@/app/Screens/Telecaller/TelecallerAddCallNoteDetails";
@@ -26,7 +48,7 @@ import TelecallerCreateFollowUp from "@/app/Screens/Telecaller/TelecallerCreateF
 import MyScheduleScreen from "@/app/Screens/Telecaller/DrawerTab/TelecallerMyScheduleScreen";
 import ViewFullReport from "@/app/Screens/Telecaller/TelecallerViewFullReport";
 import VirtualBusinessCard from "@/app/Screens/Telecaller/DrawerTab/TelecallerVirtualBusinessCard";
-import Profile from "@/app/components/MainProfile"
+import Profile from "@/app/components/MainProfile";
 import TelecallerSettings from "@/app/Screens/Telecaller/DrawerTab/TelecallerSettings";
 // import ConfirmationScreen from "@/app/Screens/Telecaller/TelecallerConfirmationScreen";
 import CameraScreen from "@/app/Screens/Telecaller/TelecallerCameraScreen";
@@ -36,12 +58,13 @@ import AddContactModal from "@/app/Screens/Telecaller/TelecallerAddContactModal"
 import CallHistory from "./Screens/Telecaller/TelecallerCallHistory";
 import TelecallerPersonNotes from "@/app/Screens/Telecaller/TelecallerPersonNotes";
 import ContactBook from "@/app/components/ContactBook/ContactBook";
-
+// siddharth
+import FinancialCalendar from "@/app/components/FinancialCalendar";
 
 import BDMBottomTabs from "@/app/Screens/BDM/BDMBottomTabs";
 import BDMContactDetailsScreen from "@/app/Screens/BDM/BDMContactDetailsScreen";
 import BDMCompanyDetailsScreen from "@/app/Screens/BDM/BDMCompanyDetailsScreen";
-import BDMDrawer from '@/app/Screens/BDM/BDMDrawer';
+import BDMDrawer from "@/app/Screens/BDM/BDMDrawer";
 import BDMCallNoteDetailsScreen from "@/app/Screens/BDM/BDMCallNotesScreen";
 import BDMReportScreen from "@/app/Screens/BDM/Tab/BDMReportScreen";
 import BDMTargetScreen from "@/app/Screens/BDM/Tab/BDMTargetScreen";
@@ -54,13 +77,16 @@ import BDMNotesDetailScreen from "@/app/Screens/BDM/DrawerTab/BDMNotesDetailScre
 import BDMMyScheduleScreen from "@/app/Screens/BDM/DrawerTab/BDMMyScheduleScreen";
 import BDMVirtualBusinessCard from "@/app/Screens/BDM/DrawerTab/BDMVirtualBusinessCard";
 // import BDMLeaderBoard from "@/app/Screens/BDM/DrawerTab/BDMLeaderBoard";
-import BDMCallHistory from "@/app/Screens/BDM/BDMCallHistory"
+import BDMCallHistory from "@/app/Screens/BDM/BDMCallHistory";
 import BDMPersonNote from "@/app/Screens/BDM/BDMPersonNote";
 import BDMCameraScreen from "@/app/Screens/BDM/BDMCameraScreen";
-import PermissionsHandler from '@/app/components/PermissionsHandler';
+import PermissionsHandler from "@/app/components/PermissionsHandler";
 import BDMCallModal from "@/app/Screens/BDM/BDMCallModal";
-import { DEFAULT_PROFILE_IMAGE, getProfilePhoto } from '@/app/utils/profileStorage';
-import { ProfileProvider, useProfile } from '@/app/context/ProfileContext';
+import {
+  DEFAULT_PROFILE_IMAGE,
+  getProfilePhoto,
+} from "@/app/utils/profileStorage";
+import { ProfileProvider, useProfile } from "@/app/context/ProfileContext";
 import SignUpScreen from "@/app/SignUpScreen";
 import { testDatabaseConnection } from "@/app/services/api";
 import Slide1 from "@/app/Onboarding/Slide1";
@@ -72,8 +98,8 @@ import SetNewPassword from '@/app/components/ForgotPassword/SetNewPassword';
 import BDMMyCallsScreen from '@/app/Screens/BDM/BDMMyCallsScreen';
 import BDMSettings from "@/app/Screens/BDM/BDMSettings";
 import BDMMeetingReports from "./Screens/BDM/DrawerTab/BDMMeetingReports";
-import { auth } from '@/firebaseConfig';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { auth } from "@/firebaseConfig";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import AlertScreen from "@/app/Screens/Telecaller/Tab/AlertScreen";
 // import TelecallerIdleTimer from "./Screens/Telecaller/Tab/TelecallerIdleTimer";
 import BDMContactBook from "@/app/components/ContactBook/BDMContactBook"
@@ -86,7 +112,8 @@ import CalendarViewScreen from "@/app/HRMS/CalendarViewScreen";
 import TelecallerLeaveApplication from "@/app/HRMS/TelecallerLeaveApplication";
 import BDMLeaderBoard from "./Screens/BDM/DrawerTab/BDMLeaderBoard";
 import HrSettings from "./HRMS/DrawerTab/HrSettings";
-import { initializeNotificationService } from '@/app/services/notificationService';
+
+import { initializeNotificationService } from "@/app/services/notificationService";
 
 export type RootStackParamList = {
   // Auth Screens
@@ -102,15 +129,13 @@ export type RootStackParamList = {
   BDMHomeScreen: undefined;
   Profile: undefined;
   ContactBook: undefined;
-  
-// HRMS Screens
+  FinancialCalendar: undefined;
+
+  // HRMS Screens
   HrHomeScreen: undefined;
   HrStackNavigator: undefined;
   HrProfile: undefined;
   HrSettings: undefined;
-
-
-
 
   // BDM Screens
   MeetingDetails: { meetingId: string };
@@ -189,7 +214,7 @@ export type BDMStackParamList = {
       time: string;
       duration: string;
       notes?: string[];
-      type: 'incoming' | 'outgoing' | 'missed';
+      type: "incoming" | "outgoing" | "missed";
     }[];
     callStats?: {
       totalCalls: number;
@@ -224,7 +249,7 @@ export type BDMStackParamList = {
   BDMProfile: undefined;
   BDMLeaderBoard: undefined;
   BDMMyNotesScreen: undefined;
-  BDMNotesDetailScreen: { 
+  BDMNotesDetailScreen: {
     note: {
       id: string;
       title: string;
@@ -233,9 +258,9 @@ export type BDMStackParamList = {
       createdAt: Date;
       date: string;
       userId: string;
-    }
+    };
   };
-  BDMContactBook:undefined;
+  BDMContactBook: undefined;
   BDMTarget: undefined;
   BDMAttendance: undefined;
   BDMReport: undefined;
@@ -243,7 +268,7 @@ export type BDMStackParamList = {
   BDMVirtualBusinessCard: undefined;
   BDMMeetingLogScreen: undefined;
   BDMCameraScreen: {
-    type: 'in' | 'out';
+    type: "in" | "out";
   };
   BDMPersonNote: {
     name: string;
@@ -259,9 +284,9 @@ export type BDMStackParamList = {
       duration: string;
       phoneNumber?: string;
       date?: string;
-      type?: 'incoming' | 'outgoing' | 'missed';
-      contactType?: 'person' | 'company';
-    }
+      type?: "incoming" | "outgoing" | "missed";
+      contactType?: "person" | "company";
+    };
   };
   BDMContactDetails: {
     contact: {
@@ -297,11 +322,14 @@ const Tab = createBottomTabNavigator();
 const Stack = createStackNavigator();
 const CustomHeader = () => {
   const { profilePhotoUri } = useProfile();
-  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  const navigation =
+    useNavigation<NativeStackNavigationProp<RootStackParamList>>();
 
   return (
     <View style={styles.headerContainer}>
-      <TouchableOpacity onPress={() => navigation.dispatch(DrawerActions.openDrawer())}>
+      <TouchableOpacity
+        onPress={() => navigation.dispatch(DrawerActions.openDrawer())}
+      >
         <MaterialIcons name="menu" size={30} color="black" />
       </TouchableOpacity>
       <Image
@@ -312,7 +340,13 @@ const CustomHeader = () => {
   );
 };
 
-const CustomAlertButton = ({ children, onPress }: { children: React.ReactNode; onPress: () => void }) => (
+const CustomAlertButton = ({
+  children,
+  onPress,
+}: {
+  children: React.ReactNode;
+  onPress: () => void;
+}) => (
   <TouchableOpacity style={styles.alertButtonContainer} onPress={onPress}>
     <View style={styles.alertButton}>{children}</View>
   </TouchableOpacity>
@@ -328,25 +362,42 @@ const DrawerNavigator = () => {
       }}
     >
       {/* <Drawer.Screen name="Main" component={BottomTabNavigator} options={{ headerShown: false }} /> */}
-      <Drawer.Screen name="HomeScreen" component={HomeScreen} options={{ headerShown: false }}/>
+      <Drawer.Screen
+        name="HomeScreen"
+        component={HomeScreen}
+        options={{ headerShown: false }}
+      />
       <Drawer.Screen name="Target" component={TargetScreen} />
       <Drawer.Screen name="Attendance" component={AttendanceScreen} />
       <Drawer.Screen name="Report" component={ReportScreen} />
       <Drawer.Screen name="My Script" component={MyScript} />
       <Drawer.Screen name="DetailsScreen" component={DetailsScreen} />
       <Drawer.Screen name="Leaderboard" component={Leaderboard} />
-      <Drawer.Screen name="CameraScreen" component={CameraScreen} options={{ headerShown: false }} />
-      <Drawer.Screen name="TelecallerCreateFollowUp" component={TelecallerCreateFollowUp} />
+      <Drawer.Screen
+        name="CameraScreen"
+        component={CameraScreen}
+        options={{ headerShown: false }}
+      />
+      <Drawer.Screen
+        name="TelecallerCreateFollowUp"
+        component={TelecallerCreateFollowUp}
+      />
       <Drawer.Screen name="My Schedule" component={MyScheduleScreen} />
       <Drawer.Screen name="ViewFullReport" component={ViewFullReport} />
-      <Drawer.Screen name="VirtualBusinessCard" component={VirtualBusinessCard} />
+      <Drawer.Screen
+        name="VirtualBusinessCard"
+        component={VirtualBusinessCard}
+      />
       <Drawer.Screen name="Profile" component={Profile} />
       <Drawer.Screen name="TelecallerSettings" component={TelecallerSettings} />
       {/* <Drawer.Screen name="Confirmation" component={ConfirmationScreen} /> */}
       <Drawer.Screen name="CallHistory" component={CallHistory} />
       <Drawer.Screen name="ContactInfo" component={ContactInfo} />
       <Drawer.Screen name="AddContactModal" component={AddContactModal} />
-      <Drawer.Screen name="TelecallerPersonNotes" component={TelecallerPersonNotes} />
+      <Drawer.Screen
+        name="TelecallerPersonNotes"
+        component={TelecallerPersonNotes}
+      />
       <Drawer.Screen name="ContactBook" component={ContactBook} />
       <Drawer.Screen name="TelecallerCallNoteDetails" component={TelecallerCallNoteDetails} />
       {/* <Drawer.Screen name="TelecallerIdleTimer" component={TelecallerIdleTimer} /> */}
@@ -354,6 +405,7 @@ const DrawerNavigator = () => {
       <Drawer.Screen name="TelecallerLeaveApplication" component={TelecallerLeaveApplication} />
       <Drawer.Screen name="ApplyLeaveScreen" component={ApplyLeaveScreen} />
       <Drawer.Screen name="CalendarViewScreen" component={CalendarViewScreen} />
+      <Drawer.Screen name="FinancialCalendar" component={FinancialCalendar} />
     </Drawer.Navigator>
   );
 };
@@ -368,20 +420,20 @@ function BDMStackNavigator() {
       screenOptions={{
         headerShown: false,
         drawerStyle: {
-          backgroundColor: '#fff',
+          backgroundColor: "#fff",
           width: 280,
           borderTopRightRadius: 20,
           borderBottomRightRadius: 20,
           elevation: 5,
-          shadowColor: '#000',
+          shadowColor: "#000",
           shadowOffset: { width: 0, height: 2 },
           shadowOpacity: 0.25,
           shadowRadius: 3.84,
         },
         drawerLabelStyle: {
-          fontFamily: 'LexendDeca_400Regular',
+          fontFamily: "LexendDeca_400Regular",
           fontSize: 16,
-          color: '#333',
+          color: "#333",
           marginLeft: -16,
           paddingLeft: 16,
         },
@@ -390,178 +442,180 @@ function BDMStackNavigator() {
           marginVertical: 4,
           borderRadius: 8,
         },
-        drawerActiveTintColor: '#FF8447',
-        drawerInactiveTintColor: '#666',
-        drawerActiveBackgroundColor: '#FFF8F0',
-        drawerInactiveBackgroundColor: 'transparent',
+        drawerActiveTintColor: "#FF8447",
+        drawerInactiveTintColor: "#666",
+        drawerActiveBackgroundColor: "#FFF8F0",
+        drawerInactiveBackgroundColor: "transparent",
       }}
     >
-      <BDMStack.Screen 
-        name="BDMHomeScreen" 
+      <BDMStack.Screen
+        name="BDMHomeScreen"
         component={BDMHomeScreen}
         options={{
-          title: 'Home',
+          title: "Home",
           drawerIcon: ({ color }) => (
             <MaterialIcons name="home" size={24} color={color} />
           ),
         }}
       />
-      <BDMStack.Screen 
-        name="Profile" 
+      <BDMStack.Screen
+        name="Profile"
         component={Profile}
         options={{
-          title: 'Profile',
+          title: "Profile",
           drawerIcon: ({ color }) => (
             <MaterialIcons name="person" size={24} color={color} />
           ),
         }}
       />
       <BDMStack.Screen
-        name="BDMContactBook" 
+        name="BDMContactBook"
         component={BDMContactBook}
         options={{
-          title: 'Contact Book',
+          title: "Contact Book",
           drawerIcon: ({ color }) => (
             <MaterialIcons name="contacts" size={24} color={color} />
           ),
         }}
-      />  
-      <BDMStack.Screen 
-        name="BDMVirtualBusinessCard" 
+      />
+      <BDMStack.Screen
+        name="BDMVirtualBusinessCard"
         component={BDMVirtualBusinessCard}
         options={{
-          title: 'Virtual Business Card',
+          title: "Virtual Business Card",
           drawerIcon: ({ color }) => (
             <MaterialIcons name="credit-card" size={24} color={color} />
           ),
         }}
       />
-      <BDMStack.Screen 
-        name="BDMMyScheduleScreen" 
+      <BDMStack.Screen
+        name="BDMMyScheduleScreen"
         component={BDMMyScheduleScreen}
         options={{
-          title: 'My Schedule',
+          title: "My Schedule",
           drawerIcon: ({ color }) => (
             <MaterialIcons name="event" size={24} color={color} />
           ),
         }}
       />
-      <BDMStack.Screen 
-        name="BDMMyNotesScreen" 
+      <BDMStack.Screen
+        name="BDMMyNotesScreen"
         component={BDMMyNotesScreen}
         options={{
-          title: 'My Notes',
+          title: "My Notes",
           drawerIcon: ({ color }) => (
             <MaterialIcons name="edit" size={24} color={color} />
           ),
         }}
       />
-      <BDMStack.Screen 
-        name="BDMLeaderBoard" 
+      <BDMStack.Screen
+        name="BDMLeaderBoard"
         component={BDMLeaderBoard}
         options={{
-          title: 'Leaderboard',
+          title: "Leaderboard",
           drawerIcon: ({ color }) => (
             <MaterialIcons name="leaderboard" size={24} color={color} />
           ),
         }}
       />
-      <BDMStack.Screen 
-        name="BDMTarget" 
+      <BDMStack.Screen
+        name="BDMTarget"
         component={BDMTargetScreen}
         options={{ headerShown: false }}
       />
-      <BDMStack.Screen 
-        name="BDMAttendance" 
+      <BDMStack.Screen
+        name="BDMAttendance"
         component={BDMAttendanceScreen}
         options={{ headerShown: false }}
       />
-      <BDMStack.Screen 
-        name="BDMReport" 
+      <BDMStack.Screen
+        name="BDMReport"
         component={BDMReportScreen}
         options={{ headerShown: false }}
       />
-      <BDMStack.Screen 
-        name="BDMContactDetails" 
+      <BDMStack.Screen
+        name="BDMContactDetails"
         component={BDMContactDetailsScreen}
         options={{ headerShown: false }}
       />
-      <BDMStack.Screen 
-        name="BDMCompanyDetails" 
+      <BDMStack.Screen
+        name="BDMCompanyDetails"
         component={BDMCompanyDetailsScreen}
         options={{ headerShown: false }}
       />
-      <BDMStack.Screen 
-        name="BDMCallNoteDetailsScreen" 
+      <BDMStack.Screen
+        name="BDMCallNoteDetailsScreen"
         component={BDMCallNoteDetailsScreen}
         options={{ headerShown: false }}
       />
-      <BDMStack.Screen 
-        name="BDMCallHistory" 
+      <BDMStack.Screen
+        name="BDMCallHistory"
         component={BDMCallHistory}
         options={{ headerShown: false }}
       />
-      <BDMStack.Screen 
-        name="BDMPersonNote" 
+      <BDMStack.Screen
+        name="BDMPersonNote"
         component={BDMPersonNote}
         options={{ headerShown: false }}
       />
-      <BDMStack.Screen 
-        name="BDMMeetingLogScreen" 
-        component={BDMMeetingLogScreen} 
+      <BDMStack.Screen
+        name="BDMMeetingLogScreen"
+        component={BDMMeetingLogScreen}
         options={{ headerShown: false }}
       />
-      <BDMStack.Screen 
-        name="BDMCameraScreen" 
-        component={BDMCameraScreen} 
+      <BDMStack.Screen
+        name="BDMCameraScreen"
+        component={BDMCameraScreen}
         options={{ headerShown: false }}
       />
-      <BDMStack.Screen 
-        name="BDMNotesDetailScreen" 
-        component={BDMNotesDetailScreen} 
+      <BDMStack.Screen
+        name="BDMNotesDetailScreen"
+        component={BDMNotesDetailScreen}
         options={{ headerShown: false }}
       />
-      <BDMStack.Screen 
-        name="BDMMyCallsScreen" 
-        component={BDMMyCallsScreen} 
+      <BDMStack.Screen
+        name="BDMMyCallsScreen"
+        component={BDMMyCallsScreen}
         options={{ headerShown: false }}
       />
-      <BDMStack.Screen 
-        name="BDMCreateFollowUp" 
-        component={BDMCreateFollowUp} 
+      <BDMStack.Screen
+        name="BDMCreateFollowUp"
+        component={BDMCreateFollowUp}
         options={{ headerShown: false }}
       />
-      <BDMStack.Screen 
-        name="BDMSettings" 
-        component={BDMSettings} 
+      <BDMStack.Screen
+        name="BDMSettings"
+        component={BDMSettings}
         options={{ headerShown: false }}
       />
-      <BDMStack.Screen 
-        name="BDMMeetingReports" 
-        component={BDMMeetingReports} 
+      <BDMStack.Screen
+        name="BDMMeetingReports"
+        component={BDMMeetingReports}
         options={{ headerShown: false }}
       />
-      <BDMStack.Screen 
-        name="BDMViewFullReport" 
-        component={BDMViewFullReport} 
+      <BDMStack.Screen
+        name="BDMViewFullReport"
+        component={BDMViewFullReport}
         options={{ headerShown: false }}
       />
-      <BDMStack.Screen 
-      name="TelecallerLeaveApplication" 
-      component={TelecallerLeaveApplication} 
-      options={{ headerShown: false }}/>
+      <BDMStack.Screen
+        name="TelecallerLeaveApplication"
+        component={TelecallerLeaveApplication}
+        options={{ headerShown: false }}
+      />
       <BDMStack.Screen
         name="CalendarViewScreen"
         component={CalendarViewScreen}
-        options={{ headerShown: false }}/>  
+        options={{ headerShown: false }}
+      />
       <BDMStack.Screen
-      name="ApplyLeaveScreen" 
-      component={ApplyLeaveScreen}
-      options={{ headerShown: false }}/>
+        name="ApplyLeaveScreen"
+        component={ApplyLeaveScreen}
+        options={{ headerShown: false }}
+      />
     </BDMStack.Navigator>
   );
 }
-
 
 const HrStack = createDrawerNavigator<HrStackParamList>();
 
@@ -573,20 +627,20 @@ function HrStackNavigator() {
       screenOptions={{
         headerShown: false,
         drawerStyle: {
-          backgroundColor: '#fff',
+          backgroundColor: "#fff",
           width: 280,
           borderTopRightRadius: 20,
           borderBottomRightRadius: 20,
           elevation: 5,
-          shadowColor: '#000',
+          shadowColor: "#000",
           shadowOffset: { width: 0, height: 2 },
           shadowOpacity: 0.25,
           shadowRadius: 3.84,
         },
         drawerLabelStyle: {
-          fontFamily: 'LexendDeca_400Regular',
+          fontFamily: "LexendDeca_400Regular",
           fontSize: 16,
-          color: '#333',
+          color: "#333",
           marginLeft: -16,
           paddingLeft: 16,
         },
@@ -595,37 +649,37 @@ function HrStackNavigator() {
           marginVertical: 4,
           borderRadius: 8,
         },
-        drawerActiveTintColor: '#FF8447',
-        drawerInactiveTintColor: '#666',
-        drawerActiveBackgroundColor: '#FFF8F0',
-        drawerInactiveBackgroundColor: 'transparent',
+        drawerActiveTintColor: "#FF8447",
+        drawerInactiveTintColor: "#666",
+        drawerActiveBackgroundColor: "#FFF8F0",
+        drawerInactiveBackgroundColor: "transparent",
       }}
     >
-      <HrStack.Screen 
-        name="HrHomeScreen" 
+      <HrStack.Screen
+        name="HrHomeScreen"
         component={HrHomeScreen}
         options={{
-          title: 'Home',
+          title: "Home",
           drawerIcon: ({ color }) => (
             <MaterialIcons name="home" size={24} color={color} />
           ),
         }}
       />
-       <HrStack.Screen 
-        name="HrProfile" 
+      <HrStack.Screen
+        name="HrProfile"
         component={HrProfile}
         options={{
-          title: 'Profile',
+          title: "Profile",
           drawerIcon: ({ color }) => (
             <MaterialIcons name="person" size={24} color={color} />
           ),
         }}
       />
-      <HrStack.Screen 
-        name="HrSettings" 
+      <HrStack.Screen
+        name="HrSettings"
         component={HrSettings}
         options={{
-          title: 'Settings',
+          title: "Settings",
           drawerIcon: ({ color }) => (
             <MaterialIcons name="person" size={24} color={color} />
           ),
@@ -643,11 +697,11 @@ const RootStack = () => {
 
   const checkFirstTimeUser = async () => {
     try {
-      const hasSeenOnboarding = await AsyncStorage.getItem('hasSeenOnboarding');
-      setInitialRoute(hasSeenOnboarding ? 'Login' : 'Slide1');
+      const hasSeenOnboarding = await AsyncStorage.getItem("hasSeenOnboarding");
+      setInitialRoute(hasSeenOnboarding ? "Login" : "Slide1");
     } catch (error) {
-      console.error('Error checking first time user:', error);
-      setInitialRoute('Slide1'); // Default to onboarding if error
+      console.error("Error checking first time user:", error);
+      setInitialRoute("Slide1"); // Default to onboarding if error
     }
   };
 
@@ -659,9 +713,9 @@ const RootStack = () => {
     <Stack.Navigator
       initialRouteName={initialRoute}
       screenOptions={{
-        headerShown: false
+        headerShown: false,
       }}
-    > 
+    >
       <Stack.Screen name="Slide1" component={Slide1} />
       <Stack.Screen name="Login" component={LoginScreen} />
       <Stack.Screen name="SignUpScreen" component={SignUpScreen} />
@@ -669,17 +723,25 @@ const RootStack = () => {
       <Stack.Screen name="VerifyEmail" component={VerifyEmail} />
       <Stack.Screen name="SetNewPassword" component={SetNewPassword} />
       <Stack.Screen name="MainApp" component={DrawerNavigator} />
-      
-      <Stack.Screen 
-        name="BDMStack" 
+
+      <Stack.Screen
+        name="BDMStack"
         component={BDMStackNavigator}
         options={{
           headerShown: false,
-          gestureEnabled: false
+          gestureEnabled: false,
         }}
       />
-      <Stack.Screen name="HrStack" component={HrStackNavigator} options={{ headerShown: false }} />
-      <Stack.Screen name="ContactInfo" component={ContactInfo} options={{ headerShown: false }} />
+      <Stack.Screen
+        name="HrStack"
+        component={HrStackNavigator}
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        name="ContactInfo"
+        component={ContactInfo}
+        options={{ headerShown: false }}
+      />
     </Stack.Navigator>
   );
 };
@@ -703,8 +765,11 @@ export default function App() {
 
   // Add app state tracking
   useEffect(() => {
-    const subscription = AppState.addEventListener('change', handleAppStateChange);
-    
+    const subscription = AppState.addEventListener(
+      "change",
+      handleAppStateChange
+    );
+
     // Check for existing session on app start
     checkExistingSession();
 
@@ -717,57 +782,64 @@ export default function App() {
   }, []);
 
   const handleAppStateChange = async (nextAppState: string) => {
-    if (nextAppState === 'active') {
+    if (nextAppState === "active") {
       // App came to foreground
-      console.log('App came to foreground');
-      
+      console.log("App came to foreground");
+
       // Check if user is already authenticated in Firebase
       if (auth.currentUser) {
-        console.log('User is already authenticated in Firebase');
+        console.log("User is already authenticated in Firebase");
         setIsAuthenticated(true);
-        
+
         // Update last active time
-        await AsyncStorage.setItem('lastActiveTime', new Date().toISOString());
+        await AsyncStorage.setItem("lastActiveTime", new Date().toISOString());
       } else {
         // Try to restore session from AsyncStorage
-        const sessionToken = await AsyncStorage.getItem('sessionToken');
-        const lastActiveTime = await AsyncStorage.getItem('lastActiveTime');
-        
+        const sessionToken = await AsyncStorage.getItem("sessionToken");
+        const lastActiveTime = await AsyncStorage.getItem("lastActiveTime");
+
         if (sessionToken && lastActiveTime) {
           // Check if session is still valid (e.g., within 30 days)
           const lastActive = new Date(lastActiveTime).getTime();
           const now = new Date().getTime();
           const thirtyDaysInMs = 30 * 24 * 60 * 60 * 1000;
-          
+
           if (now - lastActive <= thirtyDaysInMs) {
-            console.log('Valid session found in AsyncStorage');
+            console.log("Valid session found in AsyncStorage");
             // Session is valid, but Firebase auth might have been cleared
             // We'll keep the user logged in based on AsyncStorage
             setIsAuthenticated(true);
-            
+
             // Update last active time
-            await AsyncStorage.setItem('lastActiveTime', new Date().toISOString());
+            await AsyncStorage.setItem(
+              "lastActiveTime",
+              new Date().toISOString()
+            );
           } else {
-            console.log('Session expired');
+            console.log("Session expired");
             // Session expired, clear it
-            await AsyncStorage.multiRemove(['sessionToken', 'lastActiveTime', 'userRole']);
+            await AsyncStorage.multiRemove([
+              "sessionToken",
+              "lastActiveTime",
+              "userRole",
+            ]);
             setIsAuthenticated(false);
           }
         } else {
-          console.log('No session found in AsyncStorage');
+          console.log("No session found in AsyncStorage");
           setIsAuthenticated(false);
         }
       }
-    } else if (nextAppState === 'background' || nextAppState === 'inactive') {
+    } else if (nextAppState === "background" || nextAppState === "inactive") {
       // App went to background
-      console.log('App went to background');
-      
+      console.log("App went to background");
+
       if (auth.currentUser) {
         // Save current time as last active
-        await AsyncStorage.setItem('lastActiveTime', new Date().toISOString());
+        await AsyncStorage.setItem("lastActiveTime", new Date().toISOString());
         // Store session token
-        await AsyncStorage.setItem('sessionToken', auth.currentUser.uid);
-        console.log('Session saved to AsyncStorage');
+        await AsyncStorage.setItem("sessionToken", auth.currentUser.uid);
+        console.log("Session saved to AsyncStorage");
       }
     }
   };
@@ -775,47 +847,57 @@ export default function App() {
   const checkExistingSession = async () => {
     try {
       setIsLoading(true);
-      
+
       // First check if Firebase auth has a current user
       if (auth.currentUser) {
-        console.log('User is authenticated in Firebase');
+        console.log("User is authenticated in Firebase");
         setIsAuthenticated(true);
-        
+
         // Save session to AsyncStorage
-        await AsyncStorage.setItem('sessionToken', auth.currentUser.uid);
-        await AsyncStorage.setItem('lastActiveTime', new Date().toISOString());
-        
+        await AsyncStorage.setItem("sessionToken", auth.currentUser.uid);
+        await AsyncStorage.setItem("lastActiveTime", new Date().toISOString());
+
         setIsLoading(false);
         return;
       }
-      
+
       // If no Firebase auth, check AsyncStorage
-      const [sessionToken, lastActiveTime] = await AsyncStorage.multiGet(['sessionToken', 'lastActiveTime']);
-      
+      const [sessionToken, lastActiveTime] = await AsyncStorage.multiGet([
+        "sessionToken",
+        "lastActiveTime",
+      ]);
+
       if (sessionToken[1] && lastActiveTime[1]) {
         const lastActive = new Date(lastActiveTime[1]).getTime();
         const now = new Date().getTime();
         const thirtyDaysInMs = 30 * 24 * 60 * 60 * 1000;
-        
+
         if (now - lastActive <= thirtyDaysInMs) {
-          console.log('Valid session found in AsyncStorage');
+          console.log("Valid session found in AsyncStorage");
           // Valid session exists, keep user logged in
           setIsAuthenticated(true);
-          
+
           // Update last active time
-          await AsyncStorage.setItem('lastActiveTime', new Date().toISOString());
+          await AsyncStorage.setItem(
+            "lastActiveTime",
+            new Date().toISOString()
+          );
         } else {
-          console.log('Session expired');
+          console.log("Session expired");
           // Session expired, clear it
-          await AsyncStorage.multiRemove(['sessionToken', 'lastActiveTime', 'userRole']);
+          await AsyncStorage.multiRemove([
+            "sessionToken",
+            "lastActiveTime",
+            "userRole",
+          ]);
           setIsAuthenticated(false);
         }
       } else {
-        console.log('No session found in AsyncStorage');
+        console.log("No session found in AsyncStorage");
         setIsAuthenticated(false);
       }
     } catch (error) {
-      console.error('Error checking existing session:', error);
+      console.error("Error checking existing session:", error);
       setIsAuthenticated(false);
     } finally {
       setIsLoading(false);
@@ -826,18 +908,18 @@ export default function App() {
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged(async (user) => {
       if (user) {
-        console.log('Firebase auth state changed: user is signed in');
+        console.log("Firebase auth state changed: user is signed in");
         setIsAuthenticated(true);
-        
+
         // Save session to AsyncStorage
-        await AsyncStorage.setItem('sessionToken', user.uid);
-        await AsyncStorage.setItem('lastActiveTime', new Date().toISOString());
+        await AsyncStorage.setItem("sessionToken", user.uid);
+        await AsyncStorage.setItem("lastActiveTime", new Date().toISOString());
       } else {
-        console.log('Firebase auth state changed: user is signed out');
+        console.log("Firebase auth state changed: user is signed out");
         // Only set isAuthenticated to false if we don't have a valid session in AsyncStorage
-        const sessionToken = await AsyncStorage.getItem('sessionToken');
-        const lastActiveTime = await AsyncStorage.getItem('lastActiveTime');
-        
+        const sessionToken = await AsyncStorage.getItem("sessionToken");
+        const lastActiveTime = await AsyncStorage.getItem("lastActiveTime");
+
         if (!sessionToken || !lastActiveTime) {
           setIsAuthenticated(false);
         } else {
@@ -845,16 +927,20 @@ export default function App() {
           const lastActive = new Date(lastActiveTime).getTime();
           const now = new Date().getTime();
           const thirtyDaysInMs = 30 * 24 * 60 * 60 * 1000;
-          
+
           if (now - lastActive > thirtyDaysInMs) {
             // Session expired, clear it
-            await AsyncStorage.multiRemove(['sessionToken', 'lastActiveTime', 'userRole']);
+            await AsyncStorage.multiRemove([
+              "sessionToken",
+              "lastActiveTime",
+              "userRole",
+            ]);
             setIsAuthenticated(false);
           }
         }
       }
     });
-    
+
     return () => unsubscribe();
   }, []);
 
@@ -864,7 +950,7 @@ export default function App() {
         await SplashScreen.preventAutoHideAsync();
         // Preload other assets here if needed
       } catch (e) {
-        console.warn('Error preparing app:', e);
+        console.warn("Error preparing app:", e);
       } finally {
         setAppIsReady(true);
       }
@@ -883,14 +969,17 @@ export default function App() {
       try {
         const isConnected = await testDatabaseConnection();
         if (!isConnected) {
-          Alert.alert('Error', 'Could not connect to database. Please check your internet connection.');
+          Alert.alert(
+            "Error",
+            "Could not connect to database. Please check your internet connection."
+          );
         }
       } catch (error) {
-        console.error('Connection test error:', error);
-        Alert.alert('Error', 'Failed to test database connection');
+        console.error("Connection test error:", error);
+        Alert.alert("Error", "Failed to test database connection");
       }
     };
-    
+
     checkConnection();
   }, []);
 
@@ -900,16 +989,16 @@ export default function App() {
 
   if (!permissionsGranted) {
     return (
-      <PermissionsHandler 
-        onPermissionsGranted={() => setPermissionsGranted(true)} 
+      <PermissionsHandler
+        onPermissionsGranted={() => setPermissionsGranted(true)}
       />
     );
   }
 
-  return ( 
-        <ProfileProvider>
-            <RootStack />
-        </ProfileProvider>
+  return (
+    <ProfileProvider>
+      <RootStack />
+    </ProfileProvider>
   );
 }
 
@@ -940,9 +1029,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 40, // Increased top padding
     paddingBottom: 15,
-    backgroundColor: 'white',
+    backgroundColor: "white",
     elevation: 3,
-    shadowColor: '#000',
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 2,
@@ -952,6 +1041,6 @@ const styles = StyleSheet.create({
     height: 40,
     borderRadius: 20,
     borderWidth: 2,
-    borderColor: '#FF8447',
+    borderColor: "#FF8447",
   },
 });

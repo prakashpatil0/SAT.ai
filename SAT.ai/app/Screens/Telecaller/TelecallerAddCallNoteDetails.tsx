@@ -11,6 +11,7 @@ import { getAuth } from 'firebase/auth';
 import { doc, updateDoc, addDoc, collection } from 'firebase/firestore';
 import { db } from '@/firebaseConfig';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import DateTimePicker from '@react-native-community/datetimepicker';
 
 interface Meeting {
   id: string;
@@ -51,6 +52,60 @@ const TelecallerCallNoteDetails = () => {
   const [status, setStatus] = useState('Mark Status');
   const [showStatusModal, setShowStatusModal] = useState(false);
   const { meeting } = route.params as { meeting: Meeting };
+  const [selectedProduct, setSelectedProduct] = useState<string | null>(null);
+  const [showProductModal, setShowProductModal] = useState(false);
+  const [selectedProductLabel, setSelectedProductLabel] = useState('Select Product');
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [expectedDate, setExpectedDate] = useState<Date | null>(null);
+  const [expectedClosingAmount, setExpectedClosingAmount] = useState('');
+    const [isSaving, setIsSaving] = useState(false);
+  
+  type ProductItem = {
+  label: string;
+  value: string;
+};
+const PRODUCT_LIST: ProductItem[] = [
+  { label: "Health Insurance", value: "health_insurance" },
+  { label: "Bike Insurance", value: "bike_insurance" },
+  { label: "Car Insurance", value: "car_insurance" },
+  { label: "Term Insurance", value: "term_insurance" },
+  { label: "Mutual Funds", value: "mutual_funds" },
+  { label: "Saving Plans", value: "saving_plan" },
+  { label: "Travel Insurance", value: "travel_insurance" },
+  { label: "Group Mediclaim", value: "group_mediclaim" },
+  { label: "Group Personal Accident", value: "group_personal_accident" },
+  { label: "Group Term Life", value: "group_term_life" },
+  { label: "Group Credit Life", value: "group_credit_life" },
+  { label: "Workmen Compensation", value: "workmen_compensation" },
+  { label: "Group Gratuity", value: "group_gratuity" },
+  { label: "Fire & Burglary Insurance", value: "fire_burglary_insurance" },
+  { label: "Shop Owner Insurance", value: "shop_owner_insurance" },
+  { label: "Motor Fleet Insurance", value: "motor_fleet_insurance" },
+  { label: "Marine Single Transit", value: "marine_single_transit" },
+  { label: "Marine Open Policy", value: "marine_open_policy" },
+  { label: "Marine Sales Turnover", value: "marine_sales_turnover" },
+  { label: "Directors & Officers Insurance", value: "directors_officers_insurance" },
+  { label: "General Liability Insurance", value: "general_liability_insurance" },
+  { label: "Product Liability Insurance", value: "product_liability_insurance" },
+  { label: "Professional Indemnity for Doctors", value: "professional_indemnity_for_doctors" },
+  { label: "Professional Indemnity for Companies", value: "professional_indemnity_for_companies" },
+  { label: "Cyber Insurance", value: "cyber_insurance" },
+  { label: "Office Package Policy", value: "office_package_policy" },
+  { label: "Crime Insurance", value: "crime_insurance" },
+  { label: "Other", value: "other" },
+];
+
+const handleProductSelect = (item: ProductItem) => {
+  setSelectedProduct(item.value);
+  setSelectedProductLabel(item.label);
+  setShowProductModal(false);
+};
+const onChangeDate = (event: any, selectedDate?: Date) => {
+  setShowDatePicker(false);
+  if (selectedDate) {
+    setExpectedDate(selectedDate);
+  }
+};
 
   // Helper function to safely parse dates
   const parseDate = (dateValue: Date | string | number): Date => {
@@ -69,7 +124,7 @@ const TelecallerCallNoteDetails = () => {
   // Ensure we have a valid timestamp
   const callTimestamp = parseDate(meeting.timestamp);
 
-  const statusOptions = ['Prospect', 'Suspect', 'Closing'];
+const statusOptions = ['Prospect', 'Suspect', 'Closing','Not Interested'];
 
   const handleStatusSelect = (selectedStatus: string) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -133,95 +188,77 @@ const TelecallerCallNoteDetails = () => {
     }
   };
 
-  const handleSubmit = async () => {
-    if (notes.trim().length === 0) {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      return;
-    }
-    
-    try {
-      const auth = getAuth();
-      const userId = auth.currentUser?.uid;
-      
-      if (!userId) {
-        throw new Error('User not authenticated');
-      }
+const handleSubmit = async () => {
+  if (notes.trim().length === 0) {
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    return;
+  }
 
-      // Create a unique contact identifier
-      const contactIdentifier = createSafeContactIdentifier({
-        phoneNumber: meeting.phoneNumber,
-        contactName: meeting.contactName
-      });
+  try {
+    const auth = getAuth();
+    const userId = auth.currentUser?.uid;
+    if (!userId) throw new Error('User not authenticated');
 
-      // Create a unique call ID using timestamp and phone number
-      const callId = `${meeting.phoneNumber}_${callTimestamp.getTime()}`;
+    const contactIdentifier = createSafeContactIdentifier({
+      phoneNumber: meeting.phoneNumber,
+      contactName: meeting.contactName,
+    });
 
-      const noteData = {
-        id: callId,
-        userId,
-        contactIdentifier,
-        phoneNumber: meeting.phoneNumber,
-        contactName: meeting.contactName || meeting.phoneNumber,
-        notes,
-        status,
-        timestamp: new Date().toISOString(),
-        followUp,
-        callTimestamp: callTimestamp.toISOString(),
-        callDuration: meeting.duration,
-        type: meeting.type || 'outgoing'
-      };
+    const callId = `${meeting.phoneNumber}_${callTimestamp.getTime()}`;
 
-      // Save to AsyncStorage with contact identifier grouping
-      try {
-        const existingNotesStr = await AsyncStorage.getItem(CALL_NOTES_STORAGE_KEY);
-        const allNotes = existingNotesStr ? JSON.parse(existingNotesStr) : {};
+    const noteData = {
+      id: callId,
+      userId,
+      contactIdentifier,
+      phoneNumber: meeting.phoneNumber,
+      contactName: meeting.contactName || meeting.phoneNumber,
+      notes,
+      status,
+      timestamp: new Date().toISOString(),
+      followUp,
+      callTimestamp: callTimestamp.toISOString(),
+      callDuration: meeting.duration,
+      type: meeting.type || 'outgoing',
+      selectedProduct,
+      expectedClosingAmount,
+      expectedClosingDate: expectedDate ? expectedDate.toISOString() : null,
+    };
 
-        // Initialize contact's notes array if it doesn't exist
-        if (!allNotes[contactIdentifier]) {
-          allNotes[contactIdentifier] = [];
-        }
+    // 🔥 Save to Firestore
+    await addDoc(collection(db, 'telecaller_call_notes'), noteData);
 
-        // Remove any existing note for this call
-        allNotes[contactIdentifier] = allNotes[contactIdentifier]
-          .filter((note: any) => note.id !== callId);
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
-        // Add the new note
-        allNotes[contactIdentifier].push(noteData);
-
-        await AsyncStorage.setItem(CALL_NOTES_STORAGE_KEY, JSON.stringify(allNotes));
-      } catch (asyncError) {
-        console.error('AsyncStorage save failed:', asyncError);
-        throw new Error('Failed to save note to AsyncStorage');
-      }
-
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      
-      // Navigate to TelecallerPersonNotes with all required parameters
-      navigation.navigate('TelecallerPersonNotes', {
-        phoneNumber: meeting.phoneNumber,
+    navigation.navigate('TelecallerPersonNotes', {
+      phoneNumber: meeting.phoneNumber,
+      name: meeting.contactName || meeting.phoneNumber,
+      time: format(callTimestamp, 'hh:mm a'),
+      duration: formatDuration(meeting.duration),
+      status: status !== 'Mark Status' ? status : 'No Status',
+      notes: [notes],
+      contactInfo: {
         name: meeting.contactName || meeting.phoneNumber,
-        time: format(callTimestamp, 'hh:mm a'),
-        duration: formatDuration(meeting.duration),
-        status: status !== 'Mark Status' ? status : 'No Status',
-        notes: [notes],
-        contactInfo: {
-          name: meeting.contactName || meeting.phoneNumber,
-          phoneNumber: meeting.phoneNumber,
-          timestamp: callTimestamp,
-          duration: meeting.duration
-        },
-        contactIdentifier
-      });
-    } catch (error) {
-      console.error('Error saving call notes:', error);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-    }
-  };
+        phoneNumber: meeting.phoneNumber,
+        timestamp: callTimestamp,
+        duration: meeting.duration
+      },
+      contactIdentifier
+    });
+  } catch (error) {
+    console.error('Error saving call notes:', error);
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+  }
+};
+
 
   return (
     <AppGradient>
       <TelecallerMainLayout showDrawer showBackButton={true} showBottomTabs={true} title={meeting.contactName || meeting.phoneNumber}>
-        <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
+        <ScrollView
+          style={styles.scrollContainer}
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
+        >
           {/* Header Section */}
           <View style={styles.headerSection}>
             <View style={styles.titleRow}>
@@ -235,6 +272,10 @@ const TelecallerCallNoteDetails = () => {
           </View>
 
           {/* Status Dropdown */}
+          <Text style={styles.label}>
+            <Text style={styles.required}>* </Text>
+            Mark the Status of the Call
+          </Text>
           <TouchableOpacity 
             style={styles.statusButton}
             onPress={() => {
@@ -251,48 +292,8 @@ const TelecallerCallNoteDetails = () => {
             <MaterialIcons name="keyboard-arrow-down" size={24} color="#666" />
           </TouchableOpacity>
 
-          {/* Notes Input */}
-          <View style={styles.notesContainer}>
-            <TextInput
-              style={styles.notesInput}
-              placeholder="Add notes here..."
-              placeholderTextColor="#A4A4A4"
-              multiline
-              value={notes}
-              onChangeText={setNotes}
-              maxLength={120}
-            />
-            <View style={styles.notesFooter}>
-              <Text style={[
-                styles.characterCount,
-                notes.length === 120 && styles.characterCountLimit
-              ]}>
-                {notes.length}/120
-              </Text>
-              <TouchableOpacity 
-                style={[
-                  styles.submitButton,
-                  notes.length === 0 && styles.submitButtonDisabled
-                ]}
-                disabled={notes.length === 0}
-                onPress={handleSubmit}
-              >
-                <Text style={styles.submitButtonText}>Submit</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-
-          {/* Follow Up Checkbox */}
-          <TouchableOpacity 
-            style={styles.followUpContainer}
-            onPress={handleFollowUpPress}
-          >
-            <View style={[styles.checkbox, followUp && styles.checkboxChecked]}>
-              {followUp && <MaterialIcons name="check" size={16} color="#FFF" />}
-            </View>
-            <Text style={styles.followUpText}>Follow up on this call</Text>
-          </TouchableOpacity>
-        </ScrollView>
+         
+       
 
         {/* Status Modal */}
         <Modal
@@ -313,7 +314,6 @@ const TelecallerCallNoteDetails = () => {
                   style={[
                     styles.statusOption,
                     index < statusOptions.length - 1 && styles.statusOptionBorder,
-                    status === option && styles.selectedStatusOption
                   ]}
                   onPress={() => handleStatusSelect(option)}
                 >
@@ -328,26 +328,340 @@ const TelecallerCallNoteDetails = () => {
             </View>
           </TouchableOpacity>
         </Modal>
+
+                {/* Notes Section */}
+       {status === 'Mark Status' && (
+  <View style={styles.notesContainer}>
+    <TextInput
+      style={styles.notesInput}
+      placeholder="Add Call Notes"
+      placeholderTextColor="#999"
+      multiline
+      value={notes}
+      onChangeText={setNotes}
+      maxLength={120}
+    />
+    <Text style={styles.characterCount}>{notes.length}/120</Text>
+  </View>
+)}
+
+{status === 'Not Interested' && (
+  <View style={styles.notesContainer}>
+    <TextInput
+      style={styles.notesInput}
+      placeholder="Add Call Notes"
+      placeholderTextColor="#999"
+      multiline
+      value={notes}
+      onChangeText={setNotes}
+      maxLength={120}
+    />
+    <Text style={styles.characterCount}>{notes.length}/120</Text>
+  </View>
+)}
+
+{status === 'Prospect' && (
+  <View style={styles.notesContainer}>
+    <Text style={styles.label}>Prospective Client Details</Text>
+<TouchableOpacity
+  style={styles.statusButton}
+  onPress={() => setShowProductModal(true)}
+>
+  <Text style={styles.statusText}>{selectedProductLabel}</Text>
+  <MaterialIcons name="keyboard-arrow-down" size={24} color="#666" />
+</TouchableOpacity>
+
+<Modal
+  visible={showProductModal}
+  transparent
+  animationType="fade"
+  onRequestClose={() => setShowProductModal(false)}
+>
+  <TouchableOpacity
+    style={styles.modalOverlay}
+    activeOpacity={1}
+    onPressOut={() => setShowProductModal(false)}
+  >
+    <View style={[styles.modalContent, { maxHeight: 600 }]}>
+      <ScrollView nestedScrollEnabled>
+        {PRODUCT_LIST.map((item, index) => (
+          <TouchableOpacity
+            key={item.value}
+            style={[
+              styles.statusOption,
+              index < PRODUCT_LIST.length - 1 && styles.statusOptionBorder
+            ]}
+            onPress={() => handleProductSelect(item)}
+          >
+            <Text style={styles.statusOptionText}>{item.label}</Text>
+          </TouchableOpacity>
+        ))}
+      </ScrollView>
+    </View>
+  </TouchableOpacity>
+</Modal>
+
+
+
+
+
+ <TextInput
+  style={styles.input}
+  placeholder="Enter Expected Closing Amount"
+  keyboardType="numeric"
+  value={expectedClosingAmount}
+  onChangeText={setExpectedClosingAmount}
+/>
+
+
+   <TextInput
+  style={styles.notesInput}
+  placeholder="Add Call Notes"
+  multiline
+  value={notes}
+  onChangeText={setNotes}
+/>
+
+    <TouchableOpacity style={styles.followUpContainer} onPress={handleFollowUpPress}>
+      <View style={[styles.checkbox, followUp && styles.checkboxChecked]}>
+        {followUp && <MaterialIcons name="check" size={16} color="#FFF" />}
+      </View>
+      <Text style={styles.followUpText}>Follow up on this call</Text>
+    </TouchableOpacity>
+    <Text style={{ color: 'gray', fontSize: 12, marginTop: 8 }}>
+      *Note - If a prospective client is not moved to 'Suspect' within 45 days, they will automatically be marked as 'Not Interested.'
+    </Text>
+  </View>
+)}
+
+{status === 'Suspect' && (
+  <View style={styles.notesContainer}>
+    <Text style={styles.label}>Suspective Client Details</Text>
+<TouchableOpacity
+  style={styles.statusButton}
+  onPress={() => setShowProductModal(true)}
+>
+  <Text style={styles.statusText}>{selectedProductLabel}</Text>
+  <MaterialIcons name="keyboard-arrow-down" size={24} color="#666" />
+</TouchableOpacity>
+
+<Modal
+  visible={showProductModal}
+  transparent
+  animationType="fade"
+  onRequestClose={() => setShowProductModal(false)}
+>
+  <TouchableOpacity
+    style={styles.modalOverlay}
+    activeOpacity={1}
+    onPressOut={() => setShowProductModal(false)}
+  >
+    <View style={[styles.modalContent, { maxHeight: 600 }]}>
+      <ScrollView nestedScrollEnabled>
+        {PRODUCT_LIST.map((item, index) => (
+          <TouchableOpacity
+            key={item.value}
+            style={[
+              styles.statusOption,
+              index < PRODUCT_LIST.length - 1 && styles.statusOptionBorder
+            ]}
+            onPress={() => handleProductSelect(item)}
+          >
+            <Text style={styles.statusOptionText}>{item.label}</Text>
+          </TouchableOpacity>
+        ))}
+      </ScrollView>
+    </View>
+  </TouchableOpacity>
+</Modal>
+
+
+
+    <TextInput
+  style={styles.input}
+  placeholder="Enter Expected Closing Amount"
+  keyboardType="numeric"
+  value={expectedClosingAmount}
+  onChangeText={setExpectedClosingAmount}
+/>
+
+   <TextInput
+  style={styles.notesInput}
+  placeholder="Add Call Notes"
+  multiline
+  value={notes}
+  onChangeText={setNotes}
+/>
+
+    <TouchableOpacity onPress={() => setShowDatePicker(true)} style={styles.input}>
+  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }} >
+    <Text style={{ color: expectedDate ? '#333' : '#999', fontSize: 16 }}>
+      {expectedDate ? format(expectedDate, 'dd/MM/yyyy') : 'Select Expected Closing Date'}
+    </Text>
+    <MaterialIcons name="calendar-today" size={24} color="#666" />
+  </View>
+</TouchableOpacity>
+
+
+{showDatePicker && (
+  <DateTimePicker
+    value={expectedDate || new Date()}
+    mode="date"
+    display="calendar"
+    onChange={onChangeDate}
+  />
+)}
+
+    <TouchableOpacity style={styles.followUpContainer} onPress={handleFollowUpPress}>
+      <View style={[styles.checkbox, followUp && styles.checkboxChecked]}>
+        {followUp && <MaterialIcons name="check" size={16} color="#FFF" />}
+      </View>
+      <Text style={styles.followUpText}>Follow up on this call</Text>
+    </TouchableOpacity>
+  </View>
+)}
+
+{status === 'Closing' && (
+  <View style={styles.notesContainer}>
+    <Text style={styles.label}>Closed Client Details</Text>
+   <TouchableOpacity
+  style={styles.statusButton}
+  onPress={() => setShowProductModal(true)}
+>
+  <Text style={styles.statusText}>{selectedProductLabel}</Text>
+  <MaterialIcons name="keyboard-arrow-down" size={24} color="#666" />
+</TouchableOpacity>
+
+<Modal
+  visible={showProductModal}
+  transparent
+  animationType="fade"
+  onRequestClose={() => setShowProductModal(false)}
+>
+  <TouchableOpacity
+    style={styles.modalOverlay}
+    activeOpacity={1}
+    onPressOut={() => setShowProductModal(false)}
+  >
+    <View style={[styles.modalContent, { maxHeight: 600 }]}>
+      <ScrollView nestedScrollEnabled>
+        {PRODUCT_LIST.map((item, index) => (
+          <TouchableOpacity
+            key={item.value}
+            style={[
+              styles.statusOption,
+              index < PRODUCT_LIST.length - 1 && styles.statusOptionBorder
+            ]}
+            onPress={() => handleProductSelect(item)}
+          >
+            <Text style={styles.statusOptionText}>{item.label}</Text>
+          </TouchableOpacity>
+        ))}
+      </ScrollView>
+    </View>
+  </TouchableOpacity>
+</Modal>
+
+
+ <TextInput
+  style={styles.input}
+  placeholder="Enter Expected Closing Amount"
+  keyboardType="numeric"
+  value={expectedClosingAmount}
+  onChangeText={setExpectedClosingAmount}
+/>
+
+    <TextInput
+  style={styles.notesInput}
+  placeholder="Add Call Notes"
+  multiline
+  value={notes}
+  onChangeText={setNotes}
+/>
+
+    <TextInput style={styles.input} placeholder="Enter Closing Amount" />
+    <TouchableOpacity style={styles.followUpContainer} onPress={handleFollowUpPress}>
+      <View style={[styles.checkbox, followUp && styles.checkboxChecked]}>
+        {followUp && <MaterialIcons name="check" size={16} color="#FFF" />}
+      </View>
+      <Text style={styles.followUpText}>Follow up on this call</Text>
+    </TouchableOpacity>
+  </View>
+)}
+<TouchableOpacity 
+  style={[styles.submitButton, isSaving && styles.submitButtonDisabled]}
+  disabled={isSaving}
+  onPress={handleSubmit}
+>
+  <Text style={styles.submitButtonText}>
+    {isSaving ? 'Saving...' : 'Submit'}
+  </Text>
+</TouchableOpacity>
+ </ScrollView>
       </TelecallerMainLayout>
     </AppGradient>
   );
 };
 
 const styles = StyleSheet.create({
-  container: {
+   container: {
     flex: 1,
+    backgroundColor: '#FFF',
+  },
+  scrollContainer: {
+  flex: 1,
+},
+required: {
+  color: 'red',
+  fontSize: 16,
+  fontFamily: 'LexendDeca_600SemiBold',
+},
+scrollContent: {
+  padding: 16,
+  paddingBottom: 100, // extra space for button visibility
+},
+
+  gradient: {
+ 
     padding: 16,
   },
+   statusOption: {
+    padding: 16,
+  },
+  statusOptionBorder: {
+    borderBottomWidth: 1,
+    borderBottomColor: '#EEEEEE',
+  },
+  statusOptionText: {
+    fontSize: 16,
+    fontFamily: 'LexendDeca_400Regular',
+    color: '#666',
+  },
+  input: {
+  height: 48,
+  borderWidth: 1,
+  borderColor: '#ccc',
+  borderRadius: 8,
+  paddingHorizontal: 16,
+  fontSize: 16,
+  fontFamily: 'LexendDeca_400Regular',
+  color: '#333',
+  marginBottom: 12,
+  backgroundColor: '#FFF',
+ paddingVertical: 10,
+  
+},
+label: {
+  fontSize: 16,
+  fontFamily: 'LexendDeca_600SemiBold',
+  marginBottom: 8,
+  color: '#333',
+},
   headerSection: {
     marginBottom: 24,
-    // backgroundColor: '#FFFFFF',
+   
     padding: 16,
-    // borderRadius: 12,
-    // elevation: 2,
-    // shadowColor: '#000',
-    // shadowOffset: { width: 0, height: 2 },
-    // shadowOpacity: 0.1,
-    // shadowRadius: 4,
+ 
   },
   titleRow: {
     marginBottom: 4,
@@ -386,24 +700,28 @@ const styles = StyleSheet.create({
     color: '#FF8447',
     fontFamily: 'LexendDeca_500Medium',
   },
-  notesContainer: {
-    backgroundColor: '#FFF',
+   notesContainer: {
+    padding: 5,
     borderRadius: 12,
-    padding: 16,
-    marginBottom: 24,
-    elevation: 2,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
+    marginBottom: 16,
   },
-  notesInput: {
+    notesInput: {
     height: 120,
     textAlignVertical: 'top',
     fontSize: 16,
     fontFamily: 'LexendDeca_400Regular',
     color: '#333',
-    padding: 0,
+     backgroundColor: '#FFF',
+     borderWidth: 1,
+  borderColor: '#ccc',
+  borderRadius: 8,
+  paddingHorizontal: 15, 
+  marginBottom: 8,
+
   },
   notesFooter: {
     flexDirection: 'row',
@@ -419,14 +737,14 @@ const styles = StyleSheet.create({
   characterCountLimit: {
     color: '#DC2626',
   },
-  submitButton: {
-    backgroundColor: '#FF8447',
-    paddingVertical: 8,
-    paddingHorizontal: 24,
+ submitButton: {
+    backgroundColor: '#FF7A45',
+    padding: 12,
     borderRadius: 8,
+    alignItems: 'center',
   },
   submitButtonDisabled: {
-    backgroundColor: '#FFD5C2',
+    opacity: 0.6,
   },
   submitButtonText: {
     color: '#FFF',
@@ -460,33 +778,24 @@ const styles = StyleSheet.create({
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'center',
-    padding: 16,
+    justifyContent: 'flex-start',
+    paddingHorizontal: 16,
+    paddingTop: 120,
   },
-  modalContent: {
-    backgroundColor: '#FFF',
-    borderRadius: 12,
-    elevation: 4,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 4,
-  },
-  statusOption: {
-    padding: 16,
-  },
-  statusOptionBorder: {
-    borderBottomWidth: 1,
-    borderBottomColor: '#EEEEEE',
-  },
-  statusOptionText: {
-    fontSize: 16,
-    fontFamily: 'LexendDeca_400Regular',
-    color: '#333',
-  },
-  selectedStatusOption: {
-    backgroundColor: '#FFF5E6',
-  },
+modalContent: {
+  backgroundColor: 'white',
+  borderRadius: 12,
+  elevation: 5,
+  shadowColor: '#000',
+  shadowOffset: { width: 0, height: 2 },
+  shadowOpacity: 0.25,
+  shadowRadius: 4,
+  paddingVertical: 4,
+  maxHeight: 400, // You can tweak this as needed
+  width: '100%',
+},
+
+
   selectedStatusOptionText: {
     color: '#FF8447',
     fontFamily: 'LexendDeca_500Medium',

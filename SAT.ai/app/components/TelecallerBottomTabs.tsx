@@ -43,14 +43,14 @@ const TelecallerBottomTabs = () => {
         ]}>Target</Text>
       </TouchableOpacity>
 
-      <TouchableOpacity 
+      {/* <TouchableOpacity 
         style={[styles.tabItem, styles.centerTab]} 
         onPress={() => navigation.navigate('AlertScreen' as never)}
       >
         <View style={styles.centerButton}>
           <MaterialIcons name="notifications-active" size={35} color="#FFF" />
         </View>
-      </TouchableOpacity>
+      </TouchableOpacity> */}
 
       <TouchableOpacity 
         style={styles.tabItem} 

@@ -30,22 +30,22 @@ type BDMAttendanceScreenRouteProp = RouteProp<RootStackParamList, 'BDMAttendance
 type BDMAttendanceScreenNavigationProp = StackNavigationProp<RootStackParamList, 'BDMAttendanceScreen'>;
 
 type AttendanceRecord = {
-  date: string;          // "01", "02", ..., "31"
-  day: string;           // "MON", "TUE", etc.
-  month: string;         // "01" to "12"
-  year: string;          // "2023"
-  punchIn: string;       // "09:00" (24-hour format)
-  punchOut: string;      // "17:30" (24-hour format)
+  date: string;          
+  day: string;           
+  month: string;         
+  year: string;          
+  punchIn: string;       
+  punchOut: string;      
   status: 'Present' | 'Half Day' | 'On Leave';
   userId: string;
   timestamp: Date;
-  photoUri: string;      // Punch-in photo URL
-  punchOutPhotoUri?: string; // Punch-out photo URL
-  location: {            // Punch-in location
+  photoUri: string;      
+  punchOutPhotoUri?: string; 
+  location: {            
     latitude: number;
     longitude: number;
   };
-  punchOutLocation?: {   // Punch-out location
+  punchOutLocation?: { 
     latitude: number;
     longitude: number;
   };
@@ -55,8 +55,8 @@ type AttendanceRecord = {
   email: string;
   totalHours: number;
   workMode: 'Office' | 'Work From Home';
-  locationName: string;  // Punch-in location name
-  punchOutLocationName?: string; // Punch-out location name
+  locationName: string; 
+  punchOutLocationName?: string;
   lastUpdated: Date;
 };
 

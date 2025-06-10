@@ -65,7 +65,7 @@ import SignUpScreen from "@/app/SignUpScreen";
 import { testDatabaseConnection } from "@/app/services/api";
 import Slide1 from "@/app/Onboarding/Slide1";
 import BDMHomeScreen from "@/app/Screens/BDM/Tab/BDMHomeScreen";
-import { IdleTimerProvider } from '@/context/IdleTimerContext';
+// import { IdleTimerProvider } from '@/context/IdleTimerContext';
 import ForgotPassword from '@/app/components/ForgotPassword/ForgotPassword';
 import VerifyEmail from '@/app/components/ForgotPassword/VerifyEmail';
 import SetNewPassword from '@/app/components/ForgotPassword/SetNewPassword';
@@ -75,7 +75,7 @@ import BDMMeetingReports from "./Screens/BDM/DrawerTab/BDMMeetingReports";
 import { auth } from '@/firebaseConfig';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import AlertScreen from "@/app/Screens/Telecaller/Tab/AlertScreen";
-import TelecallerIdleTimer from "./Screens/Telecaller/Tab/TelecallerIdleTimer";
+// import TelecallerIdleTimer from "./Screens/Telecaller/Tab/TelecallerIdleTimer";
 import BDMContactBook from "@/app/components/ContactBook/BDMContactBook"
 
 import HrHomeScreen from "@/app/HRMS/Tab/HrHomeScreen";
@@ -349,8 +349,8 @@ const DrawerNavigator = () => {
       <Drawer.Screen name="TelecallerPersonNotes" component={TelecallerPersonNotes} />
       <Drawer.Screen name="ContactBook" component={ContactBook} />
       <Drawer.Screen name="TelecallerCallNoteDetails" component={TelecallerCallNoteDetails} />
-      <Drawer.Screen name="TelecallerIdleTimer" component={TelecallerIdleTimer} />
-      <Drawer.Screen name="AlertScreen" component={AlertScreen} />
+      {/* <Drawer.Screen name="TelecallerIdleTimer" component={TelecallerIdleTimer} /> */}
+      {/* <Drawer.Screen name="AlertScreen" component={AlertScreen} /> */}
       <Drawer.Screen name="TelecallerLeaveApplication" component={TelecallerLeaveApplication} />
       <Drawer.Screen name="ApplyLeaveScreen" component={ApplyLeaveScreen} />
       <Drawer.Screen name="CalendarViewScreen" component={CalendarViewScreen} />

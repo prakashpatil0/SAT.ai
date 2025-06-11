@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import {
   View,
   Text,
@@ -24,11 +24,10 @@ import {
   where,
   Timestamp,
   updateDoc,
-  doc,
 } from "firebase/firestore";
 import { db, auth } from "@/firebaseConfig";
-import { format, startOfDay, addDays, isAfter } from "date-fns";
-import { getDoc } from "firebase/firestore";
+import { format } from "date-fns";
+import { doc, getDoc } from "firebase/firestore";
 import * as Location from "expo-location";
 
 type AttendanceStatus = "Present" | "Half Day" | "On Leave";
@@ -50,12 +49,13 @@ const getUserRole = async (): Promise<string | null> => {
 
 type RootStackParamList = {
   CameraScreen: { isPunchIn: boolean };
-  AttendanceScreen: {
-    photo?: { uri: string };
-    location?: { coords: { latitude: number; longitude: number } };
-    isPunchIn?: boolean;
-    locationName?: string | null;
-  };
+ AttendanceScreen: {
+  photo?: { uri: string };
+  location?: { coords: { latitude: number; longitude: number } };
+  isPunchIn?: boolean;
+  locationName?: string | null;
+  locationPunchout?: string | null; // ✅ Add this
+};
 };
 
 type AttendanceScreenNavigationProp = StackNavigationProp<RootStackParamList>;
@@ -68,10 +68,6 @@ interface AttendanceRecord {
   status: AttendanceStatus;
   userId: string;
   timestamp: Date;
-  photoUri?: string;
-  location?: { latitude: number; longitude: number };
-  locationName?: string;
-  totalHours?: number;
 }
 
 interface WeekDay {
@@ -143,126 +139,14 @@ const AttendanceScreen = () => {
     "On Leave": "#F44336",
   };
 
-  const calculateTotalHours = (punchIn: string, punchOut: string): number => {
-    if (!punchIn || !punchOut) return 0;
-
-    const [inHours, inMinutes] = punchIn.split(":").map(Number);
-    const [outHours, outMinutes] = punchOut.split(":").map(Number);
-
-    let totalInMinutes = inHours * 60 + inMinutes;
-    let totalOutMinutes = outHours * 60 + outMinutes;
-
-    if (totalOutMinutes < totalInMinutes) {
-      totalOutMinutes += 24 * 60;
-    }
-
-    return (totalOutMinutes - totalInMinutes) / 60;
-  };
-
-  const calculateStatus = (
-    punchIn: string,
-    punchOut: string
-  ): AttendanceStatus => {
-    if (!punchIn) return "On Leave";
-    if (punchIn && !punchOut) return "Present";
-
-    const durationHours = calculateTotalHours(punchIn, punchOut);
-
-    if (durationHours < 4) {
-      return "On Leave";
-    } else if (durationHours >= 4 && durationHours < 8) {
-      return "Half Day";
-    } else {
-      return "Present";
-    }
-  };
-
-  const autoPunchOut = async () => {
-    try {
-      const userId = auth.currentUser?.uid;
-      if (!userId) {
-        console.error('User not authenticated');
-        return;
-      }
-
-      const role = await getUserRole();
-      if (!role) {
-        console.error('User role not found');
-        return;
-      }
-
-      const currentTime = new Date();
-      const dateStr = format(currentTime, 'dd');
-      const roleCollection = `${role}_monthly_attendance`;
-      const attendanceRef = collection(db, roleCollection);
-      const todayQuery = query(
-        attendanceRef,
-        where('date', '==', dateStr),
-        where('userId', '==', userId)
-      );
-
-      const querySnapshot = await getDocs(todayQuery);
-      if (!querySnapshot.empty) {
-        const docRef = querySnapshot.docs[0].ref;
-        const existingData = querySnapshot.docs[0].data();
-
-        const totalHours = calculateTotalHours(existingData.punchIn, '00:00');
-        const newStatus = calculateStatus(existingData.punchIn, '00:00');
-
-        await updateDoc(docRef, {
-          punchOut: '00:00',
-          status: newStatus,
-          photoUri: existingData.photoUri || '',
-          location: existingData.location || null,
-          locationName: 'Auto Punch-Out',
-          totalHours: totalHours,
-        });
-
-        setPunchOutTime(format(new Date(`2000-01-01T00:00`), 'hh:mm a'));
-        setIsPunchedIn(false);
-        fetchAttendanceHistory();
-      }
-    } catch (error) {
-      console.error('Error during auto punch-out:', error);
-    }
-  };
-
   const checkPunchAvailability = () => {
     const now = new Date();
-    const currentTime = format(now, 'HH:mm');
-    const [currentHour, currentMinute] = currentTime.split(':').map(Number);
-    const today = format(now, 'dd');
+    const currentTime = format(now, "HH:mm");
+    const [currentHour, currentMinute] = currentTime.split(":").map(Number);
+    const today = format(now, "dd");
     const tomorrow = new Date(now);
     tomorrow.setDate(tomorrow.getDate() + 1);
     tomorrow.setHours(8, 30, 0, 0); // Set to 8:30 AM next day
-
-    if (punchInTime && !punchOutTime) {
-      const midnight = new Date(now);
-      midnight.setHours(23, 59, 59, 999); // Set to 23:59:59.999
-
-      if (now >= midnight) {
-        // Auto punch-out at midnight
-        Alert.alert(
-          'Auto Punch-Out',
-          'You have been automatically punched out for the day. Your attendance has been recorded.',
-          [{ text: 'OK' }]
-        );
-        autoPunchOut();
-      } else {
-        const timeUntilMidnight = midnight.getTime() - now.getTime();
-        const timeoutId = setTimeout(() => {
-          if (punchInTime && !punchOutTime) {
-            Alert.alert(
-              'Auto Punch-Out',
-              'You have been automatically punched out for the day. Your attendance has been recorded.',
-              [{ text: 'OK' }]
-            );
-            autoPunchOut();
-          }
-        }, timeUntilMidnight);
-        return () => clearTimeout(timeoutId);
-      }
-    }
 
     if (punchOutTime) {
       setIsPunchButtonDisabled(now < tomorrow);
@@ -270,9 +154,9 @@ const AttendanceScreen = () => {
     }
 
     if (!punchInTime) {
-      const punchInDeadline = '14:00'; // 2 PM
+      const punchInDeadline = "23:15"; // 2 PM
       const [deadlineHour, deadlineMinute] = punchInDeadline
-        .split(':')
+        .split(":")
         .map(Number);
 
       const currentMinutes = currentHour * 60 + currentMinute;
@@ -280,9 +164,9 @@ const AttendanceScreen = () => {
 
       setIsPunchButtonDisabled(currentMinutes > deadlineMinutes);
     } else if (punchInTime && !punchOutTime) {
-      const punchOutEnableTime = '14:15'; // 2:15 PM
+      const punchOutEnableTime = "09:15"; // 6:15 PM
       const [enableHour, enableMinute] = punchOutEnableTime
-        .split(':')
+        .split(":")
         .map(Number);
       const enableMinutes = enableHour * 60 + enableMinute;
       const currentMinutes = currentHour * 60 + currentMinute;
@@ -297,34 +181,71 @@ const AttendanceScreen = () => {
     return () => clearInterval(interval);
   }, [punchInTime, punchOutTime]);
 
+  const calculateStatus = (
+    punchIn: string,
+    punchOut: string
+  ): AttendanceStatus => {
+    // No punch-in: On Leave
+    if (!punchIn) return "On Leave";
+
+    // Punch-in exists, no punch-out: Present
+    if (punchIn && !punchOut) return "Present";
+
+    // Both punch-in and punch-out exist: Check duration
+    const [punchInHours, punchInMinutes] = punchIn.split(":").map(Number);
+    const [punchOutHours, punchOutMinutes] = punchOut.split(":").map(Number);
+
+    // Convert to minutes for calculation
+    const punchInTotalMinutes = punchInHours * 60 + punchInMinutes;
+    let punchOutTotalMinutes = punchOutHours * 60 + punchOutMinutes;
+
+    // Handle case where punch-out is on the next day
+    if (punchOutTotalMinutes < punchInTotalMinutes) {
+      punchOutTotalMinutes += 24 * 60; // Add 24 hours
+    }
+
+    // Calculate duration in hours
+    const durationMinutes = punchOutTotalMinutes - punchInTotalMinutes;
+    const durationHours = durationMinutes / 60;
+
+    // Status logic: < 4 hours = On Leave, 4-8 hours = Half Day, >= 8 hours = Present
+    if (durationHours < 4) {
+      return "On Leave";
+    } else if (durationHours >= 4 && durationHours < 8) {
+      return "Half Day";
+    } else {
+      return "Present";
+    }
+  };
+
   const handlePunchInOut = async (isPunchIn: boolean) => {
     try {
       if (isPunchButtonDisabled) {
         if (!punchInTime) {
           Alert.alert(
-            'Punch In Not Allowed',
-            'You can only punch in before 2:00 PM.'
+            "Punch In Not Allowed",
+            "You can only punch in before 2:00 PM."
           );
         } else {
           Alert.alert(
-            'Punch Out Not Allowed',
-            'You can punch out after 2:15 PM today or punch in again tomorrow at 8:45 AM.'
+            "Punch Out Not Allowed",
+            "You can punch out after 2:15 PM today or punch in again tomorrow at 8:45 AM."
           );
         }
         return;
       }
 
       const { status } = await Camera.requestCameraPermissionsAsync();
-      if (status === 'granted') {
-        navigation.navigate('CameraScreen', { isPunchIn });
+      if (status === "granted") {
+        navigation.navigate("CameraScreen", { isPunchIn });
       } else {
         Alert.alert(
-          'Permission Required',
-          'Camera permission is required to take attendance photos.'
+          "Permission Required",
+          "Camera permission is required to take attendance photos."
         );
       }
     } catch (err) {
-      console.log('Error:', err);
+      console.log("Error:", err);
     }
   };
 
@@ -340,7 +261,7 @@ const AttendanceScreen = () => {
       const querySnapshot = await getDocs(attendanceRef);
 
       const history: AttendanceRecord[] = [];
-      const today = format(new Date(), 'dd');
+      const today = format(new Date(), "dd");
 
       querySnapshot.forEach((doc) => {
         const data = doc.data();
@@ -349,27 +270,23 @@ const AttendanceScreen = () => {
         history.push({
           date: data.date,
           day: data.day,
-          punchIn: data.punchIn || '',
-          punchOut: data.punchOut || '',
+          punchIn: data.punchIn || "",
+          punchOut: data.punchOut || "",
           status,
           userId: data.userId,
           timestamp: data.timestamp.toDate(),
-          photoUri: data.photoUri || '',
-          location: data.location || null,
-          locationName: data.locationName || '',
-          totalHours: data.totalHours || 0,
         });
 
         if (data.date === today && data.userId === userId) {
           setPunchInTime(
             data.punchIn
-              ? format(new Date(`2000-01-01T${data.punchIn}`), 'hh:mm a')
-              : ''
+              ? format(new Date(`2000-01-01T${data.punchIn}`), "hh:mm a")
+              : ""
           );
           setPunchOutTime(
             data.punchOut
-              ? format(new Date(`2000-01-01T${data.punchOut}`), 'hh:mm a')
-              : ''
+              ? format(new Date(`2000-01-01T${data.punchOut}`), "hh:mm a")
+              : ""
           );
           setIsPunchedIn(!!data.punchIn && !data.punchOut);
         }
@@ -383,18 +300,18 @@ const AttendanceScreen = () => {
       setAttendanceHistory(sortedHistory);
       calculateStatusCounts(sortedHistory);
     } catch (error) {
-      console.error('Error fetching attendance history:', error);
+      console.error("Error fetching attendance history:", error);
     }
   };
 
   const calculateStatusCounts = (history: AttendanceRecord[]) => {
-    const currentMonth = format(new Date(), 'MM');
-    const currentYear = format(new Date(), 'yyyy');
+    const currentMonth = format(new Date(), "MM");
+    const currentYear = format(new Date(), "yyyy");
 
     const counts = {
       Present: 0,
-      'Half Day': 0,
-      'On Leave': 0,
+      "Half Day": 0,
+      "On Leave": 0,
     };
 
     if (history.length === 0) {
@@ -415,16 +332,16 @@ const AttendanceScreen = () => {
         i + 1
       );
       return {
-        dateStr: format(date, 'dd'),
-        isSunday: format(date, 'EEEE') === 'Sunday',
+        dateStr: format(date, "dd"),
+        isSunday: format(date, "EEEE") === "Sunday",
       };
     });
 
     const currentMonthRecords = history.filter((record) => {
       const recordDate = new Date(record.timestamp);
       return (
-        format(recordDate, 'MM') === currentMonth &&
-        format(recordDate, 'yyyy') === currentYear
+        format(recordDate, "MM") === currentMonth &&
+        format(recordDate, "yyyy") === currentYear
       );
     });
 
@@ -432,7 +349,7 @@ const AttendanceScreen = () => {
       counts[record.status]++;
     });
 
-    const today = format(new Date(), 'dd');
+    const today = format(new Date(), "dd");
 
     const attendedDates = currentMonthRecords.map((record) => record.date);
     const onLeaveDates = allDates.filter(
@@ -442,114 +359,136 @@ const AttendanceScreen = () => {
         parseInt(dateStr) < parseInt(today)
     );
 
-    counts['On Leave'] += onLeaveDates.length;
+    counts["On Leave"] += onLeaveDates.length;
 
     setStatusCounts(counts);
   };
 
-  const saveAttendance = async (
-    isPunchIn: boolean,
-    photoUri: string,
-    location: any,
-    locationNameFromCamera?: string | null
-  ) => {
+ const saveAttendance = async (
+  isPunchIn: boolean,
+  photoUri: string,
+  location: any,
+  locationNameFromCamera?: string | null,
+  locationPunchoutFromCamera?: string | null
+) => {
     try {
       const userId = auth.currentUser?.uid;
       if (!userId) {
-        Alert.alert('Error', 'User not authenticated');
+        Alert.alert("Error", "User not authenticated");
         return;
       }
 
       const role = await getUserRole();
       if (!role) {
-        Alert.alert('Error', 'User role not found');
+        Alert.alert("Error", "User role not found");
         return;
       }
 
       const currentTime = new Date();
-      const dateStr = format(currentTime, 'dd');
-      const dayStr = format(currentTime, 'EEE').toUpperCase();
-      const timeStr = format(currentTime, 'HH:mm');
+      const dateStr = format(currentTime, "dd");
+      const dayStr = format(currentTime, "EEE").toUpperCase();
+      const timeStr = format(currentTime, "HH:mm");
       const roleCollection = `${role}_monthly_attendance`;
-      const locationName = locationNameFromCamera || 'Unknown Location';
+     const locationName = locationNameFromCamera || 'Unknown Location';
+  const locationPunchout = locationPunchoutFromCamera || 'Unknown Location';
       const attendanceRef = collection(db, roleCollection);
 
       const todayQuery = query(
         attendanceRef,
-        where('date', '==', dateStr),
-        where('userId', '==', userId)
+        where("date", "==", dateStr),
+        where("userId", "==", userId)
       );
-      const coords = location?.coords;
+          const coords = location?.coords;
 
-      let geoLocationName = 'Unknown Location';
-      if (coords) {
-        const geo = await Location.reverseGeocodeAsync({
-          latitude: coords.latitude,
-          longitude: coords.longitude,
-        });
+// let locationName = "Unknown Location";
 
-        if (geo && geo.length > 0) {
-          const { name, street, city, region } = geo[0];
-          geoLocationName = `${name || street || ''}, ${city || region || ''}`;
-        }
-      }
+if (coords) {
 
+  const geo = await Location.reverseGeocodeAsync({
+
+    latitude: coords.latitude,
+
+    longitude: coords.longitude,
+
+  });
+
+
+
+  if (geo && geo.length > 0) {
+
+    const { name, street, city, region } = geo[0];
+
+    // locationName = `${name || street || ""}, ${city || region || ""}`;
+
+  }
+
+}
       const querySnapshot = await getDocs(todayQuery);
 
       if (querySnapshot.empty) {
-        const status = isPunchIn ? 'Present' : 'On Leave';
-        const userDocSnap = await getDoc(doc(db, 'users', userId));
+        // New attendance record
+        const status = isPunchIn ? "Present" : "On Leave";
+
+        // Fetch user data from Firestore
+        const userDocSnap = await getDoc(doc(db, "users", userId));
         const userData = userDocSnap.exists() ? userDocSnap.data() : {};
 
-        await addDoc(attendanceRef, {
-          userId,
-          employeeName: userData.name || '',
-          phoneNumber: userData.phoneNumber || '',
-          role: userData.role || '',
-          email: userData.email || '',
-          date: dateStr,
-          day: dayStr,
-          punchIn: isPunchIn ? timeStr : '',
-          punchOut: !isPunchIn ? timeStr : '',
-          status,
-          timestamp: Timestamp.fromDate(currentTime),
-          photoUri: isPunchIn ? photoUri : '',
-          location: isPunchIn ? location : null,
-          locationName: isPunchIn ? geoLocationName : 'Unknown Location',
-          totalHours: 0,
-        });
-      } else {
-        const docRef = querySnapshot.docs[0].ref;
-        const existingData = querySnapshot.docs[0].data();
+console.log("📄 Fetched User Data:", userData); // ADD THIS
+           await addDoc(attendanceRef, {
+      userId,
+      employeeName: userData.name || '',
+      phoneNumber: userData.phoneNumber || '',
+      role: userData.role || '',
+      email: userData.email || '',
+      date: dateStr,
+      day: dayStr,
+      punchIn: isPunchIn ? timeStr : '',
+      punchOut: !isPunchIn ? timeStr : '',
+      status,
+      timestamp: Timestamp.fromDate(currentTime),
+      photoUri,
+      location,
+      locationName: isPunchIn ? locationName : '',
+      locationPunchout: !isPunchIn ? locationPunchout : '',
+      totalHours: "", // Init for new record
+    });
 
-        const newPunchIn = isPunchIn ? timeStr : existingData.punchIn;
-        const newPunchOut = !isPunchIn ? timeStr : existingData.punchOut;
-        const totalHours = calculateTotalHours(newPunchIn, newPunchOut);
-        const newStatus = calculateStatus(newPunchIn, newPunchOut);
+   } else {
+    // Update existing record
+    const docRef = querySnapshot.docs[0].ref;
+    const existingData = querySnapshot.docs[0].data();
+    const newPunchIn = isPunchIn ? timeStr : existingData.punchIn;
+    const newPunchOut = !isPunchIn ? timeStr : existingData.punchOut;
+    const newStatus = calculateStatus(newPunchIn, newPunchOut);
 
-        await updateDoc(docRef, {
-          punchIn: newPunchIn,
-          punchOut: newPunchOut,
-          status: newStatus,
-          photoUri: isPunchIn ? photoUri : existingData.photoUri || '',
-          location: isPunchIn ? location : existingData.location || null,
-          locationName: isPunchIn ? geoLocationName : existingData.locationName || 'Unknown Location',
-          totalHours: totalHours,
-        });
-      }
 
+       await updateDoc(docRef, {
+      punchIn: newPunchIn,
+      punchOut: newPunchOut,
+      status: newStatus,
+      location: !isPunchIn ? location : existingData.location,
+      photoUri: !isPunchIn ? photoUri : existingData.photoUri,
+      totalHours: isPunchIn
+        ? existingData.totalHours
+        : existingData.totalHours + EIGHT_HOURS_IN_MS,
+      ...(isPunchIn ? { locationName } : { locationPunchout }),
+    });
+  }
+
+
+      // Update UI
       if (isPunchIn) {
-        setPunchInTime(format(currentTime, 'hh:mm a'));
+        setPunchInTime(format(currentTime, "hh:mm a"));
         setIsPunchedIn(true);
       } else {
-        setPunchOutTime(format(new Date(`2000-01-01T${timeStr}`), 'hh:mm a'));
+        setPunchOutTime(format(currentTime, "hh:mm a"));
         setIsPunchedIn(false);
       }
 
-      fetchAttendanceHistory();
+      fetchAttendanceHistory(); // Refresh data
     } catch (error) {
-      console.error('Error saving attendance:', error);
-      Alert.alert('Error', 'Failed to save attendance');
+      console.error("Error saving attendance:", error);
+      Alert.alert("Error", "Failed to save attendance");
     }
   };
 
@@ -559,8 +498,9 @@ const AttendanceScreen = () => {
       route.params?.location &&
       route.params?.isPunchIn !== undefined
     ) {
-      const { photo, location, locationName, isPunchIn } = route.params;
-      saveAttendance(isPunchIn, photo.uri, location, locationName);
+    const { photo, location, locationName, locationPunchout, isPunchIn } = route.params;
+saveAttendance(isPunchIn, photo.uri, location, locationName, locationPunchout);
+
     }
   }, [route.params]);
 
@@ -580,7 +520,7 @@ const AttendanceScreen = () => {
 
       filtered = filtered.filter((record) => {
         const recordDate = new Date(record.timestamp);
-        return format(recordDate, 'MMMM') === selectedMonth;
+        return format(recordDate, "MMMM") === selectedMonth;
       });
 
       if (selectedStatus) {
@@ -605,7 +545,7 @@ const AttendanceScreen = () => {
       const currentDate = new Date(startOfWeek);
       currentDate.setDate(startOfWeek.getDate() + index);
 
-      const dateStr = format(currentDate, 'dd');
+      const dateStr = format(currentDate, "dd");
 
       const attendanceRecord = attendanceHistory.find(
         (record) => record.date === dateStr
@@ -615,7 +555,7 @@ const AttendanceScreen = () => {
         return {
           day: dayObj.day,
           date: dateStr,
-          status: 'On Leave' as AttendanceStatus,
+          status: "On Leave" as AttendanceStatus,
         };
       } else {
         return {
@@ -623,7 +563,7 @@ const AttendanceScreen = () => {
           date: dateStr,
           status: attendanceRecord
             ? attendanceRecord.status
-            : ('On Leave' as AttendanceStatus),
+            : ("On Leave" as AttendanceStatus),
         };
       }
     });
@@ -646,13 +586,13 @@ const AttendanceScreen = () => {
           style={[
             styles.statusText,
             { color: statusColors[status] },
-            isSelected && { color: '#FFFFFF' },
+            isSelected && { color: "#FFFFFF" },
           ]}
         >
           {status}
         </Text>
         {!isNewUser && (
-          <Text style={[styles.daysText, isSelected && { color: '#FFFFFF' }]}>
+          <Text style={[styles.daysText, isSelected && { color: "#FFFFFF" }]}>
             {statusCounts[status]} days
           </Text>
         )}
@@ -768,24 +708,13 @@ const AttendanceScreen = () => {
               <View style={styles.punchHeader}>
                 <Text style={styles.punchTitle}>Take Attendance</Text>
                 {!punchInTime ? (
-                  <TouchableOpacity
-                    style={[
-                      styles.punchButton,
-                      styles.punchInButton,
-                      isPunchButtonDisabled && styles.disabledButton,
-                    ]}
-                    onPress={() => handlePunchInOut(true)}
-                    disabled={isPunchButtonDisabled}
-                  >
-                    <Text
-                      style={[
-                        styles.punchInText,
-                        isPunchButtonDisabled && styles.disabledButtonText,
-                      ]}
-                    >
-                      Punch In
-                    </Text>
-                  </TouchableOpacity>
+                 <TouchableOpacity
+  style={[styles.punchButton, /* remove any disabling condition */]}
+  onPress={() => navigation.navigate('CameraScreen', { isPunchIn: true })}
+>
+  {/* <Text style={styles.punchText}>Punch In</Text> */}
+</TouchableOpacity>
+
                 ) : isPunchedIn && !punchOutTime ? (
                   <TouchableOpacity
                     style={[
@@ -810,11 +739,11 @@ const AttendanceScreen = () => {
               <View style={styles.punchTimes}>
                 <View style={styles.punchTimeBlock}>
                   <Text style={styles.punchLabel}>Punch In</Text>
-                  <Text style={styles.punchTime}>{punchInTime || '——'}</Text>
+                  <Text style={styles.punchTime}>{punchInTime || "——"}</Text>
                 </View>
                 <View style={styles.punchTimeBlock}>
                   <Text style={styles.punchLabel}>Punch Out</Text>
-                  <Text style={styles.punchTime}>{punchOutTime || '——'}</Text>
+                  <Text style={styles.punchTime}>{punchOutTime || "——"}</Text>
                 </View>
               </View>
             </View>
@@ -822,7 +751,7 @@ const AttendanceScreen = () => {
             {!isNewUser && (
               <View style={styles.calendarCard}>
                 <Text style={styles.dateHeader}>
-                  {format(currentDate, 'dd MMMM (EEEE)')}
+                  {format(currentDate, "dd MMMM (EEEE)")}
                 </Text>
 
                 <View style={styles.weekDays}>
@@ -833,23 +762,23 @@ const AttendanceScreen = () => {
                           styles.dayCircle,
                           {
                             backgroundColor:
-                              item.status === 'Present'
-                                ? '#4CAF50'
-                                : item.status === 'Half Day'
-                                ? '#FF9800'
-                                : item.status === 'On Leave'
-                                ? '#F44336'
-                                : 'white',
+                              item.status === "Present"
+                                ? "#4CAF50"
+                                : item.status === "Half Day"
+                                ? "#FF9800"
+                                : item.status === "On Leave"
+                                ? "#F44336"
+                                : "white",
                           },
                         ]}
                       >
-                        {item.status === 'Present' && (
+                        {item.status === "Present" && (
                           <MaterialIcons name="check" size={20} color="#FFF" />
                         )}
-                        {item.status === 'Half Day' && (
+                        {item.status === "Half Day" && (
                           <MaterialIcons name="remove" size={20} color="#FFF" />
                         )}
-                        {item.status === 'On Leave' && (
+                        {item.status === "On Leave" && (
                           <MaterialIcons name="close" size={20} color="#FFF" />
                         )}
                       </View>
@@ -895,9 +824,9 @@ const AttendanceScreen = () => {
                 isNewUser && styles.newUserStatusContainer,
               ]}
             >
-              {renderStatusBadge('Present')}
-              {renderStatusBadge('Half Day')}
-              {renderStatusBadge('On Leave')}
+              {renderStatusBadge("Present")}
+              {renderStatusBadge("Half Day")}
+              {renderStatusBadge("On Leave")}
             </View>
 
             {!isNewUser && (
@@ -912,13 +841,13 @@ const AttendanceScreen = () => {
                       <View>
                         <Text style={styles.timeLabel}>Punch In</Text>
                         <Text style={styles.timeValue}>
-                          {item.punchIn || '——'}
+                          {item.punchIn || "——"}
                         </Text>
                       </View>
                       <View>
                         <Text style={styles.timeLabel}>Punch Out</Text>
                         <Text style={styles.timeValue}>
-                          {item.punchOut || '——'}
+                          {item.punchOut || "——"}
                         </Text>
                       </View>
                     </View>
@@ -935,7 +864,7 @@ const AttendanceScreen = () => {
                 {filteredHistory.length === 0 && (
                   <Text style={styles.noHistoryText}>
                     No attendance records found for {selectedMonth}
-                    {selectedStatus ? ` with status ${selectedStatus}` : ''}
+                    {selectedStatus ? ` with status ${selectedStatus}` : ""}
                   </Text>
                 )}
               </View>
@@ -949,14 +878,14 @@ const AttendanceScreen = () => {
 
 const getStatusColor = (status: string) => {
   switch (status) {
-    case 'Present':
-      return '#E8F5E9';
-    case 'Half Day':
-      return '#FFF3E0';
-    case 'On Leave':
-      return '#FFEBEE';
+    case "Present":
+      return "#E8F5E9";
+    case "Half Day":
+      return "#FFF3E0";
+    case "On Leave":
+      return "#FFEBEE";
     default:
-      return '#E8F5E9';
+      return "#E8F5E9";
   }
 };
 
@@ -970,26 +899,26 @@ const styles = StyleSheet.create({
     padding: 16,
   },
   punchCard: {
-    backgroundColor: 'white',
+    backgroundColor: "white",
     borderRadius: 16,
     padding: 20,
     marginBottom: 16,
-    shadowColor: '#000',
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 3,
   },
   punchHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
     marginBottom: 16,
   },
   punchTitle: {
     fontSize: 18,
-    fontFamily: 'LexendDeca_600SemiBold',
-    color: '#333',
+    fontFamily: "LexendDeca_600SemiBold",
+    color: "#333",
   },
   punchButton: {
     borderWidth: 1,
@@ -997,98 +926,98 @@ const styles = StyleSheet.create({
     paddingVertical: 5,
     paddingHorizontal: 10,
     height: 40,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
   },
   punchInButton: {
-    borderColor: '#4CAF50',
-    backgroundColor: '#4CAF50',
+    borderColor: "#4CAF50",
+    backgroundColor: "#4CAF50",
   },
   punchOutButton: {
-    borderColor: '#FF6B00',
-    backgroundColor: 'transparent',
+    borderColor: "#FF6B00",
+    backgroundColor: "transparent",
   },
   punchInText: {
     fontSize: 14,
-    fontFamily: 'LexendDeca_500Medium',
-    color: '#FFFFFF',
+    fontFamily: "LexendDeca_500Medium",
+    color: "#FFFFFF",
   },
   punchOutText: {
     fontSize: 14,
-    fontFamily: 'LexendDeca_500Medium',
-    color: '#FF6B00',
+    fontFamily: "LexendDeca_500Medium",
+    color: "#FF6B00",
   },
   punchTimes: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    justifyContent: "space-between",
   },
   punchTimeBlock: {
     flex: 1,
   },
   punchLabel: {
     fontSize: 14,
-    color: '#666',
-    fontFamily: 'LexendDeca_400Regular',
+    color: "#666",
+    fontFamily: "LexendDeca_400Regular",
     marginBottom: 4,
   },
   punchTime: {
     fontSize: 16,
-    color: '#333',
-    fontFamily: 'LexendDeca_500Medium',
+    color: "#333",
+    fontFamily: "LexendDeca_500Medium",
   },
   calendarCard: {
-    backgroundColor: 'white',
+    backgroundColor: "white",
     borderRadius: 16,
     padding: 20,
     marginBottom: 16,
-    alignItems: 'center',
-    shadowColor: '#000',
+    alignItems: "center",
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 3,
-    width: '100%',
+    width: "100%",
   },
   dateHeader: {
     fontSize: 18,
-    fontFamily: 'LexendDeca_600SemiBold',
-    color: '#333',
+    fontFamily: "LexendDeca_600SemiBold",
+    color: "#333",
     marginBottom: 16,
-    textAlign: 'center',
+    textAlign: "center",
   },
   weekDays: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    width: '100%',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    width: "100%",
     paddingHorizontal: 10,
   },
   dayContainer: {
-    alignItems: 'center',
+    alignItems: "center",
     width: 45,
   },
   dayCircle: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
     borderWidth: 2,
-    borderColor: 'transparent',
+    borderColor: "transparent",
   },
   weekName: {
     marginTop: 4,
     fontSize: 14,
-    color: '#666',
-    fontFamily: 'LexendDeca_500Medium',
+    color: "#666",
+    fontFamily: "LexendDeca_500Medium",
   },
   dateNumber: {
     fontSize: 12,
-    color: '#666',
-    fontFamily: 'LexendDeca_400Regular',
+    color: "#666",
+    fontFamily: "LexendDeca_400Regular",
     marginTop: 2,
   },
   monthSelector: {
-    flexDirection: 'row',
+    flexDirection: "row",
     marginBottom: 16,
   },
   monthButton: {
@@ -1096,20 +1025,20 @@ const styles = StyleSheet.create({
   },
   monthText: {
     fontSize: 16,
-    fontFamily: 'LexendDeca_500Medium',
-    color: '#666',
+    fontFamily: "LexendDeca_500Medium",
+    color: "#666",
   },
   selectedMonthText: {
-    color: '#FF8447',
-    textDecorationLine: 'underline',
+    color: "#FF8447",
+    textDecorationLine: "underline",
   },
   statusContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
+    flexDirection: "row",
+    justifyContent: "space-around",
     marginTop: 16,
     marginBottom: 24,
     gap: 10,
-    alignItems: 'center',
+    alignItems: "center",
     marginRight: 15,
   },
   statusBadge: {
@@ -1117,30 +1046,30 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderRadius: 8,
     borderWidth: 1,
-    alignItems: 'center',
+    alignItems: "center",
     minWidth: 100,
   },
   statusText: {
     fontSize: 14,
-    fontFamily: 'LexendDeca_500Medium',
+    fontFamily: "LexendDeca_500Medium",
     marginBottom: 4,
   },
   daysText: {
     fontSize: 12,
-    fontFamily: 'LexendDeca_400Regular',
-    color: '#666',
+    fontFamily: "LexendDeca_400Regular",
+    color: "#666",
   },
   historyContainer: {
     flex: 1,
   },
   historyCard: {
-    backgroundColor: 'white',
+    backgroundColor: "white",
     borderRadius: 12,
     padding: 16,
     marginBottom: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    shadowColor: '#000',
+    flexDirection: "row",
+    alignItems: "center",
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
@@ -1148,95 +1077,95 @@ const styles = StyleSheet.create({
   },
   dateBlock: {
     width: 50,
-    alignItems: 'center',
+    alignItems: "center",
   },
   dateDay: {
     fontSize: 12,
-    fontFamily: 'LexendDeca_400Regular',
-    color: '#666',
+    fontFamily: "LexendDeca_400Regular",
+    color: "#666",
   },
   timeBlock: {
     flex: 1,
-    flexDirection: 'row',
-    justifyContent: 'space-around',
+    flexDirection: "row",
+    justifyContent: "space-around",
   },
   timeLabel: {
     fontSize: 12,
-    color: '#666',
-    fontFamily: 'LexendDeca_400Regular',
+    color: "#666",
+    fontFamily: "LexendDeca_400Regular",
   },
   timeValue: {
     fontSize: 14,
-    color: '#333',
-    fontFamily: 'LexendDeca_500Medium',
+    color: "#333",
+    fontFamily: "LexendDeca_500Medium",
   },
   statusBlock: {
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: 8,
-    alignItems: 'center',
+    alignItems: "center",
   },
   disabledButton: {
     opacity: 0.5,
-    backgroundColor: '#CCCCCC',
-    borderColor: '#CCCCCC',
+    backgroundColor: "#CCCCCC",
+    borderColor: "#CCCCCC",
   },
   disabledButtonText: {
-    color: '#666666',
+    color: "#666666",
   },
   selectedMonthButton: {
     borderBottomWidth: 2,
-    borderBottomColor: '#FF8447',
+    borderBottomColor: "#FF8447",
   },
   noHistoryText: {
-    textAlign: 'center',
-    color: '#666',
-    fontFamily: 'LexendDeca_400Regular',
+    textAlign: "center",
+    color: "#666",
+    fontFamily: "LexendDeca_400Regular",
     fontSize: 14,
     marginTop: 20,
   },
   newUserStatusContainer: {
     marginTop: 32,
     marginBottom: 32,
-    justifyContent: 'center',
+    justifyContent: "center",
     gap: 20,
   },
   skeletonContainer: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: "#fff",
   },
   skeletonPunchCard: {
-    backgroundColor: 'white',
+    backgroundColor: "white",
     borderRadius: 16,
     padding: 20,
     margin: 16,
-    shadowColor: '#000',
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 3,
   },
   skeletonPunchHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
     marginBottom: 16,
   },
   skeletonPunchTitle: {
     width: 120,
     height: 24,
-    backgroundColor: '#e0e0e0',
+    backgroundColor: "#e0e0e0",
     borderRadius: 4,
   },
   skeletonPunchButton: {
     width: 100,
     height: 40,
-    backgroundColor: '#e0e0e0',
+    backgroundColor: "#e0e0e0",
     borderRadius: 6,
   },
   skeletonPunchTimes: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    justifyContent: "space-between",
   },
   skeletonPunchTimeBlock: {
     flex: 1,
@@ -1244,23 +1173,23 @@ const styles = StyleSheet.create({
   skeletonPunchLabel: {
     width: 80,
     height: 16,
-    backgroundColor: '#e0e0e0',
+    backgroundColor: "#e0e0e0",
     marginBottom: 8,
     borderRadius: 4,
   },
   skeletonPunchTime: {
     width: 100,
     height: 20,
-    backgroundColor: '#e0e0e0',
+    backgroundColor: "#e0e0e0",
     borderRadius: 4,
   },
   skeletonCalendarCard: {
-    backgroundColor: 'white',
+    backgroundColor: "white",
     borderRadius: 16,
     padding: 20,
     margin: 16,
-    alignItems: 'center',
-    shadowColor: '#000',
+    alignItems: "center",
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
@@ -1269,71 +1198,71 @@ const styles = StyleSheet.create({
   skeletonDateHeader: {
     width: 200,
     height: 24,
-    backgroundColor: '#e0e0e0',
+    backgroundColor: "#e0e0e0",
     marginBottom: 16,
     borderRadius: 4,
   },
   skeletonWeekDays: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    width: '100%',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    width: "100%",
     paddingHorizontal: 10,
   },
   skeletonDayContainer: {
-    alignItems: 'center',
+    alignItems: "center",
     width: 45,
   },
   skeletonDayCircle: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: '#e0e0e0',
+    backgroundColor: "#e0e0e0",
   },
   skeletonWeekName: {
     width: 20,
     height: 16,
-    backgroundColor: '#e0e0e0',
+    backgroundColor: "#e0e0e0",
     marginTop: 4,
     borderRadius: 4,
   },
   skeletonDateNumber: {
     width: 16,
     height: 16,
-    backgroundColor: '#e0e0e0',
+    backgroundColor: "#e0e0e0",
     marginTop: 2,
     borderRadius: 4,
   },
   skeletonMonthSelector: {
-    flexDirection: 'row',
+    flexDirection: "row",
     marginHorizontal: 16,
     marginBottom: 16,
   },
   skeletonMonthButton: {
     width: 80,
     height: 24,
-    backgroundColor: '#e0e0e0',
+    backgroundColor: "#e0e0e0",
     marginRight: 24,
     borderRadius: 4,
   },
   skeletonStatusContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
+    flexDirection: "row",
+    justifyContent: "space-around",
     marginHorizontal: 16,
     marginBottom: 24,
   },
   skeletonStatusBadge: {
     width: 100,
     height: 40,
-    backgroundColor: '#e0e0e0',
+    backgroundColor: "#e0e0e0",
     borderRadius: 8,
   },
   waveOverlay: {
-    position: 'absolute',
+    position: "absolute",
     top: 0,
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: 'rgba(255, 255, 255, 0.5)',
+    backgroundColor: "rgba(255, 255, 255, 0.5)",
     transform: [{ translateX: 0 }],
   },
 });

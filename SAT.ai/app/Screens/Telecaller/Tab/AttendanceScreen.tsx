@@ -83,12 +83,12 @@ interface WeekDay {
   status: AttendanceStatus;
 }
 
-const EIGHT_HOURS_IN_MS = 8 * 60 * 60 * 1000; // 8 hours in milliseconds
-const FOUR_HOURS_IN_MS = 4 * 60 * 60 * 1000; // 4 hours in milliseconds
-const PUNCH_IN_DEADLINE = "09:45"; // 9:45 AM for full day
-const PUNCH_IN_HALF_DAY = "14:00"; // 2:00 PM for half day
-const PUNCH_OUT_MINIMUM = "18:30"; // 6:30 PM
-const NEXT_DAY_PUNCH_TIME = "08:45"; // 8:45 AM
+// const EIGHT_HOURS_IN_MS = 8 * 60 * 60 * 1000; // 8 hours in milliseconds
+// const FOUR_HOURS_IN_MS = 4 * 60 * 60 * 1000; // 4 hours in milliseconds
+// const PUNCH_IN_DEADLINE = "09:45"; // 9:45 AM for full day
+// const PUNCH_IN_HALF_DAY = "14:00"; // 2:00 PM for half day
+// const PUNCH_OUT_MINIMUM = "18:30"; // 6:30 PM
+// const NEXT_DAY_PUNCH_TIME = "08:45"; // 8:45 AM
 
 const { width } = Dimensions.get("window");
 
@@ -241,8 +241,9 @@ const AttendanceScreen = () => {
     const today = format(now, 'dd');
     const tomorrow = new Date(now);
     tomorrow.setDate(tomorrow.getDate() + 1);
-    tomorrow.setHours(8, 30, 0, 0);
+    tomorrow.setHours(8, 0, 0, 0); // Set to 8 AM tomorrow
 
+    // Handle auto punch-out at midnight
     if (punchInTime && !punchOutTime) {
       const midnight = new Date(now);
       midnight.setHours(23, 59, 59, 999);
@@ -260,21 +261,46 @@ const AttendanceScreen = () => {
       }
     }
 
+    // Handle punch-out restrictions
     if (punchOutTime) {
       setIsPunchButtonDisabled(now < tomorrow);
       return;
     }
 
+    // Handle punch-in restrictions
     if (!punchInTime) {
-      const punchInDeadline = '18:00'; // 2 PM
-      const [deadlineHour, deadlineMinute] = punchInDeadline
-        .split(':')
-        .map(Number);
+      const punchInStartTime = '08:00'; // 8 AM
+      const [startHour, startMinute] = punchInStartTime.split(':').map(Number);
+      const punchInEndTime = '18:00'; // 6 PM
+      const [endHour, endMinute] = punchInEndTime.split(':').map(Number);
 
       const currentMinutes = currentHour * 60 + currentMinute;
-      const deadlineMinutes = deadlineHour * 60 + deadlineMinute;
+      const startMinutes = startHour * 60 + startMinute;
+      const endMinutes = endHour * 60 + endMinute;
 
-      setIsPunchButtonDisabled(currentMinutes > deadlineMinutes);
+      // Disable punch-in if:
+      // 1. Before 8 AM
+      // 2. After 6 PM
+      const isBeforeStartTime = currentMinutes < startMinutes;
+      const isAfterEndTime = currentMinutes > endMinutes;
+      
+      setIsPunchButtonDisabled(isBeforeStartTime || isAfterEndTime);
+
+      if (isBeforeStartTime) {
+        const minutesUntilStart = startMinutes - currentMinutes;
+        const hoursUntilStart = Math.floor(minutesUntilStart / 60);
+        const remainingMinutes = minutesUntilStart % 60;
+        
+        Alert.alert(
+          'Punch In Not Available',
+          `Punch in will be available at 8:00 AM. Please try again in ${hoursUntilStart} hours and ${remainingMinutes} minutes.`
+        );
+      } else if (isAfterEndTime) {
+        Alert.alert(
+          'Punch In Not Available',
+          'Punch in is only available between 8:00 AM and 6:00 PM. Please try again tomorrow.'
+        );
+      }
     } else if (punchInTime && !punchOutTime) {
       // Enable punch out immediately after punch in
       setIsPunchButtonDisabled(false);
@@ -810,7 +836,7 @@ const AttendanceScreen = () => {
   const getNetworkTime = async (): Promise<Date | null> => {
     // List of reliable time servers
     const timeServers = [
-      'https://worldtimeapi.org/api/timezone/Asia/Kolkata',
+      // 'https://worldtimeapi.org/api/timezone/Asia/Kolkata',
       'https://timeapi.io/api/Time/current/zone?timeZone=Asia/Kolkata',
       'https://api.timezonedb.com/v2.1/get-time-zone?key=YOUR_API_KEY&format=json&by=zone&zone=Asia/Kolkata'
     ];

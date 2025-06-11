@@ -67,8 +67,19 @@ type ChartData = {
   }[];
 };
 
+type AttendanceStatus = "Present" | "Half Day" | "On Leave";
+
 const CACHE_KEY = '@map_location_cache';
 const CACHE_EXPIRY = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
+
+const DEFAULT_REGION = {
+  latitude: 28.6139,  // Delhi coordinates
+  longitude: 77.2090,
+  latitudeDelta: 0.0922,
+  longitudeDelta: 0.0421,
+};
+
+const MAP_CACHE_KEY = '@map_tiles_cache';
 
 const BDMAttendanceScreen = () => {
   // Map and location states
@@ -78,6 +89,9 @@ const BDMAttendanceScreen = () => {
   const [locationServiceEnabled, setLocationServiceEnabled] = useState<boolean | null>(null);
   const [mapReady, setMapReady] = useState(false);
   const [isLocationLoading, setIsLocationLoading] = useState(true);
+  const [mapRegion, setMapRegion] = useState(DEFAULT_REGION);
+  const [isMapLoading, setIsMapLoading] = useState(true);
+  const [cachedTiles, setCachedTiles] = useState<any>(null);
   
   // Attendance states
   const [currentDate, setCurrentDate] = useState(new Date());
@@ -111,6 +125,7 @@ const BDMAttendanceScreen = () => {
   const [isLoadingUserDetails, setIsLoadingUserDetails] = useState(true);
   const [isAutoPunchOut, setIsAutoPunchOut] = useState(false);
   const [autoPunchOutMessage, setAutoPunchOutMessage] = useState<string>('');
+  const [locationAddress, setLocationAddress] = useState<string | null>(null);
 
   const navigation = useNavigation<BDMAttendanceScreenNavigationProp>();
   const route = useRoute<BDMAttendanceScreenRouteProp>();
@@ -233,30 +248,81 @@ const BDMAttendanceScreen = () => {
   }, [activeFilter, attendanceHistory]);
 
   useEffect(() => {
-    const checkPunchButtonState = () => {
-      if (punchInTime && punchOutTime) {
-        const now = new Date();
-        const tomorrow = new Date();
-        tomorrow.setDate(tomorrow.getDate() + 1);
-        tomorrow.setHours(8, 0, 0, 0);
-        
-        if (now < tomorrow) {
-          setIsPunchButtonDisabled(true);
-          
-          const timeUntil8AM = tomorrow.getTime() - now.getTime();
+    const checkPunchAvailability = () => {
+      const now = new Date();
+      const currentTime = format(now, 'HH:mm');
+      const [currentHour, currentMinute] = currentTime.split(':').map(Number);
+      const today = format(now, 'dd');
+      const tomorrow = new Date(now);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      tomorrow.setHours(8, 0, 0, 0); // Set to 8 AM tomorrow
+
+      // Handle auto punch-out at midnight
+      if (punchInTime && !punchOutTime) {
+        const midnight = new Date(now);
+        midnight.setHours(23, 59, 59, 999);
+
+        if (now >= midnight) {
+          handleAutoPunchOut();
+        } else {
+          const timeUntilMidnight = midnight.getTime() - now.getTime();
           const timeoutId = setTimeout(() => {
-            setIsPunchButtonDisabled(false);
-          }, timeUntil8AM);
-          
+            if (punchInTime && !punchOutTime) {
+              handleAutoPunchOut();
+            }
+          }, timeUntilMidnight);
           return () => clearTimeout(timeoutId);
         }
-      } else {
+      }
+
+      // Handle punch-out restrictions
+      if (punchOutTime) {
+        setIsPunchButtonDisabled(now < tomorrow);
+        return;
+      }
+
+      // Handle punch-in restrictions
+      if (!punchInTime) {
+        const punchInStartTime = '08:00'; // 8 AM
+        const [startHour, startMinute] = punchInStartTime.split(':').map(Number);
+        const punchInEndTime = '19:00'; // 7 PM
+        const [endHour, endMinute] = punchInEndTime.split(':').map(Number);
+
+        const currentMinutes = currentHour * 60 + currentMinute;
+        const startMinutes = startHour * 60 + startMinute;
+        const endMinutes = endHour * 60 + endMinute;
+
+        // Disable punch-in if:
+        // 1. Before 8 AM
+        // 2. After 6 PM
+        const isBeforeStartTime = currentMinutes < startMinutes;
+        const isAfterEndTime = currentMinutes > endMinutes;
+        
+        setIsPunchButtonDisabled(isBeforeStartTime || isAfterEndTime);
+
+        if (isBeforeStartTime) {
+          const minutesUntilStart = startMinutes - currentMinutes;
+          const hoursUntilStart = Math.floor(minutesUntilStart / 60);
+          const remainingMinutes = minutesUntilStart % 60;
+          
+          Alert.alert(
+            'Punch In Not Available',
+            `Punch in will be available at 8:00 AM. Please try again in ${hoursUntilStart} hours and ${remainingMinutes} minutes.`
+          );
+        } else if (isAfterEndTime) {
+          Alert.alert(
+            'Punch In Not Available',
+            'Punch in is only available between 8:00 AM and 6:00 PM. Please try again tomorrow.'
+          );
+        }
+      } else if (punchInTime && !punchOutTime) {
+        // Enable punch out immediately after punch in
         setIsPunchButtonDisabled(false);
       }
     };
     
-    checkPunchButtonState();
-    const intervalId = setInterval(checkPunchButtonState, 60000);
+    checkPunchAvailability();
+    const intervalId = setInterval(checkPunchAvailability, 60000);
     return () => clearInterval(intervalId);
   }, [punchInTime, punchOutTime]);
 
@@ -887,24 +953,126 @@ useEffect(() => {
   };
 
   const handleMapReady = () => {
-    setMapReady(true);
-    console.log('Map is ready');
+    setIsMapLoading(false);
   };
 
-  const renderMapFallback = () => (
-    <TouchableOpacity 
-      style={styles.mapFallback}
-      onPress={openLocationSettings}
-    >
-      <MaterialIcons name="map" size={48} color="#FF8447" />
-      <Text style={styles.mapFallbackText}>
-        {locationServiceEnabled === false 
-          ? 'Location services are disabled. Tap to enable.' 
-          : permissionStatus !== 'granted' 
-            ? 'Location permission required. Tap to grant.' 
-            : 'Could not load map. Tap to retry.'}
-      </Text>
-    </TouchableOpacity>
+  const cacheMapTiles = async (region: any) => {
+    try {
+      const tiles = {
+        region,
+        timestamp: new Date().getTime(),
+      };
+      await AsyncStorage.setItem(MAP_CACHE_KEY, JSON.stringify(tiles));
+      setCachedTiles(tiles);
+    } catch (error) {
+      console.error('Error caching map tiles:', error);
+    }
+  };
+
+  useEffect(() => {
+    const loadCachedTiles = async () => {
+      try {
+        const cached = await AsyncStorage.getItem(MAP_CACHE_KEY);
+        if (cached) {
+          const tiles = JSON.parse(cached);
+          // Only use cache if it's less than 24 hours old
+          if (new Date().getTime() - tiles.timestamp < 24 * 60 * 60 * 1000) {
+            setMapRegion(tiles.region);
+            setCachedTiles(tiles);
+          }
+        }
+      } catch (error) {
+        console.error('Error loading cached tiles:', error);
+      }
+    };
+
+    loadCachedTiles();
+  }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+    
+    const startLocationFetch = async () => {
+      if (isMounted) {
+        setIsLocationLoading(true);
+        try {
+          const location = await fetchLocation();
+          if (location && isMounted) {
+            const newRegion = {
+              latitude: location.coords.latitude,
+              longitude: location.coords.longitude,
+              latitudeDelta: 0.0922,
+              longitudeDelta: 0.0421,
+            };
+            setMapRegion(newRegion);
+            cacheMapTiles(newRegion);
+          }
+        } catch (error) {
+          console.error('Error fetching location:', error);
+        } finally {
+          if (isMounted) {
+            setIsLocationLoading(false);
+          }
+        }
+      }
+    };
+
+    startLocationFetch();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const renderMap = () => (
+    <View style={styles.mapContainer}>
+      <MapView
+        style={styles.map}
+        region={mapRegion}
+        onRegionChangeComplete={cacheMapTiles}
+        onMapReady={handleMapReady}
+        liteMode={true}
+        showsUserLocation={true}
+        showsMyLocationButton={true}
+        showsCompass={true}
+        showsScale={true}
+        showsBuildings={false}
+        showsTraffic={false}
+        showsIndoors={false}
+        showsPointsOfInterest={false}
+        rotateEnabled={true}
+        pitchEnabled={true}
+        toolbarEnabled={true}
+        moveOnMarkerPress={true}
+        loadingEnabled={true}
+        loadingIndicatorColor="#FF8447"
+        loadingBackgroundColor="#FFFFFF"
+        zoomEnabled={true}
+        zoomControlEnabled={true}
+        followsUserLocation={true}
+      >
+        {location && (
+          <Marker
+            coordinate={{
+              latitude: location.coords.latitude,
+              longitude: location.coords.longitude,
+            }}
+            title="Your Location"
+            description={locationAddress || 'Current Location'}
+          >
+            <View style={styles.markerContainer}>
+              <MaterialIcons name="location-pin" size={36} color="#E53935" />
+            </View>
+          </Marker>
+        )}
+      </MapView>
+      {isMapLoading && (
+        <View style={styles.mapLoadingOverlay}>
+          <ActivityIndicator size="large" color="#FF8447" />
+          <Text style={styles.mapLoadingText}>Loading Map...</Text>
+        </View>
+      )}
+    </View>
   );
 
   const getStatusStyle = (status: string) => {
@@ -1044,6 +1212,126 @@ useEffect(() => {
     );
   };
 
+  const handleAutoPunchOut = async () => {
+    try {
+      const userId = auth.currentUser?.uid;
+      if (!userId) {
+        console.error('User not authenticated');
+        return;
+      }
+
+      const role = await getUserRole();
+      if (!role) {
+        console.error('User role not found');
+        return;
+      }
+
+      const currentTime = new Date();
+      const dateStr = format(currentTime, 'dd');
+      const roleCollection = `${role}_monthly_attendance`;
+      const attendanceRef = collection(db, roleCollection);
+      const todayQuery = query(
+        attendanceRef,
+        where('date', '==', dateStr),
+        where('userId', '==', userId)
+      );
+
+      const querySnapshot = await getDocs(todayQuery);
+      if (!querySnapshot.empty) {
+        const docRef = querySnapshot.docs[0].ref;
+        const existingData = querySnapshot.docs[0].data();
+
+        if (existingData.punchIn && !existingData.punchOut) {
+          const totalHours = calculateTotalHours(existingData.punchIn, '23:59');
+          const newStatus = calculateStatus(existingData.punchIn, '23:59');
+
+          await updateDoc(docRef, {
+            punchOut: '23:59',
+            status: newStatus,
+            totalHours: totalHours,
+            lastUpdated: Timestamp.fromDate(currentTime)
+          });
+
+          setPunchOutTime(format(new Date(`2000-01-01T23:59`), 'hh:mm a'));
+          setIsPunchedIn(false);
+          setIsAutoPunchOut(true);
+          setAutoPunchOutMessage(`Your attendance was automatically marked as ${newStatus} with a punch-out at 23:59`);
+          fetchAttendanceHistory();
+        }
+      }
+    } catch (error) {
+      console.error('Error during auto punch-out:', error);
+    }
+  };
+
+  const getUserRole = async (): Promise<string | null> => {
+    const userId = auth.currentUser?.uid;
+    if (!userId) return null;
+
+    const userDoc = await getDoc(doc(db, "users", userId));
+    return userDoc.exists() ? userDoc.data().role : null;
+  };
+
+  const calculateStatus = (punchIn: string, punchOut: string): AttendanceStatus => {
+    if (!punchIn) return "On Leave";
+    if (punchIn && !punchOut) return "Present";
+
+    const durationHours = calculateTotalHours(punchIn, punchOut);
+
+    if (durationHours < 4) {
+      return "On Leave";
+    } else if (durationHours >= 4 && durationHours < 8) {
+      return "Half Day";
+    } else {
+      return "Present";
+    }
+  };
+
+  const fetchLocation = async (useHighAccuracy = false) => {
+    try {
+      const options: Location.LocationOptions = {
+        accuracy: useHighAccuracy ? Location.Accuracy.Highest : Location.Accuracy.Balanced,
+        timeInterval: 5000,
+        distanceInterval: 10,
+      };
+
+      const location = await Location.getCurrentPositionAsync(options);
+      setLocation(location);
+      
+      // Get address from coordinates
+      const geocode = await Location.reverseGeocodeAsync({
+        latitude: location.coords.latitude,
+        longitude: location.coords.longitude
+      });
+      
+      if (geocode.length > 0) {
+        const address = geocode[0];
+        const addressString = [
+          address.name,
+          address.street,
+          address.district,
+          address.city,
+          address.region,
+          address.postalCode,
+          address.country
+        ]
+          .filter(Boolean)
+          .join(', ');
+        
+        setLocationAddress(addressString);
+      }
+      
+      return location;
+    } catch (error) {
+      console.error('Error getting location:', error);
+      // If low accuracy fails, try high accuracy
+      if (!useHighAccuracy) {
+        return fetchLocation(true);
+      }
+      return null;
+    }
+  };
+
   return (
     <AppGradient>
       <BDMMainLayout 
@@ -1052,57 +1340,7 @@ useEffect(() => {
         showDrawer={true}
       >
         <ScrollView style={styles.scrollView}>
-          <View style={styles.mapContainer}>
-            {mapError ? (
-              renderMapFallback()
-            ) : location ? (
-              <MapView
-                provider={PROVIDER_GOOGLE}
-                style={styles.map}
-                initialRegion={{
-                  latitude: location.coords.latitude,
-                  longitude: location.coords.longitude,
-                  latitudeDelta: DEFAULT_MAP_DELTA.latitudeDelta,
-                  longitudeDelta: DEFAULT_MAP_DELTA.longitudeDelta,
-                }}
-                customMapStyle={GOOGLE_MAPS_STYLE}
-                showsUserLocation={true}
-                showsMyLocationButton={true}
-                followsUserLocation={true}
-                loadingEnabled={true}
-                loadingIndicatorColor="#FF8447"
-                loadingBackgroundColor="#FFF8F0"
-                onMapReady={handleMapReady}
-                moveOnMarkerPress={false}
-                showsCompass={true}
-                showsScale={true}
-                showsTraffic={true}
-                showsBuildings={true}
-                showsIndoors={true}
-                showsPointsOfInterest={true}
-              >
-                {mapReady && (
-                  <Marker
-                    coordinate={{
-                      latitude: location.coords.latitude,
-                      longitude: location.coords.longitude,
-                    }}
-                  >
-                    <View style={styles.markerContainer}>
-                      <MaterialIcons name="location-pin" size={36} color="#E53935" />
-                    </View>
-                  </Marker>
-                )}
-              </MapView>
-            ) : (
-              <View style={styles.loadingLocation}>
-                <ActivityIndicator size="large" color="#FF8447" />
-                <Text style={styles.loadingText}>
-                  {isLocationLoading ? 'Getting your location...' : 'Location not available'}
-                </Text>
-              </View>
-            )}
-          </View>
+          {renderMap()}
 
           {renderPunchCard()}
 
@@ -1222,28 +1460,25 @@ const styles = StyleSheet.create({
   },
   mapContainer: {
     height: 200,
+    marginVertical: 10,
     borderRadius: 12,
     overflow: 'hidden',
-    margin: 16,
-    marginBottom: 12,
+    position: 'relative',
   },
   map: {
-    flex: 1,
+    ...StyleSheet.absoluteFillObject,
   },
-  mapFallback: {
-    flex: 1,
-    backgroundColor: '#F5F5F5',
+  mapLoadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(255, 255, 255, 0.8)',
     justifyContent: 'center',
     alignItems: 'center',
-    borderRadius: 12,
   },
-  mapFallbackText: {
+  mapLoadingText: {
+    marginTop: 10,
+    color: '#FF8447',
     fontSize: 16,
-    fontFamily: 'LexendDeca_400Regular',
-    color: '#666',
-    textAlign: 'center',
-    marginTop: 12,
-    paddingHorizontal: 24,
+    fontFamily: 'LexendDeca_500Medium',
   },
   punchCard: {
     backgroundColor: 'white',
@@ -1478,10 +1713,8 @@ const styles = StyleSheet.create({
     fontFamily: 'LexendDeca_500Medium',
   },
   markerContainer: {
-    width: 36,
-    height: 36,
-    justifyContent: 'center',
     alignItems: 'center',
+    justifyContent: 'center',
   },
   emptyHistoryContainer: {
     alignItems: 'center',

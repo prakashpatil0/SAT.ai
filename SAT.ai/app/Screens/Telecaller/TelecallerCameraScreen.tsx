@@ -41,6 +41,8 @@ const CameraScreen = () => {
   const { isPunchIn } = route.params;
   const [isTimeValid, setIsTimeValid] = useState(true);
   const [timeValidationMessage, setTimeValidationMessage] = useState('');
+  const [isLocationLoading, setIsLocationLoading] = useState(true);
+  const locationTimeoutRef = useRef<NodeJS.Timeout>();
 
   // Function to get current IST time
   const getISTTime = () => {
@@ -57,7 +59,7 @@ const CameraScreen = () => {
   const getNetworkTime = async (): Promise<Date | null> => {
     // List of reliable time servers
     const timeServers = [
-      'https://worldtimeapi.org/api/timezone/Asia/Kolkata',
+      // 'https://worldtimeapi.org/api/timezone/Asia/Kolkata',
       'https://timeapi.io/api/Time/current/zone?timeZone=Asia/Kolkata',
       'https://api.timezonedb.com/v2.1/get-time-zone?key=YOUR_API_KEY&format=json&by=zone&zone=Asia/Kolkata'
     ];
@@ -162,7 +164,82 @@ const CameraScreen = () => {
     }
   };
 
-  // Modify the existing useEffect to include time validation
+  // Optimized location fetching function
+  const fetchLocation = async (useHighAccuracy = false) => {
+    try {
+      const options: Location.LocationOptions = {
+        accuracy: useHighAccuracy ? Location.Accuracy.Highest : Location.Accuracy.Balanced,
+        timeInterval: 5000,
+        distanceInterval: 10,
+      };
+
+      const location = await Location.getCurrentPositionAsync(options);
+      setLocation(location);
+      
+      // Get address from coordinates
+      const geocode = await Location.reverseGeocodeAsync({
+        latitude: location.coords.latitude,
+        longitude: location.coords.longitude
+      });
+      
+      if (geocode.length > 0) {
+        const address = geocode[0];
+        const addressString = [
+          address.name,
+          address.street,
+          address.district,
+          address.city,
+          address.region,
+          address.postalCode,
+          address.country
+        ]
+          .filter(Boolean)
+          .join(', ');
+        
+        setLocationAddress(addressString);
+      }
+      
+      setIsLocationLoading(false);
+    } catch (error) {
+      console.error('Error getting location:', error);
+      // If low accuracy fails, try high accuracy
+      if (!useHighAccuracy) {
+        await fetchLocation(true);
+      } else {
+        setIsLocationLoading(false);
+      }
+    }
+  };
+
+  // Start location fetching immediately
+  useEffect(() => {
+    let isMounted = true;
+    
+    const startLocationFetch = async () => {
+      if (isMounted) {
+        setIsLocationLoading(true);
+        await fetchLocation();
+      }
+    };
+
+    startLocationFetch();
+
+    // Set a timeout to try high accuracy if location takes too long
+    locationTimeoutRef.current = setTimeout(() => {
+      if (isMounted && isLocationLoading) {
+        fetchLocation(true);
+      }
+    }, 5000);
+
+    return () => {
+      isMounted = false;
+      if (locationTimeoutRef.current) {
+        clearTimeout(locationTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  // Modify the existing useEffect to remove location fetching
   useEffect(() => {
     let isMounted = true;
     
@@ -198,42 +275,6 @@ const CameraScreen = () => {
             }
           ]
         );
-      }
-      
-      if (locationStatus === 'granted') {
-        try {
-          const location = await Location.getCurrentPositionAsync({
-            accuracy: Location.Accuracy.Highest
-          });
-          if (isMounted) {
-            setLocation(location);
-          }
-          
-          // Get the address from coordinates
-          const geocode = await Location.reverseGeocodeAsync({
-            latitude: location.coords.latitude,
-            longitude: location.coords.longitude
-          });
-          
-          if (geocode.length > 0 && isMounted) {
-            const address = geocode[0];
-            const addressString = [
-              address.name,
-              address.street,
-              address.district,
-              address.city,
-              address.region,
-              address.postalCode,
-              address.country
-            ]
-              .filter(Boolean)
-              .join(', ');
-            
-            setLocationAddress(addressString);
-          }
-        } catch (error) {
-          console.error('Error getting location:', error);
-        }
       }
     })();
     
@@ -382,6 +423,18 @@ const CameraScreen = () => {
     );
   };
 
+  // Modify the location display in the UI
+  const renderLocationInfo = () => (
+    <View style={styles.locationContainer}>
+      <MaterialIcons name="location-on" size={24} color="#FF8447" />
+      <Text style={styles.locationText}>
+        {isLocationLoading 
+          ? 'Getting location...' 
+          : locationAddress || 'Location not available'}
+      </Text>
+    </View>
+  );
+
   if (!hasPermission) {
     return (
       <View style={styles.container}>
@@ -434,12 +487,7 @@ const CameraScreen = () => {
               />
             </TouchableOpacity>
 
-            <View style={styles.locationContainer}>
-              <MaterialIcons name="location-on" size={24} color="#FF8447" />
-              <Text style={styles.locationText}>
-                {locationAddress || 'Getting location...'}
-              </Text>
-            </View>
+            {renderLocationInfo()}
 
             <View style={styles.dateTimeContainer}>
               <MaterialIcons name="event" size={24} color="#FF8447" />

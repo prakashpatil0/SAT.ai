@@ -32,7 +32,7 @@ const getISTTime = () => {
 const getNetworkTime = async (): Promise<Date | null> => {
   // List of reliable time servers
   const timeServers = [
-    'https://worldtimeapi.org/api/timezone/Asia/Kolkata',
+    // 'https://worldtimeapi.org/api/timezone/Asia/Kolkata',
     'https://timeapi.io/api/Time/current/zone?timeZone=Asia/Kolkata',
     'https://api.timezonedb.com/v2.1/get-time-zone?key=YOUR_API_KEY&format=json&by=zone&zone=Asia/Kolkata'
   ];
@@ -63,21 +63,146 @@ const BDMCameraScreen = () => {
   const [location, setLocation] = useState<Location.LocationObject | null>(null);
   const [currentTime, setCurrentTime] = useState(new Date());
   const [hasPermission, setHasPermission] = useState(false);
-  const [cameraType, setCameraType] = useState<number>(0); // 0 is front, 1 is back
+  const [cameraType, setCameraType] = useState<number>(0);
   const [photo, setPhoto] = useState<{ uri: string } | null>(null);
   const [locationAddress, setLocationAddress] = useState<string | null>(null);
   const [flash, setFlash] = useState<boolean>(false);
+  const [isTimeValid, setIsTimeValid] = useState(true);
+  const [timeValidationMessage, setTimeValidationMessage] = useState('');
+  const [isLocationLoading, setIsLocationLoading] = useState(true);
+  const locationTimeoutRef = useRef<NodeJS.Timeout>();
+
   const cameraRef = useRef<any>(null);
   const navigation = useNavigation<BDMCameraScreenNavigationProp>();
   const route = useRoute<BDMCameraScreenRouteProp>();
-  const { type: punchType } = route.params;
-  const [isTimeValid, setIsTimeValid] = useState(true);
-  const [timeValidationMessage, setTimeValidationMessage] = useState('');
+  const { type } = route.params;
 
-  // Reset photo when component mounts or punchType changes
+  // Optimized location fetching function
+  const fetchLocation = async (useHighAccuracy = false) => {
+    try {
+      const options: Location.LocationOptions = {
+        accuracy: useHighAccuracy ? Location.Accuracy.Highest : Location.Accuracy.Balanced,
+        timeInterval: 5000,
+        distanceInterval: 10,
+      };
+
+      const location = await Location.getCurrentPositionAsync(options);
+      setLocation(location);
+      
+      // Get address from coordinates
+      const geocode = await Location.reverseGeocodeAsync({
+        latitude: location.coords.latitude,
+        longitude: location.coords.longitude
+      });
+      
+      if (geocode.length > 0) {
+        const address = geocode[0];
+        const addressString = [
+          address.name,
+          address.street,
+          address.district,
+          address.city,
+          address.region,
+          address.postalCode,
+          address.country
+        ]
+          .filter(Boolean)
+          .join(', ');
+        
+        setLocationAddress(addressString);
+      }
+      
+      setIsLocationLoading(false);
+    } catch (error) {
+      console.error('Error getting location:', error);
+      // If low accuracy fails, try high accuracy
+      if (!useHighAccuracy) {
+        await fetchLocation(true);
+      } else {
+        setIsLocationLoading(false);
+      }
+    }
+  };
+
+  // Start location fetching immediately
   useEffect(() => {
-    setPhoto(null);
-  }, [punchType]);
+    let isMounted = true;
+    
+    const startLocationFetch = async () => {
+      if (isMounted) {
+        setIsLocationLoading(true);
+        await fetchLocation();
+      }
+    };
+
+    startLocationFetch();
+
+    // Set a timeout to try high accuracy if location takes too long
+    locationTimeoutRef.current = setTimeout(() => {
+      if (isMounted && isLocationLoading) {
+        fetchLocation(true);
+      }
+    }, 5000);
+
+    return () => {
+      isMounted = false;
+      if (locationTimeoutRef.current) {
+        clearTimeout(locationTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  // Modify the existing useEffect to remove location fetching
+  useEffect(() => {
+    let isMounted = true;
+    
+    (async () => {
+      const { status: cameraStatus } = await Camera.requestCameraPermissionsAsync();
+      const { status: locationStatus } = await Location.requestForegroundPermissionsAsync();
+      
+      if (!isMounted) return;
+      
+      setHasPermission(cameraStatus === 'granted' && locationStatus === 'granted');
+      
+      // Add time validation
+      const isTimeValid = await validateDeviceTime();
+      if (!isTimeValid && isMounted) {
+        Alert.alert(
+          'Time Sync Required',
+          timeValidationMessage,
+          [
+            {
+              text: 'Retry',
+              onPress: async () => {
+                const isValid = await validateDeviceTime();
+                if (isValid && isMounted) {
+                  setIsTimeValid(true);
+                  setTimeValidationMessage('');
+                }
+              }
+            },
+            {
+              text: 'Cancel',
+              onPress: () => navigation.goBack(),
+              style: 'cancel'
+            }
+          ]
+        );
+      }
+    })();
+    
+    // Update the time every second with IST
+    const timer = setInterval(() => {
+      if (isMounted) {
+        setCurrentTime(getISTTime());
+      }
+    }, 1000);
+    
+    return () => {
+      isMounted = false;
+      clearInterval(timer);
+    };
+  }, []);
 
   const validateDeviceTime = async () => {
     try {
@@ -156,93 +281,6 @@ const BDMCameraScreen = () => {
       return false;
     }
   };
-
-  useEffect(() => {
-    let isMounted = true;
-    
-    (async () => {
-      const { status: cameraStatus } = await Camera.requestCameraPermissionsAsync();
-      const { status: locationStatus } = await Location.requestForegroundPermissionsAsync();
-      
-      if (!isMounted) return;
-      
-      setHasPermission(cameraStatus === 'granted' && locationStatus === 'granted');
-      
-      // Add time validation
-      const isTimeValid = await validateDeviceTime();
-      if (!isTimeValid && isMounted) {
-        Alert.alert(
-          'Time Sync Required ',
-          timeValidationMessage,
-          [
-            {
-              text: 'Retry',
-              onPress: async () => {
-                const isValid = await validateDeviceTime();
-                if (isValid && isMounted) {
-                  setIsTimeValid(true);
-                  setTimeValidationMessage('');
-                }
-              }
-            },
-            {
-              text: 'Cancel',
-              onPress: () => navigation.goBack(),
-              style: 'cancel'
-            }
-          ]
-        );
-      }
-      
-      if (locationStatus === 'granted') {
-        try {
-          const location = await Location.getCurrentPositionAsync({
-            accuracy: Location.Accuracy.Highest
-          });
-          if (isMounted) {
-            setLocation(location);
-          }
-          
-          // Get the address from coordinates
-          const geocode = await Location.reverseGeocodeAsync({
-            latitude: location.coords.latitude,
-            longitude: location.coords.longitude
-          });
-          
-          if (geocode.length > 0 && isMounted) {
-            const address = geocode[0];
-            const addressString = [
-              address.name,
-              address.street,
-              address.district,
-              address.city,
-              address.region,
-              address.postalCode,
-              address.country
-            ]
-              .filter(Boolean)
-              .join(', ');
-            
-            setLocationAddress(addressString);
-          }
-        } catch (error) {
-          console.error('Error getting location:', error);
-        }
-      }
-    })();
-    
-    // Update the time every second with IST
-    const timer = setInterval(() => {
-      if (isMounted) {
-        setCurrentTime(getISTTime());
-      }
-    }, 1000);
-    
-    return () => {
-      isMounted = false;
-      clearInterval(timer);
-    };
-  }, []);
 
   const takePicture = async () => {
     // Validate time before taking picture
@@ -326,7 +364,7 @@ const BDMCameraScreen = () => {
           },
           dateTime: currentTime,
           locationName: locationAddress,
-          isPunchIn: punchType === 'in',
+          isPunchIn: type === 'in',
         });
       } catch (error) {
         console.error('Navigation error:', error);
@@ -388,6 +426,18 @@ const BDMCameraScreen = () => {
     );
   };
 
+  // Modify the location display in the UI
+  const renderLocationInfo = () => (
+    <View style={styles.locationContainer}>
+      <MaterialIcons name="location-on" size={24} color="#FF8447" />
+      <Text style={styles.locationText}>
+        {isLocationLoading 
+          ? 'Getting location...' 
+          : locationAddress || 'Location not available'}
+      </Text>
+    </View>
+  );
+
   if (!hasPermission) {
     return (
       <View style={styles.container}>
@@ -428,9 +478,7 @@ const BDMCameraScreen = () => {
               style={styles.flashButton}
               onPress={() => {
                 setFlash(!flash);
-                // The actual flash functionality would need to be implemented through cameraRef manually
                 if (cameraRef.current) {
-                  // This is a placeholder - actual implementation would depend on the camera API
                   console.log('Flash toggled:', !flash);
                 }
               }}
@@ -442,24 +490,19 @@ const BDMCameraScreen = () => {
               />
             </TouchableOpacity>
 
-            <View style={styles.locationContainer}>
-              <MaterialIcons name="location-on" size={24} color="#FF8447" />
-              <Text style={styles.locationText}>
-                {locationAddress || 'Getting location...'}
-              </Text>
-            </View>
+            {renderLocationInfo()}
 
             <View style={styles.dateTimeContainer}>
               <MaterialIcons name="event" size={24} color="#FF8447" />
               <Text style={styles.dateTimeText}>
-                {format(currentTime, 'dd-MM-yyyy')}
+                {format(getISTTime(), 'dd-MM-yyyy')}
               </Text>
             </View>
 
             <View style={styles.timeContainer}>
               <MaterialIcons name="access-time" size={24} color="#FF8447" />
               <Text style={styles.dateTimeText}>
-                {format(currentTime, 'h:mm:ss a')}
+                {format(getISTTime(), 'h:mm:ss a')}
               </Text>
             </View>
 
@@ -480,7 +523,7 @@ const BDMCameraScreen = () => {
                 disabled={!location || !isTimeValid}
               >
                 <Text style={styles.captureText}>
-                  {punchType === 'in' ? 'Punch In' : 'Punch Out'}
+                  {type === 'in' ? 'Punch In' : 'Punch Out'}
                 </Text>
               </TouchableOpacity>
             </View>

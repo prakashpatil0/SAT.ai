@@ -1,5 +1,9 @@
 import * as functions from 'firebase-functions';
 import * as admin from 'firebase-admin';
+import { autoPunchOut } from './autoPunchOut';
+
+// Initialize Firebase Admin
+admin.initializeApp();
 
 interface OTPRequest {
   phoneNumber: string;
@@ -47,3 +51,6 @@ export const sendOTP = functions.https.onCall(async (request: functions.https.Ca
     };
   }
 });
+
+// Export the auto punch-out function
+export { autoPunchOut };

@@ -25,10 +25,13 @@ import {
   Timestamp,
   updateDoc,
   doc,
+  getFirestore,
+  serverTimestamp,
+  getDoc,
+  setDoc,
 } from "firebase/firestore";
 import { db, auth } from "@/firebaseConfig";
 import { format, startOfDay, addDays, isAfter } from "date-fns";
-import { getDoc } from "firebase/firestore";
 import * as Location from "expo-location";
 
 type AttendanceStatus = "Present" | "Half Day" | "On Leave";
@@ -127,6 +130,8 @@ const AttendanceScreen = () => {
   const [isNewUser, setIsNewUser] = useState(true);
   const [waveAnimation] = useState(new Animated.Value(0));
   const [isLoading, setIsLoading] = useState(true);
+  const [isAutoPunchOut, setIsAutoPunchOut] = useState(false);
+  const [autoPunchOutMessage, setAutoPunchOutMessage] = useState('');
 
   const [weekDays, setWeekDays] = useState<WeekDay[]>([
     { day: "M", date: "", status: "On Leave" },
@@ -177,7 +182,7 @@ const AttendanceScreen = () => {
     }
   };
 
-  const autoPunchOut = async () => {
+  const handleAutoPunchOut = async () => {
     try {
       const userId = auth.currentUser?.uid;
       if (!userId) {
@@ -206,21 +211,23 @@ const AttendanceScreen = () => {
         const docRef = querySnapshot.docs[0].ref;
         const existingData = querySnapshot.docs[0].data();
 
-        const totalHours = calculateTotalHours(existingData.punchIn, '00:00');
-        const newStatus = calculateStatus(existingData.punchIn, '00:00');
+        if (existingData.punchIn && !existingData.punchOut) {
+          const totalHours = calculateTotalHours(existingData.punchIn, '23:59');
+          const newStatus = calculateStatus(existingData.punchIn, '23:59');
 
-        await updateDoc(docRef, {
-          punchOut: '00:00',
-          status: newStatus,
-          photoUri: existingData.photoUri || '',
-          location: existingData.location || null,
-          locationName: 'Auto Punch-Out',
-          totalHours: totalHours,
-        });
+          await updateDoc(docRef, {
+            punchOut: '23:59',
+            status: newStatus,
+            totalHours: totalHours,
+            lastUpdated: Timestamp.fromDate(currentTime)
+          });
 
-        setPunchOutTime(format(new Date(`2000-01-01T00:00`), 'hh:mm a'));
-        setIsPunchedIn(false);
-        fetchAttendanceHistory();
+          setPunchOutTime(format(new Date(`2000-01-01T23:59`), 'hh:mm a'));
+          setIsPunchedIn(false);
+          setIsAutoPunchOut(true);
+          setAutoPunchOutMessage(`Your attendance was automatically marked as ${newStatus} with a punch-out at 23:59`);
+          fetchAttendanceHistory();
+        }
       }
     } catch (error) {
       console.error('Error during auto punch-out:', error);
@@ -234,30 +241,19 @@ const AttendanceScreen = () => {
     const today = format(now, 'dd');
     const tomorrow = new Date(now);
     tomorrow.setDate(tomorrow.getDate() + 1);
-    tomorrow.setHours(8, 30, 0, 0); // Set to 8:30 AM next day
+    tomorrow.setHours(8, 30, 0, 0);
 
     if (punchInTime && !punchOutTime) {
       const midnight = new Date(now);
-      midnight.setHours(23, 59, 59, 999); // Set to 23:59:59.999
+      midnight.setHours(23, 59, 59, 999);
 
       if (now >= midnight) {
-        // Auto punch-out at midnight
-        Alert.alert(
-          'Auto Punch-Out',
-          'You have been automatically punched out for the day. Your attendance has been recorded.',
-          [{ text: 'OK' }]
-        );
-        autoPunchOut();
+        handleAutoPunchOut();
       } else {
         const timeUntilMidnight = midnight.getTime() - now.getTime();
         const timeoutId = setTimeout(() => {
           if (punchInTime && !punchOutTime) {
-            Alert.alert(
-              'Auto Punch-Out',
-              'You have been automatically punched out for the day. Your attendance has been recorded.',
-              [{ text: 'OK' }]
-            );
-            autoPunchOut();
+            handleAutoPunchOut();
           }
         }, timeUntilMidnight);
         return () => clearTimeout(timeoutId);
@@ -270,7 +266,7 @@ const AttendanceScreen = () => {
     }
 
     if (!punchInTime) {
-      const punchInDeadline = '14:00'; // 2 PM
+      const punchInDeadline = '18:00'; // 2 PM
       const [deadlineHour, deadlineMinute] = punchInDeadline
         .split(':')
         .map(Number);
@@ -280,14 +276,8 @@ const AttendanceScreen = () => {
 
       setIsPunchButtonDisabled(currentMinutes > deadlineMinutes);
     } else if (punchInTime && !punchOutTime) {
-      const punchOutEnableTime = '14:15'; // 2:15 PM
-      const [enableHour, enableMinute] = punchOutEnableTime
-        .split(':')
-        .map(Number);
-      const enableMinutes = enableHour * 60 + enableMinute;
-      const currentMinutes = currentHour * 60 + currentMinute;
-
-      setIsPunchButtonDisabled(currentMinutes < enableMinutes);
+      // Enable punch out immediately after punch in
+      setIsPunchButtonDisabled(false);
     }
   };
 
@@ -454,6 +444,13 @@ const AttendanceScreen = () => {
     locationNameFromCamera?: string | null
   ) => {
     try {
+      // Validate time before saving
+      const isTimeValid = await validateDeviceTime();
+      if (!isTimeValid) {
+        return;
+      }
+
+      // Continue with existing attendance saving logic
       const userId = auth.currentUser?.uid;
       if (!userId) {
         Alert.alert('Error', 'User not authenticated');
@@ -742,6 +739,200 @@ const AttendanceScreen = () => {
     return () => clearTimeout(timer);
   }, []);
 
+  const renderPunchCard = () => (
+    <View style={styles.punchCard}>
+      <View style={styles.punchHeader}>
+        <Text style={styles.punchTitle}>Take Attendance</Text>
+        {!punchInTime ? (
+          <TouchableOpacity
+            style={[
+              styles.punchButton,
+              styles.punchInButton,
+              isPunchButtonDisabled && styles.disabledButton,
+            ]}
+            onPress={() => handlePunchInOut(true)}
+            disabled={isPunchButtonDisabled}
+          >
+            <Text
+              style={[
+                styles.punchInText,
+                isPunchButtonDisabled && styles.disabledButtonText,
+              ]}
+            >
+              Punch In
+            </Text>
+          </TouchableOpacity>
+        ) : isPunchedIn && !punchOutTime ? (
+          <TouchableOpacity
+            style={[
+              styles.punchButton,
+              styles.punchOutButton,
+              isPunchButtonDisabled && styles.disabledButton,
+            ]}
+            onPress={() => handlePunchInOut(false)}
+            disabled={isPunchButtonDisabled}
+          >
+            <Text
+              style={[
+                styles.punchOutText,
+                isPunchButtonDisabled && styles.disabledButtonText,
+              ]}
+            >
+              Punch Out
+            </Text>
+          </TouchableOpacity>
+        ) : null}
+      </View>
+      <View style={styles.punchTimes}>
+        <View style={styles.punchTimeBlock}>
+          <Text style={styles.punchLabel}>Punch In</Text>
+          <Text style={styles.punchTime}>{punchInTime || '——'}</Text>
+        </View>
+        <View style={styles.punchTimeBlock}>
+          <Text style={styles.punchLabel}>Punch Out</Text>
+          <Text style={[
+            styles.punchTime,
+            isAutoPunchOut && styles.autoPunchOutTime
+          ]}>
+            {punchOutTime || '——'}
+          </Text>
+        </View>
+      </View>
+      {isAutoPunchOut && (
+        <View style={styles.autoPunchOutContainer}>
+          <MaterialIcons name="info-outline" size={16} color="#FF5252" />
+          <Text style={styles.autoPunchOutText}>{autoPunchOutMessage}</Text>
+        </View>
+      )}
+    </View>
+  );
+
+  const getNetworkTime = async (): Promise<Date | null> => {
+    // List of reliable time servers
+    const timeServers = [
+      'https://worldtimeapi.org/api/timezone/Asia/Kolkata',
+      'https://timeapi.io/api/Time/current/zone?timeZone=Asia/Kolkata',
+      'https://api.timezonedb.com/v2.1/get-time-zone?key=YOUR_API_KEY&format=json&by=zone&zone=Asia/Kolkata'
+    ];
+
+    for (const server of timeServers) {
+      try {
+        const response = await fetch(server);
+        if (!response.ok) continue;
+        
+        const data = await response.json();
+        // Different APIs return time in different formats
+        if (data.datetime) {
+          return new Date(data.datetime);
+        } else if (data.dateTime) {
+          return new Date(data.dateTime);
+        } else if (data.formatted) {
+          return new Date(data.formatted);
+        }
+      } catch (error) {
+        console.log(`Failed to fetch from ${server}:`, error);
+        continue;
+      }
+    }
+    return null;
+  };
+
+  const validateDeviceTime = async () => {
+    try {
+      // Get network time (IST)
+      const networkTime = await getNetworkTime();
+      
+      // Get server time
+      const db = getFirestore();
+      const timeCheckRef = doc(db, '_timeCheck', 'serverTime');
+      const serverTime = await getDoc(timeCheckRef);
+      const serverTimestamp = serverTime.data()?.timestamp;
+      
+      // Update server time
+      await setDoc(timeCheckRef, {
+        timestamp: Timestamp.now()
+      }, { merge: true });
+
+      if (!serverTimestamp) {
+        console.error('Failed to get server timestamp');
+        return false;
+      }
+
+      const deviceTime = new Date();
+      const serverTimeDate = serverTimestamp.toDate();
+      
+      // Calculate server time difference
+      const serverTimeDiff = Math.abs(deviceTime.getTime() - serverTimeDate.getTime());
+      const isServerTimeValid = serverTimeDiff <= 5 * 60 * 1000; // 5 minutes tolerance
+      
+      // If we couldn't get network time, fall back to server time only
+      if (!networkTime) {
+        if (!isServerTimeValid) {
+          const serverDiffMinutes = Math.round(serverTimeDiff / (60 * 1000));
+          Alert.alert(
+            'Time Sync Required',
+            `Device time differs from server time by ${serverDiffMinutes} minutes. ` +
+            'Please sync your device time with network time to continue.',
+            [
+              {
+                text: 'OK',
+                onPress: () => navigation.goBack()
+              }
+            ]
+          );
+          return false;
+        }
+        return true;
+      }
+      
+      // If we have network time, validate against both
+      const networkTimeDiff = Math.abs(deviceTime.getTime() - networkTime.getTime());
+      const isNetworkTimeValid = networkTimeDiff <= 5 * 60 * 1000;
+      
+      const isValid = isServerTimeValid && isNetworkTimeValid;
+      
+      if (!isValid) {
+        let message = 'Time validation failed: ';
+        if (!isServerTimeValid) {
+          const serverDiffMinutes = Math.round(serverTimeDiff / (60 * 1000));
+          message += `Device time differs from server time by ${serverDiffMinutes} minutes. `;
+        }
+        if (!isNetworkTimeValid) {
+          const networkDiffMinutes = Math.round(networkTimeDiff / (60 * 1000));
+          message += `Device time differs from network time by ${networkDiffMinutes} minutes. `;
+        }
+        message += 'Please sync your device time with network time to continue.';
+        
+        Alert.alert(
+          'Time Sync Required',
+          message,
+          [
+            {
+              text: 'OK',
+              onPress: () => navigation.goBack()
+            }
+          ]
+        );
+        return false;
+      }
+      
+      return true;
+    } catch (error) {
+      console.error('Time validation error:', error);
+      Alert.alert(
+        'Time Sync Error',
+        'Unable to validate time. Please check your internet connection and try again.',
+        [
+          {
+            text: 'OK',
+            onPress: () => navigation.goBack()
+          }
+        ]
+      );
+      return false;
+    }
+  };
+
   if (isLoading) {
     return (
       <AppGradient>
@@ -764,60 +955,7 @@ const AttendanceScreen = () => {
           keyboardShouldPersistTaps="handled"
         >
           <View style={styles.container}>
-            <View style={styles.punchCard}>
-              <View style={styles.punchHeader}>
-                <Text style={styles.punchTitle}>Take Attendance</Text>
-                {!punchInTime ? (
-                  <TouchableOpacity
-                    style={[
-                      styles.punchButton,
-                      styles.punchInButton,
-                      isPunchButtonDisabled && styles.disabledButton,
-                    ]}
-                    onPress={() => handlePunchInOut(true)}
-                    disabled={isPunchButtonDisabled}
-                  >
-                    <Text
-                      style={[
-                        styles.punchInText,
-                        isPunchButtonDisabled && styles.disabledButtonText,
-                      ]}
-                    >
-                      Punch In
-                    </Text>
-                  </TouchableOpacity>
-                ) : isPunchedIn && !punchOutTime ? (
-                  <TouchableOpacity
-                    style={[
-                      styles.punchButton,
-                      styles.punchOutButton,
-                      isPunchButtonDisabled && styles.disabledButton,
-                    ]}
-                    onPress={() => handlePunchInOut(false)}
-                    disabled={isPunchButtonDisabled}
-                  >
-                    <Text
-                      style={[
-                        styles.punchOutText,
-                        isPunchButtonDisabled && styles.disabledButtonText,
-                      ]}
-                    >
-                      Punch Out
-                    </Text>
-                  </TouchableOpacity>
-                ) : null}
-              </View>
-              <View style={styles.punchTimes}>
-                <View style={styles.punchTimeBlock}>
-                  <Text style={styles.punchLabel}>Punch In</Text>
-                  <Text style={styles.punchTime}>{punchInTime || '——'}</Text>
-                </View>
-                <View style={styles.punchTimeBlock}>
-                  <Text style={styles.punchLabel}>Punch Out</Text>
-                  <Text style={styles.punchTime}>{punchOutTime || '——'}</Text>
-                </View>
-              </View>
-            </View>
+            {renderPunchCard()}
 
             {!isNewUser && (
               <View style={styles.calendarCard}>
@@ -1335,6 +1473,25 @@ const styles = StyleSheet.create({
     bottom: 0,
     backgroundColor: 'rgba(255, 255, 255, 0.5)',
     transform: [{ translateX: 0 }],
+  },
+  autoPunchOutContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFEBEE',
+    padding: 8,
+    borderRadius: 8,
+    marginTop: 8,
+  },
+  autoPunchOutText: {
+    fontSize: 12,
+    fontFamily: 'LexendDeca_400Regular',
+    color: '#FF5252',
+    marginLeft: 8,
+    flex: 1,
+  },
+  autoPunchOutTime: {
+    color: '#FF5252',
+    fontStyle: 'italic',
   },
 });
 

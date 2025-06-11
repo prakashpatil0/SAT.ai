@@ -7,7 +7,7 @@ import { RouteProp, useNavigation, useRoute } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { DEFAULT_LOCATION, DEFAULT_MAP_DELTA, GOOGLE_MAPS_STYLE } from '@/app/utils/MapUtils';
 import { format, startOfMonth, endOfMonth, eachMonthOfInterval, subMonths } from 'date-fns';
-import { collection, addDoc, getDocs, query, where, Timestamp, updateDoc, doc, getDoc } from 'firebase/firestore';
+import { collection, addDoc, getDocs, query, where, Timestamp, updateDoc, doc, getDoc, getFirestore, setDoc, serverTimestamp } from 'firebase/firestore';
 import { db, auth } from '@/firebaseConfig';
 import BDMMainLayout from '@/app/components/BDMMainLayout';
 import AppGradient from '@/app/components/AppGradient';
@@ -109,6 +109,8 @@ const BDMAttendanceScreen = () => {
     datasets: [{ data: [] }]
   });
   const [isLoadingUserDetails, setIsLoadingUserDetails] = useState(true);
+  const [isAutoPunchOut, setIsAutoPunchOut] = useState(false);
+  const [autoPunchOutMessage, setAutoPunchOutMessage] = useState<string>('');
 
   const navigation = useNavigation<BDMAttendanceScreenNavigationProp>();
   const route = useRoute<BDMAttendanceScreenRouteProp>();
@@ -371,7 +373,7 @@ useEffect(() => {
       
       querySnapshot.forEach((doc) => {
         const data = doc.data();
-        history.push({
+        const record = {
           date: data.date,
           day: data.day,
           month: data.month,
@@ -394,37 +396,25 @@ useEffect(() => {
           locationName: data.locationName,
           punchOutLocationName: data.punchOutLocationName,
           lastUpdated: data.lastUpdated.toDate()
-        });
+        };
+
+        history.push(record);
 
         if (data.date === today && data.month === format(new Date(), 'MM')) {
-          setTodayRecord({
-            date: data.date,
-            day: data.day,
-            month: data.month,
-            year: data.year,
-            punchIn: data.punchIn,
-            punchOut: data.punchOut,
-            status: data.status,
-            userId: data.userId,
-            timestamp: data.timestamp.toDate(),
-            photoUri: data.photoUri,
-            punchOutPhotoUri: data.punchOutPhotoUri,
-            location: data.location,
-            punchOutLocation: data.punchOutLocation,
-            designation: data.designation,
-            employeeName: data.employeeName,
-            phoneNumber: data.phoneNumber,
-            email: data.email,
-            totalHours: data.totalHours,
-            workMode: data.workMode,
-            locationName: data.locationName,
-            punchOutLocationName: data.punchOutLocationName,
-            lastUpdated: data.lastUpdated.toDate()
-          });
-          
+          setTodayRecord(record);
           setPunchInTime(data.punchIn ? format(new Date(`2000-01-01T${data.punchIn}`), 'hh:mm a') : '');
           setPunchOutTime(data.punchOut ? format(new Date(`2000-01-01T${data.punchOut}`), 'hh:mm a') : '');
           setIsPunchedIn(!!data.punchIn && !data.punchOut);
+          
+          // Check if this is an auto punch-out
+          if (data.punchOut === '23:59' && !data.punchOutPhotoUri) {
+            setIsAutoPunchOut(true);
+            const message = `Your attendance was automatically marked as ${data.status} with a punch-out at 23:59`;
+            setAutoPunchOutMessage(message);
+          } else {
+            setIsAutoPunchOut(false);
+            setAutoPunchOutMessage('');
+          }
         }
       });
 
@@ -615,8 +605,41 @@ useEffect(() => {
   locationCoords: any,
   locationNameFromCamera: string
 ) => {
-
     try {
+      // Validate time before saving
+      const db = getFirestore();
+      const timeCheckRef = doc(db, '_timeCheck', 'serverTime');
+      const serverTime = await getDoc(timeCheckRef);
+      const serverTimestamp = serverTime.data()?.timestamp;
+      
+      if (!serverTimestamp) {
+        await setDoc(timeCheckRef, {
+          timestamp: Timestamp.now()
+        });
+      } else {
+        const deviceTime = new Date();
+        const serverTimeDate = serverTimestamp.toDate();
+        const timeDiff = Math.abs(deviceTime.getTime() - serverTimeDate.getTime());
+        
+        // Allow 5 minutes difference to account for network latency
+        if (timeDiff > 5 * 60 * 1000) {
+          const diffMinutes = Math.round(timeDiff / (60 * 1000));
+          Alert.alert(
+            'Time Sync Required',
+            `Your device time appears to be ${diffMinutes} minutes different from server time. ` +
+            'Please sync your device time with network time to continue.',
+            [
+              {
+                text: 'OK',
+                onPress: () => navigation.goBack()
+              }
+            ]
+          );
+          return;
+        }
+      }
+
+      // Continue with existing attendance saving logic
       const userId = auth.currentUser?.uid;
       if (!userId) {
         Alert.alert('Error', 'User not authenticated');
@@ -926,6 +949,101 @@ useEffect(() => {
     ];
   };
 
+  const renderPunchCard = () => (
+    <View style={styles.punchCard}>
+      <View style={styles.punchInfo}>
+        <Text style={styles.punchLabel}>Take Attendance</Text>
+        <TouchableOpacity
+          style={[
+            styles.punchButton, 
+            isPunchedIn && styles.punchOutButton,
+            isPunchButtonDisabled && styles.punchButtonDisabled
+          ]}
+          onPress={handlePunch}
+          disabled={isPunchButtonDisabled}
+        >
+          <Text style={[
+            styles.punchButtonText,
+            isPunchButtonDisabled && styles.punchButtonTextDisabled
+          ]}>
+            {isPunchedIn ? 'Punch Out' : 'Punch In'}
+          </Text>
+        </TouchableOpacity>
+      </View>
+      <View style={styles.timeInfo}>
+        <View style={styles.timeColumn}>
+          <Text style={styles.timeLabel}>Punch In</Text>
+          <Text style={styles.timeValue}>{punchInTime || '-----'}</Text>
+        </View>
+        <View style={styles.timeColumn}>
+          <Text style={styles.timeLabel}>Punch Out</Text>
+          <Text style={[
+            styles.timeValue,
+            isAutoPunchOut && styles.autoPunchOutTime
+          ]}>
+            {punchOutTime || '-----'}
+          </Text>
+        </View>
+      </View>
+      {isAutoPunchOut && (
+        <View style={styles.autoPunchOutContainer}>
+          <MaterialIcons name="info-outline" size={16} color="#FF5252" />
+          <Text style={styles.autoPunchOutText}>{autoPunchOutMessage}</Text>
+        </View>
+      )}
+      {isPunchButtonDisabled && !isAutoPunchOut && (
+        <Text style={styles.nextPunchInfo}>
+          Next punch available at 8:00 AM tomorrow
+        </Text>
+      )}
+    </View>
+  );
+
+  const renderHistoryCard = (record: AttendanceRecord, index: number) => {
+    const isAutoPunchOutRecord = record.punchOut === '23:59' && !record.punchOutPhotoUri;
+    
+    return (
+      <View key={index} style={styles.historyCard}>
+        <View style={styles.dateColumn}>
+          <Text style={styles.dateNumber}>{record.date}</Text>
+          <Text style={styles.dateDay}>{record.day}</Text>
+        </View>
+        <View style={styles.punchDetails}>
+          <View style={styles.punchTimeContainer}>
+            <Text style={styles.punchTime}>
+              {record.punchIn ? format(new Date(`2000-01-01T${record.punchIn}`), 'hh:mm a') : '-----'}
+            </Text>
+            <Text style={styles.punchType}>Punch In</Text>
+          </View>
+          <View style={styles.punchTimeContainer}>
+            <Text style={[
+              styles.punchTime,
+              isAutoPunchOutRecord && styles.autoPunchOutTime
+            ]}>
+              {record.punchOut ? format(new Date(`2000-01-01T${record.punchOut}`), 'hh:mm a') : '-----'}
+            </Text>
+            <Text style={styles.punchType}>Punch Out</Text>
+          </View>
+          {record.totalHours > 0 && (
+            <Text style={styles.totalHours}>
+              Total Hours: {record.totalHours.toFixed(1)}h
+            </Text>
+          )}
+          {isAutoPunchOutRecord && (
+            <Text style={styles.autoPunchOutIndicator}>
+              Auto punch-out at 23:59
+            </Text>
+          )}
+        </View>
+        <View style={[styles.statusBadge, getStatusStyle(record.status)]}>
+          <Text style={[styles.statusText, getStatusTextStyle(record.status)]}>
+            {record.status}
+          </Text>
+        </View>
+      </View>
+    );
+  };
+
   return (
     <AppGradient>
       <BDMMainLayout 
@@ -986,42 +1104,7 @@ useEffect(() => {
             )}
           </View>
 
-          <View style={styles.punchCard}>
-            <View style={styles.punchInfo}>
-              <Text style={styles.punchLabel}>Take Attendance</Text>
-              <TouchableOpacity
-                style={[
-                  styles.punchButton, 
-                  isPunchedIn && styles.punchOutButton,
-                  isPunchButtonDisabled && styles.punchButtonDisabled
-                ]}
-                onPress={handlePunch}
-                disabled={isPunchButtonDisabled}
-              >
-                <Text style={[
-                  styles.punchButtonText,
-                  isPunchButtonDisabled && styles.punchButtonTextDisabled
-                ]}>
-                  {isPunchedIn ? 'Punch Out' : 'Punch In'}
-                </Text>
-              </TouchableOpacity>
-            </View>
-            <View style={styles.timeInfo}>
-              <View style={styles.timeColumn}>
-                <Text style={styles.timeLabel}>Punch In</Text>
-                <Text style={styles.timeValue}>{punchInTime || '-----'}</Text>
-              </View>
-              <View style={styles.timeColumn}>
-                <Text style={styles.timeLabel}>Punch Out</Text>
-                <Text style={styles.timeValue}>{punchOutTime || '-----'}</Text>
-              </View>
-            </View>
-            {isPunchButtonDisabled && (
-              <Text style={styles.nextPunchInfo}>
-                Next punch available at 8:00 AM tomorrow
-              </Text>
-            )}
-          </View>
+          {renderPunchCard()}
 
           <View style={styles.weekCard}>
             <Text style={styles.dateText}>{format(currentDate, 'dd MMMM (EEEE)')}</Text>
@@ -1123,32 +1206,7 @@ useEffect(() => {
                 </Text>
               </View>
             ) : (
-              filteredHistory.map((record, index) => (
-                <View key={index} style={styles.historyCard}>
-                  <View style={styles.dateColumn}>
-                    <Text style={styles.dateNumber}>{record.date}</Text>
-                    <Text style={styles.dateDay}>{record.day}</Text>
-                  </View>
-                  <View style={styles.punchDetails}>
-                    <View style={styles.punchTimeContainer}>
-                      <Text style={styles.punchTime}>{record.punchIn ? format(new Date(`2000-01-01T${record.punchIn}`), 'hh:mm a') : '-----'}</Text>
-                      <Text style={styles.punchType}>Punch In</Text>
-                    </View>
-                    <View style={styles.punchTimeContainer}>
-                      <Text style={styles.punchTime}>{record.punchOut ? format(new Date(`2000-01-01T${record.punchOut}`), 'hh:mm a') : '-----'}</Text>
-                      <Text style={styles.punchType}>Punch Out</Text>
-                    </View>
-                    {record.totalHours > 0 && (
-                      <Text style={styles.totalHours}>
-                        Total Hours: {record.totalHours.toFixed(1)}h
-                      </Text>
-                    )}
-                  </View>
-                  <View style={[styles.statusBadge, getStatusStyle(record.status)]}>
-                    <Text style={[styles.statusText, getStatusTextStyle(record.status)]}>{record.status}</Text>
-                  </View>
-                </View>
-              ))
+              filteredHistory.map((record, index) => renderHistoryCard(record, index))
             )}
           </View>
         </ScrollView>
@@ -1586,6 +1644,32 @@ const styles = StyleSheet.create({
     fontFamily: 'LexendDeca_400Regular',
     marginTop: 4,
     fontStyle: 'italic',
+  },
+  autoPunchOutContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFEBEE',
+    padding: 8,
+    borderRadius: 8,
+    marginTop: 8,
+  },
+  autoPunchOutText: {
+    fontSize: 12,
+    fontFamily: 'LexendDeca_400Regular',
+    color: '#FF5252',
+    marginLeft: 8,
+    flex: 1,
+  },
+  autoPunchOutTime: {
+    color: '#FF5252',
+    fontStyle: 'italic',
+  },
+  autoPunchOutIndicator: {
+    fontSize: 11,
+    color: '#FF5252',
+    fontFamily: 'LexendDeca_400Regular',
+    fontStyle: 'italic',
+    marginTop: 2,
   },
 });
 

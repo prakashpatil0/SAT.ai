@@ -52,13 +52,23 @@ const getUserRole = async (): Promise<string | null> => {
 };
 
 type RootStackParamList = {
+
   CameraScreen: { isPunchIn: boolean };
-  AttendanceScreen: {
-    photo?: { uri: string };
-    location?: { coords: { latitude: number; longitude: number } };
-    isPunchIn?: boolean;
-    locationName?: string | null;
-  };
+
+ AttendanceScreen: {
+
+  photo?: { uri: string };
+
+  location?: { coords: { latitude: number; longitude: number } };
+
+  isPunchIn?: boolean;
+
+  locationName?: string | null;
+
+  locationPunchout?: string | null; // ✅ Add this
+
+};
+
 };
 
 type AttendanceScreenNavigationProp = StackNavigationProp<RootStackParamList>;
@@ -83,7 +93,7 @@ interface WeekDay {
   status: AttendanceStatus;
 }
 
-// const EIGHT_HOURS_IN_MS = 8 * 60 * 60 * 1000; // 8 hours in milliseconds
+const EIGHT_HOURS_IN_MS = 8 * 60 * 60 * 1000; // 8 hours in milliseconds
 // const FOUR_HOURS_IN_MS = 4 * 60 * 60 * 1000; // 4 hours in milliseconds
 // const PUNCH_IN_DEADLINE = "09:45"; // 9:45 AM for full day
 // const PUNCH_IN_HALF_DAY = "14:00"; // 2:00 PM for half day
@@ -495,6 +505,8 @@ const AttendanceScreen = () => {
       const timeStr = format(currentTime, 'HH:mm');
       const roleCollection = `${role}_monthly_attendance`;
       const locationName = locationNameFromCamera || 'Unknown Location';
+      
+  const locationPunchout = locationNameFromCamera || 'Unknown Location';
       const attendanceRef = collection(db, roleCollection);
 
       const todayQuery = query(
@@ -538,6 +550,7 @@ const AttendanceScreen = () => {
           timestamp: Timestamp.fromDate(currentTime),
           photoUri: isPunchIn ? photoUri : '',
           location: isPunchIn ? location : null,
+           locationPunchout: !isPunchIn ? locationPunchout : '',
           locationName: isPunchIn ? geoLocationName : 'Unknown Location',
           totalHours: 0,
         });
@@ -550,16 +563,29 @@ const AttendanceScreen = () => {
         const totalHours = calculateTotalHours(newPunchIn, newPunchOut);
         const newStatus = calculateStatus(newPunchIn, newPunchOut);
 
-        await updateDoc(docRef, {
-          punchIn: newPunchIn,
-          punchOut: newPunchOut,
-          status: newStatus,
-          photoUri: isPunchIn ? photoUri : existingData.photoUri || '',
-          location: isPunchIn ? location : existingData.location || null,
-          locationName: isPunchIn ? geoLocationName : existingData.locationName || 'Unknown Location',
-          totalHours: totalHours,
-        });
-      }
+           await updateDoc(docRef, {
+
+      punchIn: newPunchIn,
+
+      punchOut: newPunchOut,
+
+      status: newStatus,
+
+      location: !isPunchIn ? location : existingData.location,
+
+      photoUri: !isPunchIn ? photoUri : existingData.photoUri,
+
+      totalHours: isPunchIn
+
+        ? existingData.totalHours
+
+        : existingData.totalHours + EIGHT_HOURS_IN_MS,
+
+      ...(isPunchIn ? { locationName } : { locationPunchout }),
+
+    });
+
+  }
 
       if (isPunchIn) {
         setPunchInTime(format(currentTime, 'hh:mm a'));
@@ -582,8 +608,9 @@ const AttendanceScreen = () => {
       route.params?.location &&
       route.params?.isPunchIn !== undefined
     ) {
-      const { photo, location, locationName, isPunchIn } = route.params;
-      saveAttendance(isPunchIn, photo.uri, location, locationName);
+          const { photo, location, locationName, locationPunchout, isPunchIn } = route.params;
+
+saveAttendance(isPunchIn, photo.uri, location, locationName);
     }
   }, [route.params]);
 

@@ -16,7 +16,7 @@ import {
   Alert,
 } from "react-native";
 import { ProgressBar } from "react-native-paper";
-import { useNavigation } from "@react-navigation/native";
+import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import { StackNavigationProp } from "@react-navigation/stack";
 import * as Haptics from "expo-haptics";
 import { MaterialIcons } from "@expo/vector-icons";
@@ -24,6 +24,8 @@ import { useProfile } from "@/app/context/ProfileContext";
 import { BDMStackParamList } from "@/app/index";
 import BDMMainLayout from "@/app/components/BDMMainLayout";
 import CallLog from "react-native-call-log";
+
+const SCREEN_HEIGHT = Dimensions.get("window").height;
 import {
   collection,
   addDoc,
@@ -45,7 +47,6 @@ import { startOfWeek, endOfWeek, format } from "date-fns";
 import Dialer from "@/app/components/Dialer/Dialer";
 import * as Linking from "expo-linking";
 import TelecallerAddContactModal from "@/app/Screens/Telecaller/TelecallerAddContactModal";
-
 // Interfaces remain unchanged
 interface CallLogEntry {
   phoneNumber: string;
@@ -130,7 +131,7 @@ const CALL_LOGS_LAST_UPDATE = "call_logs_last_update";
 const OLDER_LOGS_UPDATE_INTERVAL = 12 * 60 * 60 * 1000;
 const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
 const ACHIEVEMENT_STORAGE_KEY = "bdm_weekly_achievement";
-
+const SCREEN_WIDTH = Dimensions.get("window").width;
 const COMPANY_DATABASE: CompanyDatabase = {
   "google.com": {
     name: "Google",
@@ -210,7 +211,6 @@ const BDMHomeScreen = () => {
   const [callLogs, setCallLogs] = useState<GroupedCallLog[]>([]);
   const [isDialerVisible, setDialerVisible] = useState(false);
   const [phoneNumber, setPhoneNumber] = useState("");
-  const [isLoading, setIsLoading] = useState(true);
   const [isScrolling, setIsScrolling] = useState(false);
   const [callDuration, setCallDuration] = useState(0);
   const [callTimer, setCallTimer] = useState<NodeJS.Timeout | null>(null);
@@ -228,6 +228,15 @@ const BDMHomeScreen = () => {
   const [savedContacts, setSavedContacts] = useState<{ [key: string]: boolean }>({});
   const [selectedNumber, setSelectedNumber] = useState("");
   const [addContactModalVisible, setAddContactModalVisible] = useState(false);
+  
+const [meetingDetails, setMeetingDetails] = useState<
+  Array<{
+    meetingId: string;
+    meetingDate: { seconds: number };
+    individuals: Array<{ name: string }>;
+  }>
+>([]); // Type this to match the structure of your meeting data
+  const [isLoading, setIsLoading] = useState(true);  // Loading state for fetching data
   const [weeklyAchievement, setWeeklyAchievement] = useState({
     percentageAchieved: 0,
     isLoading: true,
@@ -1035,6 +1044,47 @@ const BDMHomeScreen = () => {
     const statsUpdateInterval = setInterval(() => calculateMeetingStats(), 5000);
     return () => clearInterval(statsUpdateInterval);
   }, [calculateMeetingStats]);
+useEffect(() => {
+  const meetingRef = collection(db, 'bdm_schedule_meeting');
+  const q = query(meetingRef, where('meetingDate', '>=', new Date())); // Listen for upcoming meetings
+
+  const unsubscribe = onSnapshot(q, (querySnapshot) => {
+    const meetingsData = querySnapshot.docs.map((doc) => {
+      const data = doc.data();
+      return {
+        meetingId: data.meetingId || doc.id,
+        meetingDate: data.meetingDate || { seconds: 0 },
+        individuals: data.individuals || [],
+      };
+    });
+    setMeetingDetails(meetingsData);
+    setIsLoading(false);
+  }, (error) => {
+    console.error("Error listening to meeting updates:", error);
+    setIsLoading(false);
+  });
+
+  return () => unsubscribe(); // Cleanup listener on unmount
+}, []);
+
+
+const flatListRef = useRef<FlatList<any>>(null);
+const currentIndex = useRef(0);
+
+
+useEffect(() => {
+  if (meetingDetails.length > 0 && flatListRef.current) {
+    const interval = setInterval(() => {
+      flatListRef.current?.scrollToIndex({
+        animated: true,
+        index: currentIndex.current,
+      });
+      currentIndex.current = (currentIndex.current + 1) % meetingDetails.length;
+    }, 3000);
+
+    return () => clearInterval(interval);
+  }
+}, [meetingDetails]);
 
   useEffect(() => {
     fetchCallLogs();
@@ -1058,6 +1108,63 @@ const BDMHomeScreen = () => {
     <AppGradient>
       <BDMMainLayout showDrawer showBottomTabs={true} showBackButton={false}>
         <View style={styles.container}>
+  {isLoading ? (
+          <ActivityIndicator size="large" color="#FF8447" />
+        ) : meetingDetails && meetingDetails.length > 0 ? (
+<View style={styles.meetingSection}>
+<View style={{ height: 40 }}>
+  <FlatList
+    ref={flatListRef}
+    data={meetingDetails}
+    keyExtractor={(item) => item.meetingId}
+    pagingEnabled={true}
+    snapToAlignment="start"
+    snapToInterval={80}
+    decelerationRate="fast"
+    showsVerticalScrollIndicator={false}
+    getItemLayout={(_, index) => ({
+      length: 40,
+      offset: 40 * index,
+      index,
+    })}
+    renderItem={({ item }) => {
+      const meetingTime = new Date(item.meetingDate.seconds * 1000);
+      const currentTime = new Date();
+      const timeDiff = meetingTime.getTime() - currentTime.getTime();
+      const hoursLeft = Math.floor(timeDiff / (1000 * 60 * 60));
+
+      return (
+        <View style={styles.meetingPill}>
+          <View style={styles.meetingLeft}>
+            <MaterialIcons name="person" size={18} color="#6B7280" />
+            <Text style={styles.meetingTitle}>
+              {item.individuals[0]?.name || "N/A"} -
+            </Text>
+            <Text style={styles.meetingTime}>
+  {meetingTime.toLocaleDateString()}
+</Text>
+
+          </View>
+          <Text style={styles.meetingCountdown}>
+            In {hoursLeft} hour{hoursLeft !== 1 ? "s" : ""}
+          </Text>
+        </View>
+      );
+    }}
+  />
+</View>
+
+
+
+</View>
+
+
+        ) : (
+          <Text style={styles.noMeetingsText}>No upcoming meetings found.</Text>
+        )}
+
+
+
           <View style={styles.welcomeSection}>
             <Text style={styles.welcomeText}>{isFirstTimeUser ? "Welcome,👋👋" : "Hi,👋"}</Text>
             {isLoading ? (
@@ -1155,6 +1262,73 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     padding: 16,
+  },
+   meetingSection: { // This is missing in your original code
+    paddingBottom: 10,
+  },
+  meetingCard: {
+    backgroundColor: '#f1f1f1',
+    padding: 15,
+    marginBottom: 10,
+    borderRadius: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+  meetingIcon: {
+    backgroundColor: "#FFE28A",
+    borderRadius: 20,
+    width: 32,
+    height: 32,
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 10,
+  },
+  // New style to align the elements in a row
+  meetingInfoRow: {
+    flexDirection: 'row', // Display in a horizontal row
+    justifyContent: 'space-between', // Space out the items
+    alignItems: 'center', // Vertically align the items to the center
+  },
+
+  // Participant name text style
+  participantText: {
+    fontSize: 16,
+    color: '#333',
+    fontWeight: 'bold',
+    flex: 1, // Allow it to take up available space in the row
+  },
+
+  // Meeting details (date) style
+  meetingDetails: {
+    fontSize: 14,
+    color: '#555',
+    marginVertical: 5,
+    flex: 1, // Allow it to take up available space in the row
+  },
+
+  // Time left container
+  timeLeftContainer: {
+    marginTop: 10,
+  },
+
+  // Time left text style
+  timeLeftText: {
+    padding: 5,
+    color: 'white',
+    fontWeight: 'bold',
+    borderRadius: 5,
+    textAlign: 'center',
+    fontSize: 12,
+    flex: 1, // Allow it to take up available space in the row
+  },
+
+  noMeetingsText: {
+    fontSize: 16,
+    color: '#888',
+    textAlign: 'center',
   },
   welcomeSection: {
     marginBottom: 24,
@@ -1366,6 +1540,42 @@ const styles = StyleSheet.create({
     fontFamily: "LexendDeca_400Regular",
     color: "#FF8447",
   },
+
+meetingLeft: {
+  flexDirection: 'row',
+  alignItems: 'center',
+},
+
+meetingTitle: {
+  marginLeft: 6,
+  fontSize: 14,
+  fontWeight: '500',
+  color: '#374151',
+},
+
+meetingTime: {
+  fontSize: 14,
+  marginLeft: 4,
+  color: '#374151',
+},
+
+meetingCountdown: {
+  fontSize: 14,
+  fontWeight: '700',
+  color: '#DC2626',
+},
+meetingPill: {
+  height: 40,
+  backgroundColor: "#E6F4F1",
+  borderRadius: 30,
+  paddingVertical: 6,
+  paddingHorizontal: 14,
+  flexDirection: "row",
+  alignItems: "center",
+  justifyContent: "space-between",
+  marginHorizontal: 16,
+},
+
 });
 
 export default React.memo(BDMHomeScreen);

@@ -281,7 +281,7 @@ const AttendanceScreen = () => {
     if (!punchInTime) {
       const punchInStartTime = '08:00'; // 8 AM
       const [startHour, startMinute] = punchInStartTime.split(':').map(Number);
-      const punchInEndTime = '18:00'; // 6 PM
+      const punchInEndTime = '23:59'; // 6 PM
       const [endHour, endMinute] = punchInEndTime.split(':').map(Number);
 
       const currentMinutes = currentHour * 60 + currentMinute;

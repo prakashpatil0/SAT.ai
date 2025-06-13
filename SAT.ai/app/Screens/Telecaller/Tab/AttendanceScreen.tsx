@@ -319,12 +319,12 @@ const AttendanceScreen = () => {
         if (!punchInTime) {
           Alert.alert(
             'Punch In Not Allowed',
-            'You can only punch in before 2:00 PM.'
+            'You can only punch in before 6:00 PM.'
           );
         } else {
           Alert.alert(
             'Punch Out Not Allowed',
-            'You can punch out after 2:15 PM today or punch in again tomorrow at 8:45 AM.'
+            'You can punch out after 11:00 PM today or punch in again tomorrow at 8:00 AM.'
           );
         }
         return;

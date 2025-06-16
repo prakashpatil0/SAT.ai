@@ -261,26 +261,24 @@ const AttendanceScreen = () => {
       }
     }
 
-    // Handle punch-out restrictions
+    // If user has already punched out, disable both buttons until next day
     if (punchOutTime) {
       setIsPunchButtonDisabled(now < tomorrow);
       return;
     }
 
-    // Handle punch-in restrictions
+    // Handle punch-in and punch-out separately
     if (!punchInTime) {
-      const punchInStartTime = '08:00'; // 8 AM
+      // Punch In restrictions
+      const punchInStartTime = '07:00'; // 8 AM
       const [startHour, startMinute] = punchInStartTime.split(':').map(Number);
-      const punchInEndTime = '18:00'; // 6 PM
+      const punchInEndTime = '23:59'; // 11:59 PM
       const [endHour, endMinute] = punchInEndTime.split(':').map(Number);
 
       const currentMinutes = currentHour * 60 + currentMinute;
       const startMinutes = startHour * 60 + startMinute;
       const endMinutes = endHour * 60 + endMinute;
 
-      // Disable punch-in if:
-      // 1. Before 8 AM
-      // 2. After 6 PM
       const isBeforeStartTime = currentMinutes < startMinutes;
       const isAfterEndTime = currentMinutes > endMinutes;
       
@@ -302,7 +300,7 @@ const AttendanceScreen = () => {
         );
       }
     } else if (punchInTime && !punchOutTime) {
-      // Enable punch out immediately after punch in
+      // Punch Out is always enabled after punch in until midnight
       setIsPunchButtonDisabled(false);
     }
   };

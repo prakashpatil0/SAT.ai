@@ -283,9 +283,9 @@ const BDMAttendanceScreen = () => {
 
       // Handle punch-in restrictions
       if (!punchInTime) {
-        const punchInStartTime = '08:00'; // 8 AM
+        const punchInStartTime = '07:00'; // 7 AM
         const [startHour, startMinute] = punchInStartTime.split(':').map(Number);
-        const punchInEndTime = '19:00'; // 7 PM
+        const punchInEndTime = '23:59'; // 11:59 PM
         const [endHour, endMinute] = punchInEndTime.split(':').map(Number);
 
         const currentMinutes = currentHour * 60 + currentMinute;

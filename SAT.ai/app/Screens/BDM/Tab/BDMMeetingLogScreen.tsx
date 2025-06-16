@@ -446,6 +446,7 @@ const handleScheduleMeetingSubmit = async () => {
 
   meetingId: scheduleId, // added
   createdBy: userId,
+  userId:userId,
   meetingType: meetingType,
   companyName: formData.companyName,
   individuals: formData.individuals,

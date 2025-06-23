@@ -603,19 +603,7 @@ const handleScheduleMeetingSubmit = async () => {
     const scheduleId = generateMeetingId(); // You can reuse your generator
     const timestamp = new Date();
 
-  await addDoc(collection(db, 'bdm_schedule_meeting'), {
 
-  meetingId: scheduleId, // added
-  createdBy: userId,
-  userId: userId,
-  meetingType: meetingType,
-  companyName: formData.companyName,
-  individuals: formData.individuals,
-  meetingDate: scheduleDate ? Timestamp.fromDate(scheduleDate) : null,
-  meetingTime: scheduleTime ? format(scheduleTime, 'hh:mm a') : null,
-  createdAt: serverTimestamp(),
-});
-    // const scheduleId = generateMeetingId();
 
     await addDoc(collection(db, 'bdm_schedule_meeting'), {
       meetingId: scheduleId,

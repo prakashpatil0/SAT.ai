@@ -398,7 +398,8 @@ const CameraScreen = () => {
                       }
                     },
                     locationName: locationAddress,
-                    dateTime: istTime,
+            dateTime: istTime.toISOString(), // ✅ serializable string format
+
                     isPunchIn,
                     isAutoPunchOut
                   });

@@ -232,12 +232,17 @@ const BDMAttendanceScreen = () => {
     fetchAttendanceHistory();
   }, []);
 
-  useEffect(() => {
-    if (attendanceHistory.length > 0) {
-      updateChartData();
-      filterHistoryByMonth();
-    }
-  }, [selectedMonth, attendanceHistory]);
+ useEffect(() => {
+  if (attendanceHistory.length > 0) {
+    updateChartData();
+    filterHistoryByMonth();
+  }
+}, [selectedMonth, attendanceHistory]);
+
+useEffect(() => {
+  filterHistoryByMonth(); // Add this so it re-runs on filter change too
+}, [activeFilter]);
+
 
   useEffect(() => {
     if (activeFilter) {
@@ -629,21 +634,67 @@ useEffect(() => {
     });
   };
 
-  const filterHistoryByMonth = () => {
-    const monthStart = startOfMonth(selectedMonth);
-    const monthEnd = endOfMonth(selectedMonth);
-    
-    const filtered = attendanceHistory.filter(record => {
-      const recordDate = new Date(record.timestamp);
-      return recordDate >= monthStart && recordDate <= monthEnd;
-    });
+ const filterHistoryByMonth = () => {
+  const monthStart = startOfMonth(selectedMonth);
+  const monthEnd = endOfMonth(selectedMonth);
+  const daysInMonth = monthEnd.getDate();
 
-    if (activeFilter) {
-      setFilteredHistory(filtered.filter(record => record.status === activeFilter));
-    } else {
-      setFilteredHistory(filtered);
+  // Get attendance for selected month
+  const monthRecords = attendanceHistory.filter(record => {
+    const recordDate = new Date(record.timestamp);
+    return recordDate >= monthStart && recordDate <= monthEnd;
+  });
+
+  // Get list of dates already present in records
+  const recordedDates = monthRecords.map(r => r.date);
+
+  // Generate all dates for the month
+  const allDates: AttendanceRecord[] = Array.from({ length: daysInMonth }, (_, i) => {
+    const dateObj = new Date(selectedMonth.getFullYear(), selectedMonth.getMonth(), i + 1);
+    const dateStr = format(dateObj, 'dd');
+    const isSunday = format(dateObj, 'EEEE') === 'Sunday';
+
+    if (!recordedDates.includes(dateStr) && !isSunday) {
+      return {
+        date: dateStr,
+        day: format(dateObj, 'EEE').toUpperCase(),
+        month: format(dateObj, 'MM'),
+        year: format(dateObj, 'yyyy'),
+        punchIn: '',
+        punchOut: '',
+        status: 'On Leave',
+        userId: auth.currentUser?.uid || '',
+        timestamp: dateObj,
+        photoUri: '',
+        punchOutPhotoUri: '',
+        location: { latitude: 0, longitude: 0 },
+        punchOutLocation: undefined,
+        designation: userDetails.designation || '',
+        employeeName: userDetails.employeeName || '',
+        phoneNumber: userDetails.phoneNumber || '',
+        email: userDetails.email || '',
+        totalHours: 0,
+        workMode: 'Office',
+        locationName: '',
+        punchOutLocationName: '',
+        lastUpdated: dateObj
+      };
     }
-  };
+
+    return null;
+  }).filter(Boolean) as AttendanceRecord[];
+
+  const combined = [...monthRecords, ...allDates].sort(
+    (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+  );
+
+  setFilteredHistory(
+    activeFilter
+      ? combined.filter(record => record.status === activeFilter)
+      : combined
+  );
+};
+
 
   const handleMonthSelect = (month: Date) => {
     setSelectedMonth(month);

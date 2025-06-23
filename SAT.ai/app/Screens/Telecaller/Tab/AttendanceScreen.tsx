@@ -39,7 +39,7 @@ type AttendanceStatus = "Present" | "Half Day" | "On Leave";
 type CameraScreenParams = {
   photo: { uri: string };
   location: { coords: { latitude: number; longitude: number } };
-  dateTime: Date;
+  dateTime: string; 
   isPunchIn: boolean;
 };
 
@@ -62,6 +62,7 @@ type RootStackParamList = {
   location?: { coords: { latitude: number; longitude: number } };
 
   isPunchIn?: boolean;
+    dateTime?: string; // ✅ update this
 
   locationName?: string | null;
 
@@ -105,6 +106,9 @@ const { width } = Dimensions.get("window");
 const AttendanceScreen = () => {
   const navigation = useNavigation<AttendanceScreenNavigationProp>();
   const route = useRoute<RouteProp<RootStackParamList, "AttendanceScreen">>();
+  const { dateTime } = route.params || {};
+const dateTimeObj = dateTime ? new Date(dateTime) : null;
+
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedMonth, setSelectedMonth] = useState(
     format(new Date(), "MMMM")
@@ -625,23 +629,22 @@ saveAttendance(isPunchIn, photo.uri, location, locationName);
   }, [attendanceHistory]);
 
   useEffect(() => {
-    if (attendanceHistory.length > 0) {
-      let filtered = [...attendanceHistory];
+  if (attendanceHistory.length > 0) {
+  const allRecordsInMonth = attendanceHistory.filter((record) => {
+    const recordDate = new Date(record.timestamp);
+    return format(recordDate, 'MMMM') === selectedMonth;
+  });
 
-      filtered = filtered.filter((record) => {
-        const recordDate = new Date(record.timestamp);
-        return format(recordDate, 'MMMM') === selectedMonth;
-      });
+  // Apply status filter to display
+  let filtered = [...allRecordsInMonth];
+  if (selectedStatus) {
+    filtered = filtered.filter((record) => record.status === selectedStatus);
+  }
 
-      if (selectedStatus) {
-        filtered = filtered.filter(
-          (record) => record.status === selectedStatus
-        );
-      }
+  setFilteredHistory(filtered);
+  calculateStatusCounts(allRecordsInMonth); // ✅ use unfiltered data for counts
+}
 
-      setFilteredHistory(filtered);
-      calculateStatusCounts(filtered);
-    }
   }, [selectedMonth, selectedStatus, attendanceHistory]);
 
   const updateWeekDays = () => {
@@ -1548,4 +1551,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default AttendanceScreen;
+export default AttendanceScreen; 

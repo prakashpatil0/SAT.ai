@@ -1056,11 +1056,10 @@ useFocusEffect(
     if (!userId) return;
 
     const meetingRef = collection(db, 'bdm_schedule_meeting');
-    const q = query(meetingRef, 
-      where("userId", "==", userId)
-    );
+    const q = query(meetingRef, where("userId", "==", userId));
 
     const unsubscribe = onSnapshot(q, (querySnapshot) => {
+      const now = new Date();
       const meetingsData = querySnapshot.docs.map((doc) => {
         const data = doc.data();
         return {
@@ -1070,7 +1069,13 @@ useFocusEffect(
           meetingTime: data.meetingTime || "N/A",
         };
       });
-      setMeetingDetails(meetingsData);
+
+      // Only keep upcoming meetings
+      const upcomingMeetings = meetingsData.filter(meeting =>
+        new Date(meeting.meetingDate.seconds * 1000) > now
+      );
+
+      setMeetingDetails(upcomingMeetings);
       setIsLoading(false);
     }, (error) => {
       console.error("Error listening to meeting updates on focus:", error);
@@ -1089,23 +1094,34 @@ useFocusEffect(
 
 
 
+
 const flatListRef = useRef<FlatList<any>>(null);
 const currentIndex = useRef(0);
 
 
 useEffect(() => {
   if (meetingDetails.length > 0 && flatListRef.current) {
+    currentIndex.current = 0; // Reset on data change
+
     const interval = setInterval(() => {
-      flatListRef.current?.scrollToIndex({
-        animated: true,
-        index: currentIndex.current,
-      });
-      currentIndex.current = (currentIndex.current + 1) % meetingDetails.length;
+      if (currentIndex.current < meetingDetails.length) {
+        try {
+          flatListRef.current?.scrollToIndex({
+            animated: true,
+            index: currentIndex.current,
+          });
+        } catch (err) {
+          console.warn("ScrollToIndex failed", err);
+        }
+
+        currentIndex.current = (currentIndex.current + 1) % meetingDetails.length;
+      }
     }, 3000);
 
     return () => clearInterval(interval);
   }
 }, [meetingDetails]);
+
 
   useEffect(() => {
     fetchCallLogs();

@@ -28,15 +28,17 @@ interface Event {
   title: string;
   startTime: string;
   endTime: string;
-  type: 'morning' | 'individual' | 'company' | 'break' | 'followup';
+  type: 'morning' | 'individual' | 'company' | 'break' | 'followup' | 'meeting';
   description?: string;
   date: Date;
-  isRecurring?: boolean;
+  meetingId?: string;
+  meetingType?: string;
   contactName?: string;
   phoneNumber?: string;
   status?: string;
   color?: string;
 }
+
 
 interface NotificationData {
   followUpId: string;
@@ -55,6 +57,7 @@ const BDMMyScheduleScreen = () => {
   const [followUps, setFollowUps] = useState<Event[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [notificationIds, setNotificationIds] = useState<string[]>([]);
+  
 // Request notification permissions on mount
 useEffect(() => {
   (async () => {
@@ -104,17 +107,17 @@ useEffect(() => {
       direction === 'next' ? addDays(current, days) : subDays(current, days)
     );
   };
-
-  const getEventColor = (type: string) => {
-    switch(type) {
-      case 'morning': return { bg: '#E1F5FE', text: '#0288D1', border: '#81D4FA' };
-      case 'individual': return { bg: '#FFF3E0', text: '#FF8447', border: '#FFB74D' };
-      case 'company': return { bg: '#F3E8FF', text: '#9C27B0', border: '#CE93D8' };
-      case 'break': return { bg: '#E8F5E9', text: '#2E7D32', border: '#81C784' };
-      case 'followup': return { bg: '#FCE4EC', text: '#C2185B', border: '#F48FB1' };
-      default: return { bg: '#FFF', text: '#333', border: '#DDD' };
-    }
-  };
+const getEventColor = (type: string) => {
+  switch(type) {
+    case 'morning': return { bg: '#E1F5FE', text: '#0288D1', border: '#81D4FA' };
+    case 'individual': return { bg: '#FFF3E0', text: '#FF8447', border: '#FFB74D' };
+    case 'company': return { bg: '#F3E8FF', text: '#9C27B0', border: '#CE93D8' };
+    case 'break': return { bg: '#E8F5E9', text: '#2E7D32', border: '#81C784' };
+    case 'followup': return { bg: '#FCE4EC', text: '#C2185B', border: '#F48FB1' };
+    case 'meeting': return { bg: '#FFF9C4', text: '#F57F17', border: '#FFEE58' }; // ✅ Add this
+    default: return { bg: '#FFF', text: '#333', border: '#DDD' };
+  }
+};
 
   const getMinutesFromTime = (time: string): number => {
     const [hours, minutes] = time.split(':').map(Number);
@@ -132,58 +135,59 @@ useEffect(() => {
     </View>
   );
 
-  const renderEvent = (event: Event, viewType: 'day' | '3days' | 'week') => {
-    const colors = getEventColor(event.type);
-    const startMinutes = getMinutesFromTime(event.startTime);
-    const endMinutes = getMinutesFromTime(event.endTime);
-    const duration = endMinutes - startMinutes;
-    const top = ((startMinutes - 9 * 60) / 30) * 30;
-    const height = (duration / 30) * 30;
-    const isShortDuration = duration <= 30;
+const renderEvent = (event: Event, viewType: 'day' | '3days' | 'week') => {
 
-    if (event.type === 'followup') {
-      return renderFollowUpEvent(event, viewType);
-    }
+  const colors = getEventColor(event.type);
+  const startMinutes = getMinutesFromTime(event.startTime);
+  const endMinutes = getMinutesFromTime(event.endTime);
+  const duration = endMinutes - startMinutes;
+  const top = ((startMinutes - 9 * 60) / 30) * 30;
+  const height = (duration / 30) * 30;
+  const isShortDuration = duration <= 30;
 
-    return (
-      <TouchableOpacity
-        key={event.id}
+
+
+  
+  return (
+    <TouchableOpacity
+      key={event.id}
+      style={[
+        styles.eventCard,
+        {
+          top,
+          height,
+          backgroundColor: colors.bg,
+          borderColor: colors.border,
+          width: viewType === 'day' ? '90%' : 140,
+          left: viewType === 'day' ? '5%' : 5,
+        },
+        isShortDuration && styles.shortEventCard
+      ]}
+      onPress={() => {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        setSelectedEvent(event);
+        setModalVisible(true);
+      }}
+    >
+      <Text 
         style={[
-          styles.eventCard,
-          {
-            top,
-            height,
-            backgroundColor: colors.bg,
-            borderColor: colors.border,
-            width: viewType === 'day' ? '90%' : 140,
-            left: viewType === 'day' ? '5%' : 5,
-          },
-          isShortDuration && styles.shortEventCard
-        ]}
-        onPress={() => {
-          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-          setSelectedEvent(event);
-          setModalVisible(true);
-        }}
+          styles.eventTitle, 
+          { color: colors.text },
+          isShortDuration && styles.shortEventTitle
+        ]} 
+        numberOfLines={isShortDuration ? 1 : 2}
       >
-        <Text 
-          style={[
-            styles.eventTitle, 
-            { color: colors.text },
-            isShortDuration && styles.shortEventTitle
-          ]} 
-          numberOfLines={isShortDuration ? 1 : 2}
-        >
-          {event.title}
-        </Text>
-        {!isShortDuration && (
-          <Text style={[styles.eventTime, { color: colors.text }]}>
-            {event.startTime} - {event.endTime}
-          </Text>
-        )}
-      </TouchableOpacity>
-    );
-  };
+        {event.title}
+      </Text>
+      {!isShortDuration && (
+        <Text style={[styles.eventTime, { color: colors.text }]}>{event.startTime} - {event.endTime}</Text>
+      )}
+    </TouchableOpacity>
+  );
+};
+
+
+
 
   const renderFollowUpEvent = (event: Event, viewType: 'day' | '3days' | 'week') => {
     const colors = getEventColor('followup');
@@ -222,19 +226,21 @@ useEffect(() => {
     );
   };
 
-  const renderDayView = () => (
-    <View style={styles.dayContainer}>
-      <Text style={styles.dateHeader}>{format(selectedDate, 'MMMM d, yyyy')}</Text>
-      <ScrollView style={styles.scrollContainer}>
-        <View style={styles.scheduleContainer}>
-          {renderTimeColumn()}
-          <View style={styles.eventsContainer}>
-            {getEventsForCurrentView().map(event => renderEvent(event, 'day'))}
-          </View>
+const renderDayView = () => (
+  <View style={styles.dayContainer}>
+    <Text style={styles.dateHeader}>{format(selectedDate, 'MMMM d, yyyy')}</Text>
+    <ScrollView style={styles.scrollContainer}>
+      <View style={styles.scheduleContainer}>
+        {renderTimeColumn()}
+        <View style={styles.eventsContainer}>
+          {getEventsForCurrentView().map(event => renderEvent(event, 'day'))}
         </View>
-      </ScrollView>
-    </View>
-  );
+      </View>
+    </ScrollView>
+  </View>
+);
+
+
 
   const renderMultiDayView = (days: number) => {
     const dates = Array.from({ length: days }, (_, i) => addDays(selectedDate, i));
@@ -458,6 +464,92 @@ useEffect(() => {
       setIsLoading(false);
     }
   };
+const [meetingEvents, setMeetingEvents] = useState<Event[]>([]);
+
+const fetchMeetings = async () => {
+  try {
+    setIsLoading(true); // Set loading state to true before fetching data
+    const auth = getAuth();
+    const userId = auth.currentUser?.uid;
+    if (!userId) return;
+
+    const meetingsRef = collection(db, 'bdm_schedule_meeting');
+    const q = query(meetingsRef, where('createdBy', '==', userId));
+    const snapshot = await getDocs(q);
+
+    const fetchedMeetings: Event[] = [];
+
+    snapshot.forEach((docSnap) => {
+      const data = docSnap.data();
+      const rawTimestamp = data.meetingDate;
+      const meetingDate = rawTimestamp ? rawTimestamp.toDate() : null;
+
+      if (!meetingDate) return;
+
+      const rawTime = data.meetingTime || '00:00 AM';
+      const startTime = convertTo24Hour(rawTime);
+
+      const isInRange = isDateInCurrentView(meetingDate);
+
+     if (isInRange) {
+  const meeting: Event = {
+    id: docSnap.id,
+    title: `Meeting with ${data.individuals?.[0]?.name || 'Client'}`,
+    startTime,
+    endTime: addMinutesToTime(startTime, 30),
+    date: meetingDate,
+    type: 'meeting',
+    contactName: data.individuals?.[0]?.name || '',
+    phoneNumber: data.individuals?.[0]?.phoneNumber || '',
+    meetingId: data.meetingId,
+    meetingType: data.meetingType,
+  };
+
+  fetchedMeetings.push(meeting);
+  scheduleMeetingNotifications(meeting); // <-- Add this line
+}
+
+    });
+
+    // Update the state once the data is fetched
+    setMeetingEvents(fetchedMeetings);
+  } catch (error) {
+    console.error('Error fetching meetings:', error);
+  } finally {
+    setIsLoading(false); // Set loading state to false after data is fetched
+  }
+};
+
+
+
+
+const convertTo24Hour = (time12h: string): string => {
+  const [time, modifier] = time12h.trim().split(' ');
+  let [hours, minutes] = time.split(':');
+
+  if (modifier === 'PM' && hours !== '12') {
+    hours = String(parseInt(hours) + 12);
+  }
+  if (modifier === 'AM' && hours === '12') {
+    hours = '00';
+  }
+
+  return `${hours.padStart(2, '0')}:${minutes}`;
+};
+
+const addMinutesToTime = (time: string, minutesToAdd: number) => {
+  const [hourStr, minStr] = time.split(':');
+  let hours = parseInt(hourStr);
+  let minutes = parseInt(minStr);
+  
+  // Add minutes to the parsed time
+  const date = new Date();
+  date.setHours(hours, minutes, 0);
+  date.setMinutes(date.getMinutes() + minutesToAdd);
+  
+  // Format the hours and minutes to 2 digits
+  return `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
+};
 
 const scheduleFollowUpNotifications = async (followUp: Event) => {
   try {
@@ -487,7 +579,6 @@ const scheduleFollowUpNotifications = async (followUp: Event) => {
         },
         trigger: dayBefore7PM,
       });
-      console.log("✅ Scheduled 1-day before @ 7PM:", dayBefore7PM.toLocaleString());
       notificationIds.push(id1);
     }
 
@@ -503,10 +594,9 @@ const scheduleFollowUpNotifications = async (followUp: Event) => {
         },
         trigger: sameDay8AM,
       });
-      console.log("✅ Scheduled same-day @ 8AM:", sameDay8AM.toLocaleString());
       notificationIds.push(id2);
     }
-    // 🔔 2 Hours Before the Meeting
+  
 const twoHoursBefore = subMinutes(followUpDateTime, 120);
 if (twoHoursBefore > now) {
   const id4 = await Notifications.scheduleNotificationAsync({
@@ -517,12 +607,10 @@ if (twoHoursBefore > now) {
     },
     trigger: twoHoursBefore,
   });
-  console.log("✅ Scheduled 2-hours before:", twoHoursBefore.toLocaleString());
   notificationIds.push(id4);
 }
 
 
-    // 3️⃣ 5 Minutes Before the Meeting
     const fiveMinBefore = subMinutes(followUpDateTime, 5);
     if (fiveMinBefore > now) {
       const id3 = await Notifications.scheduleNotificationAsync({
@@ -533,7 +621,6 @@ if (twoHoursBefore > now) {
         },
         trigger: fiveMinBefore,
       });
-      console.log("✅ Scheduled 5-min before:", fiveMinBefore.toLocaleString());
       notificationIds.push(id3);
     }
 
@@ -545,10 +632,90 @@ if (twoHoursBefore > now) {
   }
 };
 
+const scheduleMeetingNotifications = async (meeting: Event) => {
+  try {
+    const existingIds = await AsyncStorage.getItem(`notifications_meeting_${meeting.id}`);
+    if (existingIds) {
+      const ids = JSON.parse(existingIds);
+      await Promise.all(ids.map((id: string) => Notifications.cancelScheduledNotificationAsync(id)));
+    }
+
+    const meetingDateTime = new Date(meeting.date);
+    const [hours, minutes] = meeting.startTime.split(':').map(Number);
+    meetingDateTime.setHours(hours, minutes, 0, 0);
+
+    const now = new Date();
+    const notificationIds: string[] = [];
+
+    // 1️⃣ Day before at 7 PM
+    const dayBefore = new Date(meetingDateTime);
+    dayBefore.setDate(dayBefore.getDate() - 1);
+    dayBefore.setHours(19, 0, 0, 0);
+    if (dayBefore > now) {
+      const id1 = await Notifications.scheduleNotificationAsync({
+        content: {
+          title: '📅 Tomorrow’s Meeting',
+          body: `${meeting.contactName || 'Meeting'} at ${meeting.startTime}`,
+          data: { meetingId: meeting.id },
+        },
+        trigger: dayBefore,
+      });
+      notificationIds.push(id1);
+    }
+
+    // 2️⃣ Same day at 8 AM
+    const morning = new Date(meetingDateTime);
+    morning.setHours(8, 0, 0, 0);
+    if (morning > now) {
+      const id2 = await Notifications.scheduleNotificationAsync({
+        content: {
+          title: '⏰ Today’s Meeting',
+          body: `${meeting.contactName || 'Meeting'} at ${meeting.startTime}`,
+          data: { meetingId: meeting.id },
+        },
+        trigger: morning,
+      });
+      notificationIds.push(id2);
+    }
+
+    // 3️⃣ 2 hours before
+    const twoHoursBefore = subMinutes(meetingDateTime, 120);
+    if (twoHoursBefore > now) {
+      const id3 = await Notifications.scheduleNotificationAsync({
+        content: {
+          title: '🔔 Meeting in 2 Hours',
+          body: `${meeting.contactName || 'Meeting'} at ${meeting.startTime}`,
+          data: { meetingId: meeting.id },
+        },
+        trigger: twoHoursBefore,
+      });
+      notificationIds.push(id3);
+    }
+
+    // 4️⃣ 5 minutes before
+    const fiveMinBefore = subMinutes(meetingDateTime, 5);
+    if (fiveMinBefore > now) {
+      const id4 = await Notifications.scheduleNotificationAsync({
+        content: {
+          title: '📞 Follow-up in 5 minutes',
+          body: `${meeting.contactName || 'Meeting'} at ${meeting.startTime}`,
+          data: { meetingId: meeting.id },
+        },
+        trigger: fiveMinBefore,
+      });
+      notificationIds.push(id4);
+    }
+
+    await AsyncStorage.setItem(`notifications_meeting_${meeting.id}`, JSON.stringify(notificationIds));
+  } catch (error) {
+    console.error('❌ Error scheduling meeting notifications:', error);
+  }
+};
 
 
 
-  // Add notification listener for snooze action
+
+  
   useEffect(() => {
     const subscription = Notifications.addNotificationResponseReceivedListener(response => {
       const followUpId = response.notification.request.content.data.followUpId;
@@ -564,7 +731,7 @@ if (twoHoursBefore > now) {
     try {
       const followUp = followUps.find(f => f.id === followUpId);
       if (followUp) {
-        // Schedule a new notification for 15 minutes later
+      
         const snoozeTime = addMinutes(new Date(), 15);
         await Notifications.scheduleNotificationAsync({
           content: {
@@ -573,7 +740,7 @@ if (twoHoursBefore > now) {
             data: { followUpId },
           },
           trigger: {
-            seconds: 15 * 60, // 15 minutes in seconds
+            seconds: 15 * 60, 
             repeats: false,
             type: 'timeInterval'
           },
@@ -584,7 +751,7 @@ if (twoHoursBefore > now) {
     }
   };
 
-  // Helper function to check if a date falls within the current view
+  
   const isDateInCurrentView = (date: Date) => {
     const startOfView = startOfDay(selectedDate);
     const endOfView = endOfDay(
@@ -598,46 +765,41 @@ if (twoHoursBefore > now) {
     return isWithinInterval(date, { start: startOfView, end: endOfView });
   };
 
-  // Combine regular schedule with follow-ups
-  const getEventsForCurrentView = (): Event[] => {
-    let events: Event[] = [];
-    
-    // Add daily schedule template events
-    if (view === 'day') {
-      events = dailyScheduleTemplate.map(template => ({
+  
+const getEventsForCurrentView = (): Event[] => {
+
+  let events: Event[] = [];
+
+  const baseEvents = view === 'day'
+    ? dailyScheduleTemplate.map(template => ({
         ...template,
         id: `${selectedDate.toISOString()}-${template.startTime}`,
         date: selectedDate,
-      }));
-    } else {
-      const daysToShow = view === '3days' ? 3 : 7;
-      for (let i = 0; i < daysToShow; i++) {
-        const currentDate = addDays(selectedDate, i);
-        events = [...events, ...dailyScheduleTemplate.map(template => ({
+      }))
+    : Array.from({ length: view === '3days' ? 3 : 7 }, (_, i) => {
+        const date = addDays(selectedDate, i);
+        return dailyScheduleTemplate.map(template => ({
           ...template,
-          id: `${currentDate.toISOString()}-${template.startTime}`,
-          date: currentDate,
-        }))];
-      }
-    }
+          id: `${date.toISOString()}-${template.startTime}`,
+          date,
+        }));
+      }).flat();
 
-    // Add follow-ups to events
-    const allEvents = [...events, ...followUps];
-    
-    // Sort events by time
-    return allEvents.sort((a, b) => {
-      const dateCompare = a.date.getTime() - b.date.getTime();
-      if (dateCompare === 0) {
-        return a.startTime.localeCompare(b.startTime);
-      }
-      return dateCompare;
-    });
-  };
+  // Combine all events
+  events = [...baseEvents, ...followUps, ...meetingEvents];
 
-  useEffect(() => {
-    fetchFollowUps();
-    loadScheduleData(); // Load saved schedule data
-  }, [selectedDate, view]);
+  return events.sort((a, b) => {
+    const d = a.date.getTime() - b.date.getTime();
+    return d === 0 ? a.startTime.localeCompare(b.startTime) : d;
+  });
+};
+
+ useEffect(() => {
+  fetchFollowUps();
+  fetchMeetings();
+  loadScheduleData();
+}, [selectedDate, view]);
+
 
   useEffect(() => {
     registerForPushNotificationsAsync();
@@ -980,5 +1142,7 @@ const styles = StyleSheet.create({
     marginTop: 16,
   },
 });
+
+
 
 export default BDMMyScheduleScreen; 

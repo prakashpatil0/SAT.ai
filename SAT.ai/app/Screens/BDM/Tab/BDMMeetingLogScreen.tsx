@@ -20,7 +20,7 @@ import Ionicons from "react-native-vector-icons/Ionicons";
 import BDMMainLayout from '@/app/components/BDMMainLayout';
 import AppGradient from '@/app/components/AppGradient';
 import { auth, db } from '@/firebaseConfig';
-import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, addDoc, serverTimestamp,Timestamp } from 'firebase/firestore';
 import { useNavigation } from '@react-navigation/native';
 import * as Location from 'expo-location';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -78,6 +78,12 @@ const BDMMeetingLogScreen = () => {
   const [isLocationLoading, setIsLocationLoading] = useState(false);
   const [showLocationReachTimePicker, setShowLocationReachTimePicker] = useState(false);
 const [selectedLocationReachTime, setSelectedLocationReachTime] = useState(new Date());
+const [showScheduleForm, setShowScheduleForm] = useState(false);
+const [scheduleDate, setScheduleDate] = useState<Date | null>(null);
+const [scheduleTime, setScheduleTime] = useState<Date | null>(null);
+const [showScheduleDatePicker, setShowScheduleDatePicker] = useState(false);
+const [showScheduleTimePicker, setShowScheduleTimePicker] = useState(false);
+
 const onLocationReachTimeChange = (event: DateTimePickerEvent, time?: Date) => {
   setShowLocationReachTimePicker(Platform.OS === 'ios');
   if (time) {
@@ -162,6 +168,8 @@ const onLocationReachTimeChange = (event: DateTimePickerEvent, time?: Date) => {
 const resetForm = () => {
   const newMeetingId = generateMeetingId();
   const now = new Date();
+  setScheduleDate(null);   // Reset meeting date
+  setScheduleTime(null);   // Reset meeting time
   setSelectedDate(now);
   setSelectedTime(now);
   setSelectedStartTime(now);
@@ -428,6 +436,34 @@ const resetForm = () => {
       individuals: updatedIndividuals
     });
   };
+const handleScheduleMeetingSubmit = async () => {
+  try {
+    const userId = auth.currentUser?.uid || 'guest';
+    const scheduleId = generateMeetingId(); // You can reuse your generator
+    const timestamp = new Date();
+
+  await addDoc(collection(db, 'bdm_schedule_meeting'), {
+
+  meetingId: scheduleId, // added
+  createdBy: userId,
+  userId: userId,
+  meetingType: meetingType,
+  companyName: formData.companyName,
+  individuals: formData.individuals,
+  meetingDate: scheduleDate ? Timestamp.fromDate(scheduleDate) : null,
+  meetingTime: scheduleTime ? format(scheduleTime, 'hh:mm a') : null,
+  createdAt: serverTimestamp(),
+});
+
+
+    Alert.alert("Success", "Scheduled meeting saved!");
+    setShowScheduleForm(false);
+    resetForm();
+  } catch (error) {
+    console.error("Error saving scheduled meeting:", error);
+    Alert.alert("Error", "Failed to save scheduled meeting. Try again.");
+  }
+};
 
   const renderIndividualForm = (individual: IndividualDetails, index: number) => (
     <View key={`individual-${index}`} style={styles.individualContainer}>
@@ -486,38 +522,132 @@ const resetForm = () => {
     </View>
   );
 
-  const renderCompanyForm = () => (
-    <>
-      <View style={styles.inputGroup}>
-        <Text style={styles.label}>Company Name</Text>
-        <TextInput
-          style={[styles.input, errors.companyName && styles.inputError]}
-          placeholder="Enter Company Name"
-          value={formData.companyName}
-          onChangeText={(text) => setFormData({...formData, companyName: text})}
-        />
-        {errors.companyName && <Text style={styles.errorText}>{errors.companyName}</Text>}
-      </View>
+ const renderCompanyForm = () => (
+  <>
+    <View style={styles.inputGroup}>
+      <Text style={styles.label}>Company Name</Text>
+      <TextInput
+        style={[styles.input, errors.companyName && styles.inputError]}
+        placeholder="Enter Company Name"
+        value={formData.companyName}
+        onChangeText={(text) => setFormData({...formData, companyName: text})}
+      />
+      {errors.companyName && <Text style={styles.errorText}>{errors.companyName}</Text>}
+    </View>
 
-      <View style={styles.divider} />
+    <View style={styles.divider} />
 
-      <Text style={styles.sectionTitle}>Individuals Details</Text>
+    <Text style={styles.sectionTitle}>Individuals Details</Text>
 
-      {formData.individuals.map((individual, index) => renderIndividualForm(individual, index))}
-      
-      {/* Add Individual Button */}
-      <TouchableOpacity style={styles.addButton} onPress={addIndividual}>
-        <MaterialIcons name="person-add" size={24} color="#FF8447" />
-        <Text style={styles.addButtonText}>Add Another Individual</Text>
-      </TouchableOpacity>
-    </>
-  );
+    {formData.individuals.map((individual, index) => renderIndividualForm(individual, index))}
+
+    {/* Keep only this one */}
+    <TouchableOpacity style={styles.addButton} onPress={addIndividual}>
+      <MaterialIcons name="person-add" size={24} color="#FF8447" />
+      <Text style={styles.addButtonText}>Add Another Individual</Text>
+    </TouchableOpacity>
+  </>
+);
+
 
   return (
     <AppGradient>
     <BDMMainLayout title="Meeting Log" showBackButton>
       <ScrollView style={styles.scrollView}>
         <View style={styles.formContainer}>
+          <Text style={styles.meetingDateText}>
+  {format(new Date(), 'dd MMMM (EEEE)')}
+</Text>
+{/* Schedule Meeting Button */}
+<TouchableOpacity
+  style={styles.scheduleMeetingButton}
+  onPress={() => setShowScheduleForm(true)} // show the new form
+>
+  <View style={styles.scheduleLeft}>
+    <MaterialIcons name="event" size={20} color="#FF8447" />
+    <Text style={styles.scheduleText}>Schedule Meeting</Text>
+  </View>
+  <MaterialIcons name="arrow-forward-ios" size={18} color="#FF8447" />
+</TouchableOpacity>
+
+
+            {/* Meeting Type Selection */}
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>Meeting With</Text>
+            <View style={styles.meetingTypeContainer}>
+              <TouchableOpacity 
+                style={[
+                  styles.meetingTypeButton,
+                  meetingType === 'Individual' && styles.selectedMeetingType
+                ]}
+                onPress={() => {
+                  setMeetingType('Individual');
+                  setFormData({
+                    ...formData,
+                    meetingType: 'Individual',
+                    companyName: ''
+                  });
+                }}
+              >
+                <MaterialIcons 
+                  name="person" 
+                  size={24} 
+                  color={meetingType === 'Individual' ? '#FF8447' : '#666'} 
+                />
+                <Text style={[
+                  styles.meetingTypeText,
+                  meetingType === 'Individual' && styles.selectedMeetingTypeText
+                ]}>Individual</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[
+                  styles.meetingTypeButton,
+                  meetingType === 'Company' && styles.selectedMeetingType
+                ]}
+                onPress={() => {
+                  setMeetingType('Company');
+                  setFormData({
+                    ...formData,
+                    meetingType: 'Company'
+                  });
+                }}
+              >
+                <MaterialIcons 
+                  name="business" 
+                  size={24} 
+                  color={meetingType === 'Company' ? '#FF8447' : '#666'} 
+                />
+                <Text style={[
+                  styles.meetingTypeText,
+                  meetingType === 'Company' && styles.selectedMeetingTypeText
+                ]}>Company</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          {/* Conditional Form Fields */}
+         {meetingType === 'Company' ? (
+  renderCompanyForm()
+) : (
+  <>
+    {formData.individuals.map((individual, index) => renderIndividualForm(individual, index))}
+    <TouchableOpacity style={styles.addButton} onPress={addIndividual}>
+      <MaterialIcons name="person-add" size={24} color="#FF8447" />
+      <Text style={styles.addButtonText}>Add Another Individual</Text>
+    </TouchableOpacity>
+  </>
+)}
+
+
+          {/* Meeting ID Display */}
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>Meeting ID</Text>
+            <View style={[styles.input, styles.meetingIdContainer]}>
+              <Text style={[styles.inputText, styles.meetingIdText]}>
+                {formData.meetingId}
+              </Text>
+            </View>
+          </View>
           {/* Date Picker */}
           <View style={styles.inputGroup}>
             <Text style={styles.label}>Date of Meeting</Text>
@@ -628,74 +758,7 @@ const resetForm = () => {
             />
           </View>
 
-          {/* Meeting Type Selection */}
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>Meeting With</Text>
-            <View style={styles.meetingTypeContainer}>
-              <TouchableOpacity 
-                style={[
-                  styles.meetingTypeButton,
-                  meetingType === 'Individual' && styles.selectedMeetingType
-                ]}
-                onPress={() => {
-                  setMeetingType('Individual');
-                  setFormData({
-                    ...formData,
-                    meetingType: 'Individual',
-                    companyName: ''
-                  });
-                }}
-              >
-                <MaterialIcons 
-                  name="person" 
-                  size={24} 
-                  color={meetingType === 'Individual' ? '#FF8447' : '#666'} 
-                />
-                <Text style={[
-                  styles.meetingTypeText,
-                  meetingType === 'Individual' && styles.selectedMeetingTypeText
-                ]}>Individual</Text>
-              </TouchableOpacity>
-              <TouchableOpacity 
-                style={[
-                  styles.meetingTypeButton,
-                  meetingType === 'Company' && styles.selectedMeetingType
-                ]}
-                onPress={() => {
-                  setMeetingType('Company');
-                  setFormData({
-                    ...formData,
-                    meetingType: 'Company'
-                  });
-                }}
-              >
-                <MaterialIcons 
-                  name="business" 
-                  size={24} 
-                  color={meetingType === 'Company' ? '#FF8447' : '#666'} 
-                />
-                <Text style={[
-                  styles.meetingTypeText,
-                  meetingType === 'Company' && styles.selectedMeetingTypeText
-                ]}>Company</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-
-          {/* Conditional Form Fields */}
-          {meetingType === 'Company' 
-            ? renderCompanyForm() 
-            : formData.individuals.map((individual, index) => renderIndividualForm(individual, index))}
-
-          {/* Meeting ID Display */}
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>Meeting ID</Text>
-            <View style={[styles.input, styles.meetingIdContainer]}>
-              <Text style={[styles.inputText, styles.meetingIdText]}>
-                {formData.meetingId}
-              </Text>
-            </View>
-          </View>
+        
 
           {/* Submit Button */}
           <TouchableOpacity 
@@ -790,9 +853,195 @@ const resetForm = () => {
 
         </View>
       </ScrollView>
+      
+<Modal
+  visible={showScheduleForm}
+  animationType="fade"
+  transparent
+  onRequestClose={() => setShowScheduleForm(false)}
+>
+  <View style={styles.popupOverlay}>
+    <View style={styles.popupContainer}>
+    <ScrollView contentContainerStyle={{ padding: 20 }}>
+      <Text style={styles.newFormTitle}>Schedule Meeting</Text>
+      <TouchableOpacity
+        onPress={() => setShowScheduleForm(false)}
+        style={{ position: 'absolute', top: 10, right: 10 }}
+      >
+        <MaterialIcons name="close" size={24} color="#999" />
+      </TouchableOpacity>
+
+      <View style={styles.inputGroup}>
+        <Text style={styles.label}>Date of Meeting</Text>
+        <TouchableOpacity style={styles.input} onPress={() => setShowScheduleDatePicker(true)}>
+  <Text style={styles.placeholderText}>
+    {scheduleDate ? format(scheduleDate, 'dd MMM yyyy') : 'Select Date'}
+  </Text>
+  <MaterialIcons name="calendar-today" size={20} color="#FF8447" />
+</TouchableOpacity>
+
+      </View>
+
+      <View style={styles.inputGroup}>
+       <Text style={styles.label}>Time of Meeting</Text>
+<TouchableOpacity
+  style={styles.input}
+  onPress={() => setShowScheduleTimePicker(true)}
+>
+  <Text style={styles.placeholderText}>
+    {scheduleTime ? format(scheduleTime, 'hh:mm a') : 'Select Time'}
+  </Text>
+  <MaterialIcons name="access-time" size={20} color="#FF8447" />
+</TouchableOpacity>
+
+      </View>
+
+     <View style={styles.inputGroup}>
+  <Text style={styles.label}>Meeting With</Text>
+  <View style={styles.meetingTypeContainer}>
+    <TouchableOpacity
+      style={[styles.meetingTypeButton, meetingType === 'Individual' && styles.selectedMeetingType]}
+      onPress={() => setMeetingType('Individual')}
+    >
+      <MaterialIcons name="person" size={20} color={meetingType === 'Individual' ? '#FF8447' : '#999'} />
+      <Text style={[styles.meetingTypeText, meetingType === 'Individual' && styles.selectedMeetingTypeText]}>
+        Individual
+      </Text>
+    </TouchableOpacity>
+    <TouchableOpacity
+      style={[styles.meetingTypeButton, meetingType === 'Company' && styles.selectedMeetingType]}
+      onPress={() => setMeetingType('Company')}
+    >
+      <MaterialIcons name="business" size={20} color={meetingType === 'Company' ? '#FF8447' : '#999'} />
+      <Text style={[styles.meetingTypeText, meetingType === 'Company' && styles.selectedMeetingTypeText]}>
+        Company
+      </Text>
+    </TouchableOpacity>
+  </View>
+</View>
+
+
+{meetingType === 'Company' && (
+  <View style={styles.inputGroup}>
+    <Text style={styles.label}>Company Name</Text>
+    <TextInput
+      style={styles.input}
+      placeholder="Enter Company Name"
+      value={formData.companyName}
+      onChangeText={(text) =>
+        setFormData({ ...formData, companyName: text })
+      }
+    />
+  </View>
+)}
+
+{/* Render dynamic individual fields */}
+{formData.individuals.map((individual, index) => (
+  <View key={index} style={styles.individualContainer}>
+    {index > 0 && (
+      <View style={styles.individualHeader}>
+        <Text style={styles.individualTitle}>Individual {index + 1}</Text>
+        <TouchableOpacity onPress={() => removeIndividual(index)}>
+          <MaterialIcons name="delete" size={24} color="#FF3B30" />
+        </TouchableOpacity>
+      </View>
+    )}
+
+    <View style={styles.inputGroup}>
+      <Text style={styles.label}>Name</Text>
+      <TextInput
+        style={styles.input}
+        placeholder="Enter Name"
+        value={individual.name}
+        onChangeText={(text) => updateIndividual(index, 'name', text)}
+      />
+    </View>
+
+    <View style={styles.inputGroup}>
+      <Text style={styles.label}>Phone Number</Text>
+      <TextInput
+        style={styles.input}
+        placeholder="Enter Phone Number"
+        keyboardType="phone-pad"
+        value={individual.phoneNumber}
+        onChangeText={(text) => updateIndividual(index, 'phoneNumber', text)}
+      />
+    </View>
+
+    <View style={styles.inputGroup}>
+      <Text style={styles.label}>Email ID</Text>
+      <TextInput
+        style={styles.input}
+        placeholder="Enter Email ID"
+        keyboardType="email-address"
+        value={individual.emailId}
+        onChangeText={(text) => updateIndividual(index, 'emailId', text)}
+      />
+    </View>
+
+    {index > 0 && <View style={styles.individualDivider} />}
+  </View>
+))}
+
+<TouchableOpacity style={styles.addButton} onPress={addIndividual}>
+  <MaterialIcons name="person-add" size={20} color="#FF8447" />
+  <Text style={styles.addButtonText}>Add Another Individual</Text>
+</TouchableOpacity>
+
+      <Text style={styles.label}>Location URL</Text>
+<TextInput style={styles.input} placeholder="Add location URL" />
+      <TouchableOpacity style={styles.submitButton} onPress={handleScheduleMeetingSubmit}>
+  <Text style={styles.submitButtonText}>Submit</Text>
+</TouchableOpacity>
+
+    </ScrollView>
+  </View>
+   </View>
+</Modal>
+
+{showScheduleDatePicker && (
+  <DateTimePicker
+    value={scheduleDate || new Date()}
+    mode="date"
+    display="default"
+    onChange={(e, date) => {
+      setShowScheduleDatePicker(false);
+      if (date) {
+        setScheduleDate(date);
+        setFormData(prev => ({
+          ...prev,
+          rawDate: date,
+          date: format(date, 'dd MMM yyyy'),
+        }));
+      }
+    }}
+  />
+)}
+
+{showScheduleTimePicker && (
+  <DateTimePicker
+    value={scheduleTime || new Date()}
+    mode="time"
+    display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+    onChange={(event, selectedTime) => {
+      setShowScheduleTimePicker(false);
+      if (selectedTime) {
+        setScheduleTime(selectedTime);
+        setFormData(prev => ({
+          ...prev,
+          rawStartTime: selectedTime,
+          startTime: format(selectedTime, 'hh:mm a'),
+        }));
+      }
+    }}
+  />
+)}
+
+
     </BDMMainLayout>
     </AppGradient>
   );
+  
 };
 
 const styles = StyleSheet.create({
@@ -802,6 +1051,66 @@ const styles = StyleSheet.create({
   scrollView: {
     flex: 1,
   },
+  popupOverlay: {
+  flex: 1,
+  justifyContent: 'center',
+  alignItems: 'center',
+  backgroundColor: 'rgba(0, 0, 0, 0.5)',
+},
+
+popupContainer: {
+  backgroundColor: '#fff',
+  borderRadius: 16,
+  padding: 5,
+  width: '90%', // Or use a fixed width like 340
+  maxHeight: '90%',
+},
+
+  newFormContainer: {
+  backgroundColor: '#FFF',
+  padding: 20,
+  margin: 16,
+  borderRadius: 12,
+  elevation: 2,
+},
+newFormTitle: {
+  fontSize: 18,
+  fontFamily: 'LexendDeca_600SemiBold',
+  color: '#FF8447',
+  marginBottom: 20,
+  textAlign: 'center',
+},
+
+  meetingDateText: {
+  fontSize: 18,
+  color: '#FF8447',
+  fontFamily: 'LexendDeca_600SemiBold',
+  textAlign: 'center',
+  marginBottom: 20,
+},
+  scheduleMeetingButton: {
+  flexDirection: 'row',
+  justifyContent: 'space-between',
+  alignItems: 'center',
+  borderWidth: 1,
+  borderColor: '#FF8447',
+  borderRadius: 30,
+  paddingVertical: 10,
+  paddingHorizontal: 20,
+  marginBottom: 20,
+  backgroundColor: '#FFF9F4',
+},
+scheduleLeft: {
+  flexDirection: 'row',
+  alignItems: 'center',
+  gap: 8,
+},
+scheduleText: {
+  fontSize: 16,
+  color: '#FF8447',
+  fontFamily: 'LexendDeca_500Medium',
+},
+
   formContainer: {
     padding: 16,
     backgroundColor: '#FFFFFF',
@@ -912,6 +1221,7 @@ const styles = StyleSheet.create({
     borderColor: '#FF8447',
     borderRadius: 8,
     marginTop: 16,
+    marginBottom: 25,
   },
   addButtonText: {
     fontSize: 16,

@@ -35,6 +35,9 @@ interface Event {
   meetingType?: string;
   contactName?: string;
   phoneNumber?: string;
+    companyName?: string; // ✅ new
+  designation?: string; // ✅ new
+  emailId?: string;      // ✅ new
   status?: string;
   color?: string;
 }
@@ -274,54 +277,111 @@ const renderDayView = () => (
     );
   };
 
-  const renderEventModal = () => (
-    <Modal
-      visible={modalVisible}
-      transparent
-      animationType="fade"
-      onRequestClose={() => setModalVisible(false)}
-    >
-      <View style={styles.modalOverlay}>
-        <Surface style={styles.modalContent}>
-          <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>{selectedEvent?.title}</Text>
-            <TouchableOpacity onPress={() => setModalVisible(false)}>
-              <MaterialIcons name="close" size={24} color="#666" />
-            </TouchableOpacity>
+ const renderEventModal = () => (
+  <Modal
+    visible={modalVisible}
+    transparent
+    animationType="fade"
+    onRequestClose={() => setModalVisible(false)}
+  >
+    <View style={styles.modalOverlay}>
+      <Surface style={styles.modalContent}>
+        <View style={styles.modalHeader}>
+          <Text style={styles.modalTitle}>{selectedEvent?.title}</Text>
+          <TouchableOpacity onPress={() => setModalVisible(false)}>
+            <MaterialIcons name="close" size={24} color="#666" />
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.modalBody}>
+          {/* Title */}
+          <View style={styles.modalRow}>
+            <MaterialIcons name="title" size={20} color="#666" />
+            <Text style={styles.modalText}>
+              {selectedEvent?.title || 'N/A'}
+            </Text>
           </View>
-          <View style={styles.modalBody}>
+
+          {/* Time */}
+          <View style={styles.modalRow}>
+            <MaterialIcons name="access-time" size={20} color="#666" />
+            <Text style={styles.modalText}>
+              {selectedEvent?.startTime} - {selectedEvent?.endTime}
+            </Text>
+          </View>
+
+          {/* Date */}
+          <View style={styles.modalRow}>
+            <MaterialIcons name="event" size={20} color="#666" />
+            <Text style={styles.modalText}>
+              {selectedEvent?.date ? format(selectedEvent.date, 'EEEE, MMMM d') : ''}
+            </Text>
+          </View>
+
+          {/* Company Name */}
+          {selectedEvent?.companyName && (
             <View style={styles.modalRow}>
-              <MaterialIcons name="access-time" size={20} color="#666" />
-              <Text style={styles.modalText}>
-                {selectedEvent?.startTime} - {selectedEvent?.endTime}
-              </Text>
+              <MaterialIcons name="business" size={20} color="#666" />
+              <Text style={styles.modalText}>{selectedEvent.companyName}</Text>
             </View>
+          )}
+
+          {/* Designation */}
+          {selectedEvent?.designation && (
             <View style={styles.modalRow}>
-              <MaterialIcons name="event" size={20} color="#666" />
-              <Text style={styles.modalText}>
-                {selectedEvent?.date ? format(selectedEvent.date, 'EEEE, MMMM d') : ''}
-              </Text>
+              <MaterialIcons name="badge" size={20} color="#666" />
+              <Text style={styles.modalText}>{selectedEvent.designation}</Text>
             </View>
-            {selectedEvent?.description && (
-              <View style={styles.modalRow}>
-                <MaterialIcons name="description" size={20} color="#666" />
-                <Text style={styles.modalText}>{selectedEvent.description}</Text>
-              </View>
-            )}
-          </View>
-          <View style={styles.modalFooter}>
-            <Button 
-              mode="contained" 
-              onPress={() => setModalVisible(false)}
-              style={styles.modalButton}
-            >
-              Close
-            </Button>
-          </View>
-        </Surface>
-      </View>
-    </Modal>
-  );
+          )}
+
+          {/* Email ID */}
+          {selectedEvent?.emailId && (
+            <View style={styles.modalRow}>
+              <MaterialIcons name="email" size={20} color="#666" />
+              <Text style={styles.modalText}>{selectedEvent.emailId}</Text>
+            </View>
+          )}
+
+          {/* Meeting Type */}
+          {selectedEvent?.meetingType && (
+            <View style={styles.modalRow}>
+              <MaterialIcons name="groups" size={20} color="#666" />
+              <Text style={styles.modalText}>{selectedEvent.meetingType}</Text>
+            </View>
+          )}
+
+          {/* Optional Description */}
+          {selectedEvent?.description && (
+            <View style={styles.modalRow}>
+              <MaterialIcons name="description" size={20} color="#666" />
+              <Text style={styles.modalText}>{selectedEvent.description}</Text>
+            </View>
+          )}
+        </View>
+        {/* Phone Number */}
+{selectedEvent?.phoneNumber && (
+  <View style={styles.modalRow}>
+    <MaterialIcons name="phone" size={20} color="#666" />
+    <Text style={styles.modalText}>{selectedEvent.phoneNumber}</Text>
+  </View>
+)}
+
+
+        <View style={styles.modalFooter}>
+          <Button 
+            mode="contained" 
+            onPress={() => setModalVisible(false)}
+            style={styles.modalButton}
+          >
+            Close
+          </Button>
+        </View>
+      </Surface>
+    </View>
+  </Modal>
+);
+
+
 
   const renderFollowUpModal = () => (
     <Modal
@@ -493,17 +553,21 @@ const fetchMeetings = async () => {
 
      if (isInRange) {
   const meeting: Event = {
-    id: docSnap.id,
-    title: `Meeting with ${data.individuals?.[0]?.name || 'Client'}`,
-    startTime,
-    endTime: addMinutesToTime(startTime, 30),
-    date: meetingDate,
-    type: 'meeting',
-    contactName: data.individuals?.[0]?.name || '',
-    phoneNumber: data.individuals?.[0]?.phoneNumber || '',
-    meetingId: data.meetingId,
-    meetingType: data.meetingType,
-  };
+  id: docSnap.id,
+  title: `Meeting with ${data.individuals?.[0]?.name || 'Client'}`,
+  startTime,
+  endTime: addMinutesToTime(startTime, 30),
+  date: meetingDate,
+  type: 'meeting',
+  contactName: data.individuals?.[0]?.name || '',
+  phoneNumber: data.individuals?.[0]?.phoneNumber || '',
+  meetingId: data.meetingId,
+  meetingType: data.meetingType,
+  companyName: data.companyName || '',
+  designation: data.individuals?.[0]?.designation || '',
+  emailId: data.individuals?.[0]?.emailId || '',
+};
+
 
   fetchedMeetings.push(meeting);
   scheduleMeetingNotifications(meeting); // <-- Add this line

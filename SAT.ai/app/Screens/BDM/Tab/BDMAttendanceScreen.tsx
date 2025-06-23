@@ -260,7 +260,7 @@ useEffect(() => {
       const today = format(now, 'dd');
       const tomorrow = new Date(now);
       tomorrow.setDate(tomorrow.getDate() + 1);
-      tomorrow.setHours(8, 0, 0, 0); // Set to 8 AM tomorrow
+      tomorrow.setHours(4, 0, 0, 0); // Set to 4 AM tomorrow
 
       // Handle auto punch-out at midnight
       if (punchInTime && !punchOutTime) {
@@ -288,9 +288,9 @@ useEffect(() => {
 
       // Handle punch-in restrictions
       if (!punchInTime) {
-        const punchInStartTime = '08:00'; // 8 AM
+        const punchInStartTime = '04:00'; // 4 AM
         const [startHour, startMinute] = punchInStartTime.split(':').map(Number);
-        const punchInEndTime = '19:00'; // 7 PM
+        const punchInEndTime = '23:59'; // 11:59PM
         const [endHour, endMinute] = punchInEndTime.split(':').map(Number);
 
         const currentMinutes = currentHour * 60 + currentMinute;
@@ -310,15 +310,17 @@ useEffect(() => {
           const hoursUntilStart = Math.floor(minutesUntilStart / 60);
           const remainingMinutes = minutesUntilStart % 60;
           
-          Alert.alert(
-            'Punch In Not Available',
-            `Punch in will be available at 8:00 AM. Please try again in ${hoursUntilStart} hours and ${remainingMinutes} minutes.`
-          );
+         Alert.alert(
+  'Punch In Not Available',
+  `Punch in will be available at 4:00 AM. Please try again in ${hoursUntilStart} hours and ${remainingMinutes} minutes.`
+);
+
         } else if (isAfterEndTime) {
-          Alert.alert(
-            'Punch In Not Available',
-            'Punch in is only available between 8:00 AM and 6:00 PM. Please try again tomorrow.'
-          );
+         Alert.alert(
+  'Punch In Not Available',
+  'Punch in is only available between 4:00 AM and 6:00 PM. Please try again tomorrow.'
+);
+
         }
       } else if (punchInTime && !punchOutTime) {
         // Enable punch out immediately after punch in
@@ -925,7 +927,7 @@ useEffect(() => {
     if (isPunchButtonDisabled) {
       Alert.alert(
         "Punch Disabled",
-        "You've already completed today's attendance. Punch will be available at 8 AM tomorrow."
+        "You've already completed today's attendance. Punch will be available at 4 AM tomorrow."
       );
       return;
     }
@@ -1212,7 +1214,7 @@ useEffect(() => {
       )}
       {isPunchButtonDisabled && !isAutoPunchOut && (
         <Text style={styles.nextPunchInfo}>
-          Next punch available at 8:00 AM tomorrow
+          Next punch available at 4:00 AM tomorrow
         </Text>
       )}
     </View>

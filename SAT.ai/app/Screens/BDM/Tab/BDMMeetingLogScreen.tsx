@@ -9,7 +9,8 @@ import {
   Modal,
   Platform,
   ActivityIndicator,
-  Alert
+  Alert, KeyboardAvoidingView,
+  TouchableWithoutFeedback, Keyboard
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -20,7 +21,7 @@ import Ionicons from "react-native-vector-icons/Ionicons";
 import BDMMainLayout from '@/app/components/BDMMainLayout';
 import AppGradient from '@/app/components/AppGradient';
 import { auth, db } from '@/firebaseConfig';
-import { collection, addDoc, serverTimestamp,Timestamp } from 'firebase/firestore';
+import { collection, addDoc, serverTimestamp, Timestamp, doc, getDoc } from 'firebase/firestore';
 import { useNavigation } from '@react-navigation/native';
 import * as Location from 'expo-location';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -29,10 +30,16 @@ interface IndividualDetails {
   name: string;
   phoneNumber: string;
   emailId: string;
+  designation: string;
+
 }
+
+
+
 
 interface MeetingFormData {
   date: string;
+  submittedBy?: string; // <-- ADD
   rawDate?: Date;
    locationReachTime: string;           // <-- ADD
   rawLocationReachTime?: Date;       
@@ -46,7 +53,7 @@ interface MeetingFormData {
   meetingType: 'Individual' | 'Company';
   userId: string;
   notes: string;
-  status: 'planned' | 'completed' | 'cancelled';
+   status: string;  // <-- Add this line for status
   meetingId: string;
 }
 
@@ -63,6 +70,7 @@ const MEETING_LOGS_PENDING_SYNC = 'bdm_meeting_logs_pending_sync';
 
 const BDMMeetingLogScreen = () => {
   const navigation = useNavigation();
+  const [userName, setUserName] = useState<string>(''); // <-- Add this line
   const [meetingType, setMeetingType] = useState<'Individual' | 'Company'>('Individual');
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showTimePicker, setShowTimePicker] = useState(false);
@@ -86,14 +94,41 @@ const [showScheduleTimePicker, setShowScheduleTimePicker] = useState(false);
 
 const onLocationReachTimeChange = (event: DateTimePickerEvent, time?: Date) => {
   setShowLocationReachTimePicker(Platform.OS === 'ios');
-  if (time) {
+
+  if (event.type === 'set' && time) {
     setSelectedLocationReachTime(time);
-    setFormData({
-      ...formData,
-      locationReachTime: format(time, 'hh:mm a'),
+    const formattedTime = format(time, 'hh:mm a');
+
+    setFormData(prev => ({
+      ...prev,
+      locationReachTime: formattedTime,
       rawLocationReachTime: time,
+    }));
+
+    // ✅ Clear error if previously present
+    setErrors(prevErrors => {
+      const updated = { ...prevErrors };
+      delete updated.locationReachTime;
+      return updated;
     });
   }
+};
+const [showStatusPicker, setShowStatusPicker] = useState(false);
+
+// Handle selection of meeting status
+const handleStatusSelect = (status: string) => {
+  setFormData({
+    ...formData,
+    status,
+  });
+  setShowStatusPicker(false); // Hide the status picker once selected
+
+  // Clear any existing error on status field
+  setErrors((prevErrors) => {
+    const updated = { ...prevErrors };
+    delete updated.status;
+    return updated;
+  });
 };
 
   const [formData, setFormData] = useState<MeetingFormData>({
@@ -110,14 +145,37 @@ const onLocationReachTimeChange = (event: DateTimePickerEvent, time?: Date) => {
     individuals: [{
       name: '',
       phoneNumber: '',
-      emailId: ''
+      emailId: '',
+       designation: '', // ✅ Add this
     }],
     meetingType: 'Individual',
     userId: auth.currentUser?.uid || '',
     notes: '',
-    status: 'planned',
+    status: '',
     meetingId: ''
   });
+useEffect(() => {
+  const fetchUserName = async () => {
+    try {
+      const userId = auth.currentUser?.uid;
+      if (!userId) return;
+
+      const userDocRef = doc(db, 'users', userId);
+      const snapshot = await getDoc(userDocRef);
+
+      if (snapshot.exists()) {
+        const data = snapshot.data();
+        if (data && data.name) {
+          setUserName(data.name);
+        }
+      }
+    } catch (err) {
+      console.error("Failed to fetch user name", err);
+    }
+  };
+
+  fetchUserName();
+}, []);
 
   useEffect(() => {
     // Generate unique meeting ID on component mount using our custom function
@@ -157,7 +215,12 @@ const onLocationReachTimeChange = (event: DateTimePickerEvent, time?: Date) => {
         ...prev,
         locationUrl: mapsUrl
       }));
-
+  // ✅ Clear the locationUrl error
+    setErrors((prevErrors) => {
+      const updated = { ...prevErrors };
+      delete updated.locationUrl;
+      return updated;
+    });
     } catch (error) {
       console.error('Error fetching location:', error);
       Alert.alert('Error', 'Failed to fetch location. Please try again.');
@@ -190,67 +253,136 @@ const resetForm = () => {
     individuals: [{
       name: '',
       phoneNumber: '',
-      emailId: ''
+      emailId: '',
+       designation: '', // ✅ Add this
     }],
     meetingType: 'Individual',
     userId: auth.currentUser?.uid || '',
     notes: '',
-    status: 'planned',
+    status: '',
     meetingId: newMeetingId
   });
 };
 
-  const validateForm = (): boolean => {
-    const newErrors: Record<string, string> = {};
-    
-    if (!formData.date) {
-      newErrors.date = 'Meeting date is required';
+ const validateForm = (): boolean => {
+  const newErrors: Record<string, string> = {};
+
+  // Date
+  if (!formData.date) {
+    newErrors.date = 'Meeting date is required';
+  }
+
+  // Location Reach Time
+  if (!formData.locationReachTime) {
+    newErrors.locationReachTime = 'Location reach time is required';
+  }
+
+  // Start and End Time
+  if (!formData.startTime) {
+    newErrors.startTime = 'Start time is required';
+  }
+
+  if (!formData.endTime) {
+    newErrors.endTime = 'End time is required';
+  }
+
+  if (formData.startTime && formData.endTime) {
+    const start = formData.rawStartTime;
+    const end = formData.rawEndTime;
+    if (start && end && end <= start) {
+      newErrors.endTime = 'End time must be after start time';
     }
-    
-    if (!formData.startTime) {
-      newErrors.startTime = 'Start time is required';
+  }
+
+  // Location URL
+  if (!formData.locationUrl.trim()) {
+    newErrors.locationUrl = 'Location is required';
+  } else if (!formData.locationUrl.startsWith('http')) {
+    newErrors.locationUrl = 'Location must be a valid URL';
+  }
+if (!formData.notes.trim()) {
+  newErrors.notes = 'Meeting notes are required';
+}
+  // Company name (if meetingType is Company)
+  if (meetingType === 'Company' && !formData.companyName.trim()) {
+    newErrors.companyName = 'Company name is required';
+  }
+
+  // Individuals validations
+  formData.individuals.forEach((individual, index) => {
+    if (!individual.name.trim()) {
+      newErrors[`individuals[${index}].name`] = 'Name is required';
     }
 
-    if (!formData.endTime) {
-      newErrors.endTime = 'End time is required';
+    if (!individual.designation.trim()) {
+      newErrors[`individuals[${index}].designation`] = 'Designation is required';
     }
 
-    if (formData.startTime && formData.endTime) {
-      const start = formData.rawStartTime;
-      const end = formData.rawEndTime;
-      if (start && end && end <= start) {
-        newErrors.endTime = 'End time must be after start time';
-      }
+    if (!individual.phoneNumber.trim()) {
+      newErrors[`individuals[${index}].phoneNumber`] = 'Phone number is required';
+    } else if (!/^\d{10}$/.test(individual.phoneNumber)) {
+      newErrors[`individuals[${index}].phoneNumber`] = 'Enter a valid 10-digit phone number';
     }
 
-    if (!formData.locationUrl) {
-      newErrors.locationUrl = 'Location is required';
+    if (!individual.emailId.trim()) {
+  newErrors[`individuals[${index}].emailId`] = 'Email ID is required';
+} else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(individual.emailId)) {
+  newErrors[`individuals[${index}].emailId`] = 'Enter a valid email';
+}
+
+  });
+
+  setErrors(newErrors);
+  return Object.keys(newErrors).length === 0;
+};
+const validateScheduleForm = () => {
+  const newErrors: { [key: string]: string } = {};
+
+  if (!scheduleDate) {
+    newErrors.scheduleDate = 'Please select a date';
+  }
+
+  if (!scheduleTime) {
+    newErrors.scheduleTime = 'Please select a time';
+  }
+
+  if (!meetingType) {
+    newErrors.meetingType = 'Please select meeting type';
+  }
+
+  if (meetingType === 'Company' && !formData.companyName.trim()) {
+    newErrors.companyName = 'Company name is required';
+  }
+
+  if (!formData.locationUrl.trim()) {
+    newErrors.locationUrl = 'Location is required';
+  } else if (!formData.locationUrl.trim().startsWith('http')) {
+    newErrors.locationUrl = 'Location must be a valid URL';
+  }
+
+  formData.individuals.forEach((ind, index) => {
+    if (!ind.name.trim()) {
+      newErrors[`individuals[${index}].name`] = 'Name is required';
     }
-    
-    if (meetingType === 'Company' && !formData.companyName.trim()) {
-      newErrors.companyName = 'Company name is required';
+    if (!ind.designation.trim()) {
+      newErrors[`individuals[${index}].designation`] = 'Designation is required';
     }
-    
-    // Validate first individual (required)
-    if (!formData.individuals[0].name.trim()) {
-      newErrors['individuals[0].name'] = 'Name is required';
+    if (!/^\d{10}$/.test(ind.phoneNumber)) {
+      newErrors[`individuals[${index}].phoneNumber`] = 'Phone number must be 10 digits';
     }
-    
-    if (!formData.individuals[0].phoneNumber.trim()) {
-      newErrors['individuals[0].phoneNumber'] = 'Phone number is required';
-    } else if (!/^\d{10,15}$/.test(formData.individuals[0].phoneNumber.replace(/[\s-]/g, ''))) {
-      newErrors['individuals[0].phoneNumber'] = 'Valid phone number is required';
+    if (!/^\S+@\S+\.\S+$/.test(ind.emailId)) {
+      newErrors[`individuals[${index}].emailId`] = 'Enter a valid email address';
     }
-    
-    if (formData.individuals[0].emailId && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.individuals[0].emailId)) {
-      newErrors['individuals[0].emailId'] = 'Valid email is required';
-    }
-    
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
-  };
+  });
+
+  setErrors(newErrors);
+  return Object.keys(newErrors).length === 0;
+};
+
+
 
  const handleSubmit = async () => {
+    // console.log("Submit function called");  // Debug log
   if (!validateForm()) {
     Alert.alert('All Fields are Required', 'Please fill all the fields correctly');
     return;
@@ -285,9 +417,11 @@ const resetForm = () => {
       meetingEndDateTime,
       individuals:
         meetingType === 'Individual' ? [formData.individuals[0]] : formData.individuals,
-      syncStatus: 'pending',
+      syncStatus: '',
+         submittedBy: userName,
+      
     };
-
+  //  console.log("Meeting Data: ", meetingData);  // Debug log for the data
     // Save to AsyncStorage
     const existingLogsStr = await AsyncStorage.getItem(MEETING_LOGS_STORAGE_KEY);
     const existingLogs = existingLogsStr ? JSON.parse(existingLogsStr) : [];
@@ -305,35 +439,36 @@ const resetForm = () => {
     }
 
     // Trigger background sync (optionally delay by 10 mins, or immediate if online)
-   (async () => {
-  try {
-    const logsStr = await AsyncStorage.getItem(MEETING_LOGS_STORAGE_KEY);
-    const logs = logsStr ? JSON.parse(logsStr) : [];
+    (async () => {
+      try {
+        const logsStr = await AsyncStorage.getItem(MEETING_LOGS_STORAGE_KEY);
+        const logs = logsStr ? JSON.parse(logsStr) : [];
 
-    const syncData = logs.find((m: any) => m.id === meetingId);
-    if (syncData) {
-      await addDoc(collection(db, 'meetings'), {
-        ...syncData,
-        createdAt: serverTimestamp(),
-        meetingStartDateTime: new Date(syncData.meetingStartDateTime),
-        meetingEndDateTime: new Date(syncData.meetingEndDateTime),
-      });
+        const syncData = logs.find((m: any) => m.id === meetingId);
+        if (syncData) {
+          const docRef = await addDoc(collection(db, 'meetings'), {
+            ...syncData,
+            createdAt: serverTimestamp(),
+            meetingStartDateTime: new Date(syncData.meetingStartDateTime),
+            meetingEndDateTime: new Date(syncData.meetingEndDateTime),
+          });
+          
+          // console.log('Document successfully written with ID: ', docRef.id); // Log document ID after writing to Firestore
 
-      // Update syncStatus
-      const updatedLogs = logs.map((log: any) =>
-        log.id === meetingId ? { ...log, syncStatus: 'synced' } : log
-      );
-      await AsyncStorage.setItem(MEETING_LOGS_STORAGE_KEY, JSON.stringify(updatedLogs));
+          // Update syncStatus
+          const updatedLogs = logs.map((log: any) =>
+            log.id === meetingId ? { ...log, syncStatus: 'synced' } : log
+          );
+          await AsyncStorage.setItem(MEETING_LOGS_STORAGE_KEY, JSON.stringify(updatedLogs));
 
-      // Remove from pending queue
-      const filteredQueue = pendingSync.filter((id: string) => id !== meetingId);
-      await AsyncStorage.setItem(MEETING_LOGS_PENDING_SYNC, JSON.stringify(filteredQueue));
-    }
-  } catch (err) {
-    console.error('❌ Sync to Firebase failed:', err);
-  }
-})();
-
+          // Remove from pending queue
+          const filteredQueue = pendingSync.filter((id: string) => id !== meetingId);
+          await AsyncStorage.setItem(MEETING_LOGS_PENDING_SYNC, JSON.stringify(filteredQueue));
+        }
+      } catch (err) {
+        console.error('❌ Sync to Firebase failed:', err);
+      }
+    })();
 
     // UI Success
     setModalVisible(true);
@@ -351,53 +486,74 @@ const resetForm = () => {
 };
 
 
-  const onDateChange = (event: DateTimePickerEvent, date?: Date) => {
-    setShowDatePicker(Platform.OS === 'ios');
-    if (date) {
-      setSelectedDate(date);
-      setFormData({
-        ...formData,
-        date: format(date, 'dd MMMM yyyy'),
-        rawDate: date
-      });
-    }
-  };
+const onDateChange = (event: DateTimePickerEvent, date?: Date) => {
+  setShowDatePicker(Platform.OS === 'ios');
+  if (date) {
+    setSelectedDate(date);
+    setFormData({
+      ...formData,
+      date: format(date, 'dd MMMM yyyy'),
+      rawDate: date
+    });
+    setErrors((prevErrors) => {
+      const updated = { ...prevErrors };
+      delete updated.date;
+      return updated;
+    });
+  }
+};
 
-  const onTimeChange = (event: DateTimePickerEvent, time?: Date) => {
-    setShowTimePicker(Platform.OS === 'ios');
-    if (time) {
-      setSelectedTime(time);
-      setFormData({
-        ...formData,
-        startTime: format(time, 'hh:mm a'),
-        rawStartTime: time
-      });
-    }
-  };
+const onTimeChange = (event: DateTimePickerEvent, time?: Date) => {
+  setShowTimePicker(Platform.OS === 'ios');
+  if (time) {
+    setSelectedTime(time);
+    setFormData({
+      ...formData,
+      locationReachTime: format(time, 'hh:mm a'),
+      rawLocationReachTime: time
+    });
+    setErrors((prevErrors) => {
+      const updated = { ...prevErrors };
+      delete updated.locationReachTime;
+      return updated;
+    });
+  }
+};
 
-  const onStartTimeChange = (event: DateTimePickerEvent, time?: Date) => {
-    setShowStartTimePicker(Platform.OS === 'ios');
-    if (time) {
-      setSelectedStartTime(time);
-      setFormData({
-        ...formData,
-        startTime: format(time, 'hh:mm a'),
-        rawStartTime: time
-      });
-    }
-  };
+const onStartTimeChange = (event: DateTimePickerEvent, time?: Date) => {
+  setShowStartTimePicker(Platform.OS === 'ios');
+  if (time) {
+    setSelectedStartTime(time);
+    setFormData({
+      ...formData,
+      startTime: format(time, 'hh:mm a'),
+      rawStartTime: time
+    });
+    setErrors((prevErrors) => {
+      const updated = { ...prevErrors };
+      delete updated.startTime;
+      return updated;
+    });
+  }
+};
 
-  const onEndTimeChange = (event: DateTimePickerEvent, time?: Date) => {
-    setShowEndTimePicker(Platform.OS === 'ios');
-    if (time) {
-      setSelectedEndTime(time);
-      setFormData({
-        ...formData,
-        endTime: format(time, 'hh:mm a'),
-        rawEndTime: time
-      });
-    }
-  };
+const onEndTimeChange = (event: DateTimePickerEvent, time?: Date) => {
+  setShowEndTimePicker(Platform.OS === 'ios');
+  if (time) {
+    setSelectedEndTime(time);
+    setFormData({
+      ...formData,
+      endTime: format(time, 'hh:mm a'),
+      rawEndTime: time
+    });
+    setErrors((prevErrors) => {
+      const updated = { ...prevErrors };
+      delete updated.endTime;
+      return updated;
+    });
+  }
+};
+
 
   const updateIndividual = (index: number, field: keyof IndividualDetails, value: string) => {
     const updatedIndividuals = [...formData.individuals];
@@ -422,7 +578,7 @@ const resetForm = () => {
       ...formData,
       individuals: [
         ...formData.individuals,
-        { name: '', phoneNumber: '', emailId: '' }
+         { name: '', phoneNumber: '', emailId: '', designation: '' } // ✅ add designation
       ]
     });
   };
@@ -437,6 +593,11 @@ const resetForm = () => {
     });
   };
 const handleScheduleMeetingSubmit = async () => {
+  if (!validateScheduleForm()) {
+    Alert.alert("Validation Error", "Please correct the highlighted fields.");
+    return;
+  }
+
   try {
     const userId = auth.currentUser?.uid || 'guest';
     const scheduleId = generateMeetingId(); // You can reuse your generator
@@ -454,7 +615,19 @@ const handleScheduleMeetingSubmit = async () => {
   meetingTime: scheduleTime ? format(scheduleTime, 'hh:mm a') : null,
   createdAt: serverTimestamp(),
 });
+    // const scheduleId = generateMeetingId();
 
+    await addDoc(collection(db, 'bdm_schedule_meeting'), {
+      meetingId: scheduleId,
+      createdBy: userId,
+      userId: userId,
+      meetingType: meetingType,
+      companyName: formData.companyName,
+      individuals: formData.individuals,
+      meetingDate: scheduleDate ? Timestamp.fromDate(scheduleDate) : null,
+      meetingTime: scheduleTime ? format(scheduleTime, 'hh:mm a') : null,
+      createdAt: serverTimestamp(),
+    });
 
     Alert.alert("Success", "Scheduled meeting saved!");
     setShowScheduleForm(false);
@@ -464,6 +637,7 @@ const handleScheduleMeetingSubmit = async () => {
     Alert.alert("Error", "Failed to save scheduled meeting. Try again.");
   }
 };
+
 
   const renderIndividualForm = (individual: IndividualDetails, index: number) => (
     <View key={`individual-${index}`} style={styles.individualContainer}>
@@ -482,25 +656,79 @@ const handleScheduleMeetingSubmit = async () => {
           style={[styles.input, errors[`individuals[${index}].name`] && styles.inputError]}
           placeholder="Enter Name"
           value={individual.name}
-          onChangeText={(text) => updateIndividual(index, 'name', text)}
+         onChangeText={(text) => {
+  updateIndividual(index, 'name', text);
+
+  if (text.trim()) {
+    const updatedErrors = { ...errors };
+    delete updatedErrors[`individuals[${index}].name`];
+    setErrors(updatedErrors);
+  }
+}}
+
         />
         {errors[`individuals[${index}].name`] && (
           <Text style={styles.errorText}>{errors[`individuals[${index}].name`]}</Text>
         )}
       </View>
+<View style={styles.inputGroup}>
+  <Text style={styles.label}>Designation</Text>
+  <TextInput
+    style={[
+      styles.input,
+      errors[`individuals[${index}].designation`] && styles.inputError,
+    ]}
+    placeholder="Enter Designation"
+    value={individual.designation}
+   onChangeText={(text) => {
+  updateIndividual(index, 'designation', text);
 
+  if (text.trim()) {
+    const updatedErrors = { ...errors };
+    delete updatedErrors[`individuals[${index}].designation`];
+    setErrors(updatedErrors);
+  }
+}}
+
+  />
+  {errors[`individuals[${index}].designation`] && (
+    <Text style={styles.errorText}>
+      {errors[`individuals[${index}].designation`]}
+    </Text>
+  )}
+</View>
       <View style={styles.inputGroup}>
-        <Text style={styles.label}>Phone Number</Text>
-        <TextInput
-          style={[styles.input, errors[`individuals[${index}].phoneNumber`] && styles.inputError]}
-          placeholder="Enter Phone Number"
-          keyboardType="phone-pad"
-          value={individual.phoneNumber}
-          onChangeText={(text) => updateIndividual(index, 'phoneNumber', text)}
-        />
-        {errors[`individuals[${index}].phoneNumber`] && ( 
-          <Text style={styles.errorText}>{errors[`individuals[${index}].phoneNumber`]}</Text>
-        )}
+       <Text style={styles.label}>Phone Number</Text>
+<TextInput
+  style={[
+    styles.input,
+    errors[`individuals[${index}].phoneNumber`] && styles.inputError,
+  ]}
+  placeholder="Enter Phone Number"
+  keyboardType="phone-pad"
+  value={individual.phoneNumber}
+ onChangeText={(text) => {
+  const digitsOnly = text.replace(/[^0-9]/g, '');
+  if (digitsOnly.length <= 10) {
+    updateIndividual(index, 'phoneNumber', digitsOnly);
+
+    // Clear error when valid
+    if (digitsOnly.length === 10) {
+      const updatedErrors = { ...errors };
+      delete updatedErrors[`individuals[${index}].phoneNumber`];
+      setErrors(updatedErrors);
+    }
+  }
+}}
+
+  maxLength={10}
+/>
+{errors[`individuals[${index}].phoneNumber`] && (
+  <Text style={styles.errorText}>
+    {errors[`individuals[${index}].phoneNumber`]}
+  </Text>
+)}
+
       </View>
 
       <View style={styles.inputGroup}>
@@ -511,7 +739,18 @@ const handleScheduleMeetingSubmit = async () => {
           keyboardType="email-address"
           autoCapitalize="none"
           value={individual.emailId}
-          onChangeText={(text) => updateIndividual(index, 'emailId', text)}
+          onChangeText={(text) => {
+  updateIndividual(index, 'emailId', text);
+
+  // Clear error if valid email is entered
+  const isValidEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(text);
+  if (isValidEmail) {
+    const updatedErrors = { ...errors };
+    delete updatedErrors[`individuals[${index}].emailId`];
+    setErrors(updatedErrors);
+  }
+}}
+
         />
         {errors[`individuals[${index}].emailId`] && (
           <Text style={styles.errorText}>{errors[`individuals[${index}].emailId`]}</Text>
@@ -530,7 +769,16 @@ const handleScheduleMeetingSubmit = async () => {
         style={[styles.input, errors.companyName && styles.inputError]}
         placeholder="Enter Company Name"
         value={formData.companyName}
-        onChangeText={(text) => setFormData({...formData, companyName: text})}
+       onChangeText={(text) => {
+  setFormData({ ...formData, companyName: text });
+
+  if (text.trim()) {
+    const updatedErrors = { ...errors };
+    delete updatedErrors.companyName;
+    setErrors(updatedErrors);
+  }
+}}
+
       />
       {errors.companyName && <Text style={styles.errorText}>{errors.companyName}</Text>}
     </View>
@@ -553,8 +801,10 @@ const handleScheduleMeetingSubmit = async () => {
   return (
     <AppGradient>
     <BDMMainLayout title="Meeting Log" showBackButton>
-      <ScrollView style={styles.scrollView}>
-        <View style={styles.formContainer}>
+     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+  <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+    <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
+      <View style={styles.formContainer}>
           <Text style={styles.meetingDateText}>
   {format(new Date(), 'dd MMMM (EEEE)')}
 </Text>
@@ -649,22 +899,22 @@ const handleScheduleMeetingSubmit = async () => {
             </View>
           </View>
           {/* Date Picker */}
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>Date of Meeting</Text>
-            <TouchableOpacity 
-              style={[styles.input, errors.date && styles.inputError]}
-              onPress={() => setShowDatePicker(true)}
-            >
-              <Text style={[
-                styles.inputText,
-                formData.date ? styles.selectedText : styles.placeholderText
-              ]}>
-                {formData.date || 'Select Date'}
-              </Text>
-              <MaterialIcons name="calendar-today" size={24} color="#FF8447" />
-            </TouchableOpacity>
-            {errors.date && <Text style={styles.errorText}>{errors.date}</Text>}
-          </View>
+         <View style={styles.inputGroup}>
+  <Text style={styles.label}>Date of Meeting</Text>
+  <TouchableOpacity
+    style={[styles.input, errors.date && styles.inputError]}
+    onPress={() => setShowDatePicker(true)}
+  >
+    <Text style={[
+      styles.inputText,
+      formData.date ? styles.selectedText : styles.placeholderText
+    ]}>
+      {formData.date || 'Select Date'}
+    </Text>
+    <MaterialIcons name="calendar-today" size={24} color="#FF8447" />
+  </TouchableOpacity>
+  {errors.date && <Text style={styles.errorText}>{errors.date}</Text>}
+</View>
 
           {/* Time Picker */}
         <View style={styles.inputGroup}>
@@ -746,19 +996,66 @@ const handleScheduleMeetingSubmit = async () => {
             {errors.locationUrl && <Text style={styles.errorText}>{errors.locationUrl}</Text>}
           </View>
           
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>Meeting Notes</Text>
-            <TextInput
-              style={[styles.input, styles.multilineInput]}
-              placeholder="Add any notes about the meeting"
-              multiline
-              numberOfLines={3}
-              value={formData.notes}
-              onChangeText={(text) => setFormData({...formData, notes: text})}
-            />
-          </View>
+         <View style={styles.inputGroup}>
+  <Text style={styles.label}>Meeting Notes</Text>
+  <TextInput
+    style={[
+      styles.input,
+      styles.multilineInput,
+      errors.notes && styles.inputError
+    ]}
+    placeholder="Add any notes about the meeting"
+    multiline
+    numberOfLines={3}
+    value={formData.notes}
+    onChangeText={(text) => {
+      setFormData({ ...formData, notes: text });
+      // Clear error on change
+      setErrors((prevErrors) => {
+        const updated = { ...prevErrors };
+        delete updated.notes;
+        return updated;
+      });
+    }}
+  />
+  {errors.notes && <Text style={styles.errorText}>{errors.notes}</Text>}
+</View>
 
-        
+<View style={styles.inputGroup}>
+  <Text style={styles.label}>Meeting Status</Text>
+  
+  {/* TouchableOpacity for status selection */}
+  <TouchableOpacity
+    style={[styles.input, errors.status && styles.inputError]}
+    onPress={() => setShowStatusPicker(true)} // Show the status picker when tapped
+  >
+    <Text style={styles.inputText}>
+      {formData.status || 'Select Status'}
+    </Text>
+    <MaterialIcons name="arrow-drop-down" size={24} color="#FF8447" />
+  </TouchableOpacity>
+
+  {/* Display error if status is not selected */}
+  {errors.status && <Text style={styles.errorText}>{errors.status}</Text>}
+
+  {/* Status Picker */}
+  {showStatusPicker && (
+    <View style={styles.statusPickerContainer}>
+      <TouchableOpacity onPress={() => handleStatusSelect('Not Interested')}>
+        <Text style={styles.statusOption}>Not Interested</Text>
+      </TouchableOpacity>
+      <TouchableOpacity onPress={() => handleStatusSelect('Prospect')}>
+        <Text style={styles.statusOption}>Prospect</Text>
+      </TouchableOpacity>
+      <TouchableOpacity onPress={() => handleStatusSelect('Suspect')}>
+        <Text style={styles.statusOption}>Suspect</Text>
+      </TouchableOpacity>
+      <TouchableOpacity onPress={() => handleStatusSelect('Closing')}>
+        <Text style={styles.statusOption}>Closing</Text>
+      </TouchableOpacity>
+    </View>
+  )}
+</View>
 
           {/* Submit Button */}
           <TouchableOpacity 
@@ -853,6 +1150,8 @@ const handleScheduleMeetingSubmit = async () => {
 
         </View>
       </ScrollView>
+       </TouchableWithoutFeedback>
+        </KeyboardAvoidingView>
       
 <Modal
   visible={showScheduleForm}
@@ -871,70 +1170,127 @@ const handleScheduleMeetingSubmit = async () => {
         <MaterialIcons name="close" size={24} color="#999" />
       </TouchableOpacity>
 
-      <View style={styles.inputGroup}>
-        <Text style={styles.label}>Date of Meeting</Text>
-        <TouchableOpacity style={styles.input} onPress={() => setShowScheduleDatePicker(true)}>
-  <Text style={styles.placeholderText}>
-    {scheduleDate ? format(scheduleDate, 'dd MMM yyyy') : 'Select Date'}
-  </Text>
-  <MaterialIcons name="calendar-today" size={20} color="#FF8447" />
-</TouchableOpacity>
+ <View style={styles.inputGroup}>
+  <Text style={styles.label}>Date of Meeting</Text>
+  <TouchableOpacity
+    style={[styles.input, errors.scheduleDate && styles.inputError]} // Highlight input on error
+    onPress={() => setShowScheduleDatePicker(true)}
+  >
+    <Text style={styles.placeholderText}>
+      {scheduleDate ? format(scheduleDate, 'dd MMM yyyy') : 'Select Date'}
+    </Text>
+    <MaterialIcons name="calendar-today" size={20} color="#FF8447" />
+  </TouchableOpacity>
+  {errors.scheduleDate && (
+    <Text style={styles.errorText}>{errors.scheduleDate}</Text>
+  )}
+</View>
 
-      </View>
 
-      <View style={styles.inputGroup}>
-       <Text style={styles.label}>Time of Meeting</Text>
-<TouchableOpacity
-  style={styles.input}
-  onPress={() => setShowScheduleTimePicker(true)}
->
-  <Text style={styles.placeholderText}>
-    {scheduleTime ? format(scheduleTime, 'hh:mm a') : 'Select Time'}
-  </Text>
-  <MaterialIcons name="access-time" size={20} color="#FF8447" />
-</TouchableOpacity>
+<View style={styles.inputGroup}>
+  <Text style={styles.label}>Time of Meeting</Text>
+  <TouchableOpacity
+    style={[styles.input, errors.scheduleTime && styles.inputError]} // Highlight input on error
+    onPress={() => setShowScheduleTimePicker(true)}
+  >
+    <Text style={styles.placeholderText}>
+      {scheduleTime ? format(scheduleTime, 'hh:mm a') : 'Select Time'}
+    </Text>
+    <MaterialIcons name="access-time" size={20} color="#FF8447" />
+  </TouchableOpacity>
+  {errors.scheduleTime && (
+    <Text style={styles.errorText}>{errors.scheduleTime}</Text>
+  )}
+</View>
 
-      </View>
 
-     <View style={styles.inputGroup}>
+<View style={styles.inputGroup}>
   <Text style={styles.label}>Meeting With</Text>
   <View style={styles.meetingTypeContainer}>
     <TouchableOpacity
-      style={[styles.meetingTypeButton, meetingType === 'Individual' && styles.selectedMeetingType]}
+      style={[
+        styles.meetingTypeButton,
+        meetingType === 'Individual' && styles.selectedMeetingType,
+      ]}
       onPress={() => setMeetingType('Individual')}
     >
-      <MaterialIcons name="person" size={20} color={meetingType === 'Individual' ? '#FF8447' : '#999'} />
-      <Text style={[styles.meetingTypeText, meetingType === 'Individual' && styles.selectedMeetingTypeText]}>
+      <MaterialIcons
+        name="person"
+        size={20}
+        color={meetingType === 'Individual' ? '#FF8447' : '#999'}
+      />
+      <Text
+        style={[
+          styles.meetingTypeText,
+          meetingType === 'Individual' && styles.selectedMeetingTypeText,
+        ]}
+      >
         Individual
       </Text>
     </TouchableOpacity>
+
     <TouchableOpacity
-      style={[styles.meetingTypeButton, meetingType === 'Company' && styles.selectedMeetingType]}
+      style={[
+        styles.meetingTypeButton,
+        meetingType === 'Company' && styles.selectedMeetingType,
+      ]}
       onPress={() => setMeetingType('Company')}
     >
-      <MaterialIcons name="business" size={20} color={meetingType === 'Company' ? '#FF8447' : '#999'} />
-      <Text style={[styles.meetingTypeText, meetingType === 'Company' && styles.selectedMeetingTypeText]}>
+      <MaterialIcons
+        name="business"
+        size={20}
+        color={meetingType === 'Company' ? '#FF8447' : '#999'}
+      />
+      <Text
+        style={[
+          styles.meetingTypeText,
+          meetingType === 'Company' && styles.selectedMeetingTypeText,
+        ]}
+      >
         Company
       </Text>
     </TouchableOpacity>
   </View>
+
+  {/* 🔴 Validation for meetingType */}
+  {errors.meetingType && (
+    <Text style={styles.errorText}>{errors.meetingType}</Text>
+  )}
 </View>
 
-
+{/* ✅ Conditionally show company name input with validation */}
 {meetingType === 'Company' && (
-  <View style={styles.inputGroup}>
-    <Text style={styles.label}>Company Name</Text>
-    <TextInput
-      style={styles.input}
-      placeholder="Enter Company Name"
-      value={formData.companyName}
-      onChangeText={(text) =>
-        setFormData({ ...formData, companyName: text })
+ <View style={styles.inputGroup}>
+  <Text style={styles.label}>Company Name</Text>
+  <TextInput
+    style={[
+      styles.input,
+      errors.companyName && styles.inputError, // Highlight input on error
+    ]}
+    placeholder="Enter Company Name"
+    value={formData.companyName}
+    onChangeText={(text) => {
+      // Update company name
+      setFormData({ ...formData, companyName: text });
+
+      // Clear error when valid company name is entered
+      if (text.trim()) {
+        const updatedErrors = { ...errors };
+        delete updatedErrors.companyName; // Remove error for companyName
+        setErrors(updatedErrors); // Update state
       }
-    />
-  </View>
+    }}
+  />
+  {errors.companyName && (
+    <Text style={styles.errorText}>{errors.companyName}</Text>
+  )}
+</View>
+
 )}
 
+  <View style={styles.divider} />
+
+    <Text style={styles.sectionTitle}>Individuals Details</Text>
 {/* Render dynamic individual fields */}
 {formData.individuals.map((individual, index) => (
   <View key={index} style={styles.individualContainer}>
@@ -946,38 +1302,111 @@ const handleScheduleMeetingSubmit = async () => {
         </TouchableOpacity>
       </View>
     )}
+<View style={styles.inputGroup}>
+  <Text style={styles.label}>Name</Text>
+  <TextInput
+    style={[
+      styles.input,
+      errors[`individuals[${index}].name`] && styles.inputError, // Highlight input on error
+    ]}
+    placeholder="Enter Name"
+    value={individual.name}
+    onChangeText={(text) => {
+      updateIndividual(index, 'name', text);
 
-    <View style={styles.inputGroup}>
-      <Text style={styles.label}>Name</Text>
-      <TextInput
-        style={styles.input}
-        placeholder="Enter Name"
-        value={individual.name}
-        onChangeText={(text) => updateIndividual(index, 'name', text)}
-      />
-    </View>
+      // Clear error when valid name is entered
+      if (text.trim()) {
+        const updatedErrors = { ...errors };
+        delete updatedErrors[`individuals[${index}].name`]; // Remove error for name
+        setErrors(updatedErrors); // Update state
+      }
+    }}
+  />
+  {errors[`individuals[${index}].name`] && (
+    <Text style={styles.errorText}>{errors[`individuals[${index}].name`]}</Text>
+  )}
+</View>
 
-    <View style={styles.inputGroup}>
-      <Text style={styles.label}>Phone Number</Text>
-      <TextInput
-        style={styles.input}
-        placeholder="Enter Phone Number"
-        keyboardType="phone-pad"
-        value={individual.phoneNumber}
-        onChangeText={(text) => updateIndividual(index, 'phoneNumber', text)}
-      />
-    </View>
+<View style={styles.inputGroup}>
+  <Text style={styles.label}>Designation</Text>
+  <TextInput
+    style={[
+      styles.input,
+      errors[`individuals[${index}].designation`] && styles.inputError, // Highlight input on error
+    ]}
+    placeholder="Enter Designation"
+    value={individual.designation}
+    onChangeText={(text) => {
+      updateIndividual(index, 'designation', text);
 
-    <View style={styles.inputGroup}>
-      <Text style={styles.label}>Email ID</Text>
-      <TextInput
-        style={styles.input}
-        placeholder="Enter Email ID"
-        keyboardType="email-address"
-        value={individual.emailId}
-        onChangeText={(text) => updateIndividual(index, 'emailId', text)}
-      />
-    </View>
+      // Clear error when valid designation is entered
+      if (text.trim()) {
+        const updatedErrors = { ...errors };
+        delete updatedErrors[`individuals[${index}].designation`]; // Remove error for designation
+        setErrors(updatedErrors); // Update state
+      }
+    }}
+  />
+  {errors[`individuals[${index}].designation`] && (
+    <Text style={styles.errorText}>{errors[`individuals[${index}].designation`]}</Text>
+  )}
+</View>
+
+
+<View style={styles.inputGroup}>
+  <Text style={styles.label}>Phone Number</Text>
+  <TextInput
+  style={[styles.input, errors[`individuals[${index}].phoneNumber`] && styles.inputError]} 
+  placeholder="Enter Phone Number" 
+  keyboardType="phone-pad" 
+  value={individual.phoneNumber} 
+  onChangeText={(text) => {
+    const digitsOnly = text.replace(/[^0-9]/g, '');
+    if (digitsOnly.length <= 10) {
+      updateIndividual(index, 'phoneNumber', digitsOnly);
+      
+      // Clear error when valid
+      if (digitsOnly.length === 10) {
+        const updatedErrors = { ...errors };
+        delete updatedErrors[`individuals[${index}].phoneNumber`];
+        setErrors(updatedErrors);
+      }
+    }
+  }}
+  maxLength={10}
+/>
+{errors[`individuals[${index}].phoneNumber`] && (
+  <Text style={styles.errorText}>
+    {errors[`individuals[${index}].phoneNumber`]}
+  </Text>
+)}
+
+</View>
+
+<View style={styles.inputGroup}>
+  <Text style={styles.label}>Email ID</Text>
+ <TextInput
+  style={[styles.input, errors[`individuals[${index}].emailId`] && styles.inputError]}
+  placeholder="Enter Email ID"
+  keyboardType="email-address"
+  value={individual.emailId}
+  onChangeText={(text) => {
+    updateIndividual(index, 'emailId', text);
+
+    // Clear error if valid email
+    const isValidEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(text);
+    if (isValidEmail) {
+      const updatedErrors = { ...errors };
+      delete updatedErrors[`individuals[${index}].emailId`];
+      setErrors(updatedErrors);
+    }
+  }}
+/>
+{errors[`individuals[${index}].emailId`] && (
+  <Text style={styles.errorText}>{errors[`individuals[${index}].emailId`]}</Text>
+)}
+
+</View>
 
     {index > 0 && <View style={styles.individualDivider} />}
   </View>
@@ -988,8 +1417,43 @@ const handleScheduleMeetingSubmit = async () => {
   <Text style={styles.addButtonText}>Add Another Individual</Text>
 </TouchableOpacity>
 
-      <Text style={styles.label}>Location URL</Text>
-<TextInput style={styles.input} placeholder="Add location URL" />
+ <View style={styles.inputGroup}>
+  <Text style={styles.label}>Location URL</Text>
+  <TextInput
+  style={[styles.input, errors.locationUrl && styles.inputError]} 
+  placeholder="Add location URL" 
+  value={formData.locationUrl}
+  onChangeText={(text) => {
+    setFormData({ ...formData, locationUrl: text });
+
+    // Clear error if valid URL
+    if (text.trim().startsWith('http')) {
+      const updatedErrors = { ...errors };
+      delete updatedErrors.locationUrl; // remove error for locationUrl
+      setErrors(updatedErrors);
+    }
+  }}
+  onBlur={() => {
+    const trimmed = formData.locationUrl.trim();
+    const updatedErrors = { ...errors };
+
+    if (!trimmed) {
+      updatedErrors.locationUrl = 'Location is required';
+    } else if (!trimmed.startsWith('http')) {
+      updatedErrors.locationUrl = 'Location must be a valid URL';
+    } else {
+      delete updatedErrors.locationUrl;
+    }
+
+    setErrors(updatedErrors);
+  }}
+/>
+{errors.locationUrl && <Text style={styles.errorText}>{errors.locationUrl}</Text>}
+
+  
+</View>
+
+
       <TouchableOpacity style={styles.submitButton} onPress={handleScheduleMeetingSubmit}>
   <Text style={styles.submitButtonText}>Submit</Text>
 </TouchableOpacity>
@@ -1013,10 +1477,18 @@ const handleScheduleMeetingSubmit = async () => {
           rawDate: date,
           date: format(date, 'dd MMM yyyy'),
         }));
+
+        // Clear the error for the date once selected
+        setErrors(prevErrors => {
+          const updated = { ...prevErrors };
+          delete updated.scheduleDate; // Remove the error for the scheduleDate field
+          return updated;
+        });
       }
     }}
   />
 )}
+
 
 {showScheduleTimePicker && (
   <DateTimePicker
@@ -1032,10 +1504,18 @@ const handleScheduleMeetingSubmit = async () => {
           rawStartTime: selectedTime,
           startTime: format(selectedTime, 'hh:mm a'),
         }));
+
+        // Clear the error for the time once selected
+        setErrors(prevErrors => {
+          const updated = { ...prevErrors };
+          delete updated.scheduleTime; // Remove the error for the scheduleTime field
+          return updated;
+        });
       }
     }}
   />
 )}
+
 
 
     </BDMMainLayout>
@@ -1048,6 +1528,11 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
+  scrollContent: {
+  flexGrow: 1,  // Makes sure the content stretches to fill the available space
+  paddingBottom: 30, // Ensures there's space for the submit button
+},
+
   scrollView: {
     flex: 1,
   },
@@ -1056,6 +1541,26 @@ const styles = StyleSheet.create({
   justifyContent: 'center',
   alignItems: 'center',
   backgroundColor: 'rgba(0, 0, 0, 0.5)',
+},
+statusPickerContainer: {
+  position: 'absolute',
+  top: 70, // Adjust based on your layout
+  left: 0,
+  width: '100%',
+  backgroundColor: 'white',
+  borderRadius: 8,
+  shadowColor: '#000',
+  shadowOffset: { width: 0, height: 2 },
+  shadowOpacity: 0.3,
+  shadowRadius: 4,
+  padding: 10,
+  zIndex: 1, // Ensure the dropdown is visible on top
+},
+statusOption: {
+  fontSize: 16,
+  fontFamily: 'LexendDeca_400Regular',
+  color: '#333',
+  paddingVertical: 8,
 },
 
 popupContainer: {

@@ -1044,28 +1044,49 @@ const [meetingDetails, setMeetingDetails] = useState<
     const statsUpdateInterval = setInterval(() => calculateMeetingStats(), 5000);
     return () => clearInterval(statsUpdateInterval);
   }, [calculateMeetingStats]);
-useEffect(() => {
-  const meetingRef = collection(db, 'bdm_schedule_meeting');
-  const q = query(meetingRef, where('meetingDate', '>=', new Date())); // Listen for upcoming meetings
 
-  const unsubscribe = onSnapshot(q, (querySnapshot) => {
-    const meetingsData = querySnapshot.docs.map((doc) => {
-      const data = doc.data();
-      return {
-        meetingId: data.meetingId || doc.id,
-        meetingDate: data.meetingDate || { seconds: 0 },
-        individuals: data.individuals || [],
-      };
+
+
+
+
+
+useFocusEffect(
+  useCallback(() => {
+    const userId = auth.currentUser?.uid;
+    if (!userId) return;
+
+    const meetingRef = collection(db, 'bdm_schedule_meeting');
+    const q = query(meetingRef, 
+      where("userId", "==", userId)
+    );
+
+    const unsubscribe = onSnapshot(q, (querySnapshot) => {
+      const meetingsData = querySnapshot.docs.map((doc) => {
+        const data = doc.data();
+        return {
+          meetingId: data.meetingId || doc.id,
+          meetingDate: data.meetingDate || { seconds: 0 },
+          individuals: data.individuals || [],
+          meetingTime: data.meetingTime || "N/A",
+        };
+      });
+      setMeetingDetails(meetingsData);
+      setIsLoading(false);
+    }, (error) => {
+      console.error("Error listening to meeting updates on focus:", error);
+      setIsLoading(false);
     });
-    setMeetingDetails(meetingsData);
-    setIsLoading(false);
-  }, (error) => {
-    console.error("Error listening to meeting updates:", error);
-    setIsLoading(false);
-  });
 
-  return () => unsubscribe(); // Cleanup listener on unmount
-}, []);
+    return () => unsubscribe();
+  }, [])
+);
+
+
+
+
+
+
+
 
 
 const flatListRef = useRef<FlatList<any>>(null);
@@ -1127,30 +1148,30 @@ useEffect(() => {
       offset: 40 * index,
       index,
     })}
-    renderItem={({ item }) => {
-      const meetingTime = new Date(item.meetingDate.seconds * 1000);
-      const currentTime = new Date();
-      const timeDiff = meetingTime.getTime() - currentTime.getTime();
-      const hoursLeft = Math.floor(timeDiff / (1000 * 60 * 60));
+renderItem={({ item }) => {
+  const meetingTime = new Date(item.meetingDate.seconds * 1000);
+  const formattedDate = meetingTime.toLocaleDateString("en-GB", {
+    day: "2-digit",
+    month: "long",
+    year: "numeric",
+  });
 
-      return (
-        <View style={styles.meetingPill}>
-          <View style={styles.meetingLeft}>
-            <MaterialIcons name="person" size={18} color="#6B7280" />
-            <Text style={styles.meetingTitle}>
-              {item.individuals[0]?.name || "N/A"} -
-            </Text>
-            <Text style={styles.meetingTime}>
-  {meetingTime.toLocaleDateString()}
-</Text>
+  return (
+    <View style={styles.meetingPill}>
+      <View style={styles.meetingLeft}>
+        <MaterialIcons name="person" size={18} color="#6B7280" />
+        <Text style={styles.meetingTitle}>
+          {item.individuals[0]?.name || "N/A"} -
+        </Text>
+        <Text style={styles.meetingTime}>
+          {formattedDate}       {item.meetingTime || "N/A"}
+        </Text>
+      </View>
+    </View>
+  );
+}}
 
-          </View>
-          <Text style={styles.meetingCountdown}>
-            In {hoursLeft} hour{hoursLeft !== 1 ? "s" : ""}
-          </Text>
-        </View>
-      );
-    }}
+
   />
 </View>
 

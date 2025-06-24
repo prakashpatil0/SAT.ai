@@ -23,7 +23,7 @@ import { MaterialIcons } from "@expo/vector-icons";
 import { useProfile } from "@/app/context/ProfileContext";
 import { BDMStackParamList } from "@/app/index";
 import BDMMainLayout from "@/app/components/BDMMainLayout";
-import CallLog from "react-native-call-log";
+import CallLogModule from "react-native-call-log";
 
 const SCREEN_HEIGHT = Dimensions.get("window").height;
 import {
@@ -431,7 +431,7 @@ const [meetingDetails, setMeetingDetails] = useState<
     if (Platform.OS === "android") {
       const hasPermission = await requestCallLogPermission();
       if (hasPermission) {
-        const logs = await CallLog.loadAll();
+        const logs = await CallLogModule.loadAll();
         const thirtyDaysAgo = new Date();
         thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
         const recentLogs = logs.filter((log: any) => parseInt(log.timestamp) >= thirtyDaysAgo.getTime());
@@ -1075,11 +1075,25 @@ const currentIndex = useRef(0);
 useEffect(() => {
   if (meetingDetails.length > 0 && flatListRef.current) {
     const interval = setInterval(() => {
-      flatListRef.current?.scrollToIndex({
-        animated: true,
-        index: currentIndex.current,
-      });
-      currentIndex.current = (currentIndex.current + 1) % meetingDetails.length;
+      // Ensure currentIndex is within bounds
+      if (currentIndex.current >= meetingDetails.length) {
+        currentIndex.current = 0;
+      }
+      
+      // Only scroll if the index is valid
+      if (currentIndex.current < meetingDetails.length) {
+        try {
+          flatListRef.current?.scrollToIndex({
+            animated: true,
+            index: currentIndex.current,
+          });
+          currentIndex.current = (currentIndex.current + 1) % meetingDetails.length;
+        } catch (error) {
+          console.warn('Error scrolling to index:', error);
+          // Reset to 0 if there's an error
+          currentIndex.current = 0;
+        }
+      }
     }, 3000);
 
     return () => clearInterval(interval);

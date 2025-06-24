@@ -138,6 +138,7 @@ const BDMAttendanceScreen = () => {
   const [tripStartTime, setTripStartTime] = useState<Date | null>(null);
   const [isSaveSuccessModalVisible, setIsSaveSuccessModalVisible] = useState(false);
   const scaleAnim = useRef(new Animated.Value(0)).current;
+  const [isSavingAttendance, setIsSavingAttendance] = useState(false);
 
   const navigation = useNavigation<BDMAttendanceScreenNavigationProp>();
   const route = useRoute<BDMAttendanceScreenRouteProp>();
@@ -338,23 +339,22 @@ const BDMAttendanceScreen = () => {
     return () => clearInterval(intervalId);
   }, [punchInTime, punchOutTime]);
 
-useEffect(() => {
-  if (route.params && route.params.photo && route.params.location) {
-    try {
-      const { photo, location, isPunchIn, locationName } = route.params;
-      saveAttendance(
-        isPunchIn || false,
-        photo.uri,
-        location.coords,
-        locationName || 'Unknown Location'  // <-- explicitly pass locationName
-      );
-    } catch (error) {
-      console.error("Error processing camera data:", error);
-      Alert.alert("Error", "Failed to process camera data. Please try again.");
+  useEffect(() => {
+    if (route.params && route.params.photo && route.params.location && !isSavingAttendance) {
+      try {
+        const { photo, location, isPunchIn, locationName } = route.params;
+        saveAttendance(
+          isPunchIn || false,
+          photo.uri,
+          location.coords,
+          locationName || 'Unknown Location'
+        );
+      } catch (error) {
+        console.error("Error processing camera data:", error);
+        Alert.alert("Error", "Failed to process camera data. Please try again.");
+      }
     }
-  }
-}, [route.params]);
-
+  }, [route.params, isSavingAttendance]);
 
   const initializeDate = () => {
     const today = new Date();
@@ -683,7 +683,11 @@ useEffect(() => {
   locationCoords: any,
   locationNameFromCamera: string
 ) => {
+    if (isSavingAttendance) return; // Prevent multiple saves
+    
     try {
+      setIsSavingAttendance(true);
+      
       // Validate time before saving
       const db = getFirestore();
       const timeCheckRef = doc(db, '_timeCheck', 'serverTime');
@@ -770,9 +774,7 @@ useEffect(() => {
           totalHours: totalHours,
           workMode: 'Office',
           locationName: isPunchIn ? locationNameFromCamera : '',
-  punchOutLocationName: !isPunchIn ? locationNameFromCamera : '',
-          // locationName: isPunchIn ? await getLocationName(locationCoords) : '',
-          // punchOutLocationName: !isPunchIn ? await getLocationName(locationCoords) : '',
+          punchOutLocationName: !isPunchIn ? locationNameFromCamera : '',
           lastUpdated: Timestamp.fromDate(currentTime)
         });
       } else {
@@ -807,9 +809,7 @@ useEffect(() => {
           punchOutLocation: !isPunchIn ? locationCoords : existingData.punchOutLocation,
           totalHours: totalHours,
           locationName: isPunchIn ? locationNameFromCamera : existingData.locationName,
-  punchOutLocationName: !isPunchIn ? locationNameFromCamera : existingData.punchOutLocationName,
-          // locationName: isPunchIn ? await getLocationName(locationCoords) : existingData.locationName,
-          // punchOutLocationName: !isPunchIn ? await getLocationName(locationCoords) : existingData.punchOutLocationName,
+          punchOutLocationName: !isPunchIn ? locationNameFromCamera : existingData.punchOutLocationName,
           lastUpdated: Timestamp.fromDate(currentTime)
         });
       }
@@ -837,7 +837,7 @@ useEffect(() => {
           email: userDetails.email || '',
           totalHours: totalHours,
           workMode: 'Office',
-          locationName: await getLocationName(locationCoords),
+          locationName: locationNameFromCamera,
           punchOutLocationName: '',
           lastUpdated: currentTime
         });
@@ -851,15 +851,34 @@ useEffect(() => {
           punchOutPhotoUri: photoUri,
           punchOutLocation: locationCoords,
           totalHours: totalHours,
-          punchOutLocationName: await getLocationName(locationCoords),
+          punchOutLocationName: locationNameFromCamera,
           lastUpdated: currentTime
         } as AttendanceRecord);
       }
   
+      // Fetch attendance history in background without blocking UI
       fetchAttendanceHistory();
+      
+      // Clear route params to prevent re-processing
+      navigation.setParams({
+        photo: undefined,
+        location: undefined,
+        isPunchIn: undefined,
+        locationName: undefined
+      });
+      
+      // Show success message
+      Alert.alert(
+        'Success',
+        `Attendance ${isPunchIn ? 'Punch In' : 'Punch Out'} recorded successfully at ${format(currentTime, 'hh:mm a')}`,
+        [{ text: 'OK' }]
+      );
+      
     } catch (error) {
       console.error('Error saving attendance:', error);
-      Alert.alert('Error', 'Failed to save attendance');
+      Alert.alert('Error', 'Failed to save attendance. Please try again.');
+    } finally {
+      setIsSavingAttendance(false);
     }
   };
 
@@ -1144,17 +1163,26 @@ useEffect(() => {
           style={[
             styles.punchButton, 
             isPunchedIn && styles.punchOutButton,
-            isPunchButtonDisabled && styles.punchButtonDisabled
+            (isPunchButtonDisabled || isSavingAttendance) && styles.punchButtonDisabled
           ]}
           onPress={handlePunch}
-          disabled={isPunchButtonDisabled}
+          disabled={isPunchButtonDisabled || isSavingAttendance}
         >
-          <Text style={[
-            styles.punchButtonText,
-            isPunchButtonDisabled && styles.punchButtonTextDisabled
-          ]}>
-            {isPunchedIn ? 'Punch Out' : 'Punch In'}
-          </Text>
+          {isSavingAttendance ? (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="small" color="white" />
+              <Text style={[styles.punchButtonText, styles.punchButtonTextDisabled]}>
+                Saving...
+              </Text>
+            </View>
+          ) : (
+            <Text style={[
+              styles.punchButtonText,
+              (isPunchButtonDisabled || isSavingAttendance) && styles.punchButtonTextDisabled
+            ]}>
+              {isPunchedIn ? 'Punch Out' : 'Punch In'}
+            </Text>
+          )}
         </TouchableOpacity>
       </View>
       <View style={styles.timeInfo}>
@@ -2163,6 +2191,11 @@ const styles = StyleSheet.create({
     color: '#333',
     marginTop: 16,
     textAlign: 'center',
+  },
+  loadingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });
 

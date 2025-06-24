@@ -9,28 +9,27 @@ import * as Linking from 'expo-linking';
 import AppGradient from "@/app/components/AppGradient";
 import { Audio } from 'expo-av';
 import { getAuth } from 'firebase/auth';
-import { getFirestore, collection, addDoc, query, where, orderBy, onSnapshot, getDocs, getDoc, doc, updateDoc } from 'firebase/firestore';
+import { getFirestore, collection, addDoc, query, where, orderBy, onSnapshot, getDocs, getDoc, doc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { Alert } from 'react-native';
 import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { auth, db } from "@/firebaseConfig";
-import CallLog from 'react-native-call-log';
+import CallLogModule from 'react-native-call-log';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import api from '@/app/services/api';
 import { useProfile } from '@/app/context/ProfileContext';
 import TelecallerAddContactModal from '@/app/Screens/Telecaller/TelecallerAddContactModal';
 import { getCurrentWeekAchievements } from "@/app/services/targetService";
 import targetService from "@/app/services/targetService";
-import Dialer from '@/app/components/Dialer/Dialer';
+import Dialer, { Contact as DialerContact } from '@/app/components/Dialer/Dialer';
 import { startOfWeek, endOfWeek } from 'date-fns';
 import { Timestamp } from 'firebase/firestore';
-import { Contact } from '../../../components/Dialer/Dialer';
 import debounce from 'lodash.debounce';
 
 // Define navigation types
 type RootStackParamList = {
-  TelecallerCallNoteDetails: { meeting: CallLog };
+  TelecallerCallNoteDetails: { meeting: CallLogModule };
   AddContactModal: { phone: string };
-  CallHistory: { call: CallLog };
+  CallHistory: { call: CallLogModule };
   ContactInfo: { 
     contact: {
       id: string;
@@ -164,8 +163,13 @@ const HomeScreen = () => {
     return savedContacts[phoneNumber] || false;
   }, [savedContacts]);
 
-  const handleContactSaved = useCallback(async (contact: Contact) => {
+  const handleContactSaved = useCallback(async (contact: { id: string; firstName: string; lastName: string; phoneNumber: string; email?: string; favorite?: boolean }) => {
     try {
+      const contactWithFavorite: DialerContact = {
+        ...contact,
+        favorite: contact.favorite ?? false
+      };
+
       setSavedContacts(prev => ({
         ...prev,
         [contact.phoneNumber]: true
@@ -175,10 +179,10 @@ const HomeScreen = () => {
         const existingIndex = prev.findIndex(c => c.phoneNumber === contact.phoneNumber);
         if (existingIndex !== -1) {
           const updated = [...prev];
-          updated[existingIndex] = contact;
+          updated[existingIndex] = contactWithFavorite;
           return updated;
         }
-        return [...prev, contact];
+        return [...prev, contactWithFavorite];
       });
 
       await fetchCallLogs();
@@ -192,7 +196,7 @@ const HomeScreen = () => {
       const storedContacts = await AsyncStorage.getItem('contacts');
       if (storedContacts) {
         const contacts = JSON.parse(storedContacts);
-        const contactsMap = contacts.reduce((acc: {[key: string]: boolean}, contact: Contact) => {
+        const contactsMap = contacts.reduce((acc: {[key: string]: boolean}, contact: DialerContact) => {
           if (contact.phoneNumber) {
             acc[contact.phoneNumber] = true;
           }
@@ -210,7 +214,7 @@ const HomeScreen = () => {
       setIsLoadingContacts(true);
       const storedContacts = await AsyncStorage.getItem('contacts');
       if (storedContacts) {
-        const parsedContacts = JSON.parse(storedContacts) as Contact[];
+        const parsedContacts = JSON.parse(storedContacts) as DialerContact[];
         const normalizedContacts = parsedContacts.map(contact => ({
           ...contact,
           favorite: contact.favorite ?? false
@@ -564,6 +568,100 @@ const HomeScreen = () => {
     }
   }, []);
 
+  const saveCallLogsToFirebase = useCallback(async (logs: any[]) => {
+    try {
+      const userId = auth.currentUser?.uid;
+      if (!userId) return;
+
+      // Get user profile data
+      let userName = 'Unknown User';
+      try {
+        const userDoc = await getDoc(doc(db, 'users', userId));
+        if (userDoc.exists()) {
+          const userData = userDoc.data();
+          userName = userData.firstName || userData.name || 'Unknown User';
+        }
+      } catch (error) {
+        // If user profile fetch fails, use the current userProfile from context
+        userName = userProfile?.firstName || userProfile?.name || 'Unknown User';
+      }
+
+      const now = new Date();
+      const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+      const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+      const thirtyDaysAgo = new Date(now.getTime() - (30 * 24 * 60 * 60 * 1000));
+
+      // Delete logs older than 30 days
+      const callLogsRef = collection(db, 'telecaller_Call_Logs');
+      const oldLogsQuery = query(
+        callLogsRef,
+        where('userId', '==', userId),
+        where('timestamp', '<', thirtyDaysAgo)
+      );
+
+      try {
+        const oldLogsSnapshot = await getDocs(oldLogsQuery);
+        const deleteOldPromises = oldLogsSnapshot.docs.map(doc => deleteDoc(doc.ref));
+        await Promise.all(deleteOldPromises);
+      } catch (deleteError) {
+        Alert.alert('Error', 'Failed to clean up old logs');
+      }
+
+      // Delete existing logs for today
+      const todayQuery = query(
+        callLogsRef,
+        where('userId', '==', userId),
+        where('timestamp', '>=', startOfToday),
+        where('timestamp', '<=', endOfToday)
+      );
+
+      try {
+        const querySnapshot = await getDocs(todayQuery);
+        const deletePromises = querySnapshot.docs.map(doc => deleteDoc(doc.ref));
+        await Promise.all(deletePromises);
+      } catch (deleteError) {
+        Alert.alert('Error', 'Failed to update today\'s logs');
+      }
+
+      // Save new logs
+      const savePromises = logs.map(log => {
+        let timestamp;
+        try {
+          const timestampValue = typeof log.timestamp === 'string' ? 
+            parseInt(log.timestamp) : 
+            log.timestamp;
+          
+          if (isNaN(timestampValue) || timestampValue <= 0) {
+            timestamp = Timestamp.now();
+          } else {
+            const milliseconds = timestampValue < 10000000000 ? timestampValue * 1000 : timestampValue;
+            timestamp = Timestamp.fromMillis(milliseconds);
+          }
+        } catch (error) {
+          timestamp = Timestamp.now();
+        }
+
+        const logData = {
+          userId,
+          userName: userName,
+          phoneNumber: log.phoneNumber || '',
+          contactName: log.contactName || log.phoneNumber || '',
+          timestamp: timestamp,
+          duration: parseInt(log.duration) || 0,
+          type: (log.type || 'OUTGOING').toLowerCase(),
+          status: (log.type === 'MISSED' ? 'missed' : 'completed'),
+          createdAt: Timestamp.now()
+        };
+
+        return addDoc(callLogsRef, logData);
+      });
+
+      await Promise.all(savePromises);
+    } catch (error) {
+      Alert.alert('Error', 'Failed to save call logs to database');
+    }
+  }, [userProfile]);
+
   const fetchFreshLogs = useCallback(async () => {
     if (Platform.OS !== 'android' || hasCallLogPermission === false) return;
 
@@ -571,29 +669,70 @@ const HomeScreen = () => {
     setHasCallLogPermission(hasPermission);
     if (!hasPermission) return;
 
-    const logs = await CallLog.loadAll();
+    try {
+      const logs = await CallLogModule.loadAll();
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
     
     const recentLogs = logs.filter((log: any) => {
-      const logTimestamp = parseInt(log.timestamp);
-      return logTimestamp >= thirtyDaysAgo.getTime();
-    });
+        try {
+          const logTimestamp = typeof log.timestamp === 'string' ? 
+            parseInt(log.timestamp) : 
+            log.timestamp;
+          const milliseconds = logTimestamp < 10000000000 ? logTimestamp * 1000 : logTimestamp;
+          return !isNaN(milliseconds) && milliseconds > 0 && milliseconds >= thirtyDaysAgo.getTime();
+        } catch (error) {
+          return false;
+        }
+      });
 
-    const formattedLogs = recentLogs.map((log: any) => ({
-      id: String(log.timestamp),
-      phoneNumber: log.phoneNumber,
-      contactName: log.name && log.name !== "Unknown" ? log.name : log.phoneNumber,
-      timestamp: new Date(parseInt(log.timestamp)),
+      const formattedLogs = recentLogs.map((log: any) => {
+        let timestamp;
+        try {
+          const timestampValue = typeof log.timestamp === 'string' ? 
+            parseInt(log.timestamp) : 
+            log.timestamp;
+          
+          const milliseconds = timestampValue < 10000000000 ? timestampValue * 1000 : timestampValue;
+          
+          if (isNaN(milliseconds) || milliseconds <= 0) {
+            timestamp = new Date();
+          } else {
+            timestamp = new Date(milliseconds);
+          }
+        } catch (error) {
+          timestamp = new Date();
+        }
+
+        return {
+          id: String(log.timestamp || Date.now()),
+          phoneNumber: log.phoneNumber || '',
+          contactName: log.name && log.name !== "Unknown" ? log.name : (log.phoneNumber || ''),
+          timestamp: timestamp,
       duration: parseInt(log.duration) || 0,
       type: (log.type || 'OUTGOING').toLowerCase() as 'incoming' | 'outgoing' | 'missed',
       status: (log.type === 'MISSED' ? 'missed' : 'completed') as 'missed' | 'completed' | 'in-progress'
-    }));
+        };
+      });
+
+      // Save today's logs to Firebase
+      const todayLogs = formattedLogs.filter(log => {
+        const logDate = new Date(log.timestamp);
+        const today = new Date();
+        return logDate.toDateString() === today.toDateString();
+      });
+
+      if (todayLogs.length > 0) {
+        await saveCallLogsToFirebase(todayLogs);
+      }
 
     await AsyncStorage.setItem(CALL_LOGS_STORAGE_KEY, JSON.stringify(formattedLogs));
     await AsyncStorage.setItem(CALL_LOGS_LAST_UPDATE, String(Date.now()));
     updateCallLogsState(formattedLogs, 'all');
-  }, [hasCallLogPermission, updateCallLogsState]);
+    } catch (error) {
+      Alert.alert('Error', 'Failed to fetch call logs');
+    }
+  }, [hasCallLogPermission, updateCallLogsState, saveCallLogsToFirebase]);
 
   const groupCallLogs = useCallback((logs: CallLog[]): GroupedCallLog[] => {
     const groupedByPhone: { [key: string]: CallLog[] } = {};
@@ -825,7 +964,7 @@ const HomeScreen = () => {
         if (hasPermission) {
           setIsLoadingSimLogs(true);
           
-          const logs = await CallLog.loadAll();
+          const logs = await CallLogModule.loadAll();
           const thirtyDaysAgo = new Date();
           thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
           
@@ -1211,7 +1350,7 @@ const HomeScreen = () => {
     return () => clearInterval(interval);
   }, [fetchWeeklyAchievements]);
 
-  const [contacts, setContacts] = useState<Contact[]>([]);
+  const [contacts, setContacts] = useState<DialerContact[]>([]);
   const [isLoadingContacts, setIsLoadingContacts] = useState(false);
 
   const sortedCallLogs = useMemo(() => {
@@ -1321,7 +1460,9 @@ const HomeScreen = () => {
           visible={addContactModalVisible}
           onClose={() => setAddContactModalVisible(false)}
           phoneNumber={selectedNumber}
-          onContactSaved={(contact: Contact) => handleContactSaved(contact as Contact & {favorite: boolean})}
+          onContactSaved={(contact: { id: string; firstName: string; lastName: string; phoneNumber: string; email?: string; favorite?: boolean }) => {
+            handleContactSaved(contact);
+          }}
         />
       </TelecallerMainLayout>
     </AppGradient>

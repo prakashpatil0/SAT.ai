@@ -482,7 +482,7 @@ const styles = StyleSheet.create({
   },
   buttonLabel: {
     fontSize: 20,
-    fontFamily: "LexendDeca_400Regular",
+    fontFamily: "LexendDeca_500Medium",
     color: "#FFFFFF",
   },
   forgotPassword: {

@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Linking, Platform, Alert, Image, ActivityIndicator, Dimensions } from 'react-native';
-import { MaterialIcons } from '@expo/vector-icons';
+import React, { useState, useEffect, useRef } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Linking, Platform, Alert, Image, ActivityIndicator, Dimensions, Modal, Animated } from 'react-native';
+import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
-import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
+import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
 import { RouteProp, useNavigation, useRoute } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { DEFAULT_LOCATION, DEFAULT_MAP_DELTA, GOOGLE_MAPS_STYLE } from '@/app/utils/MapUtils';
@@ -12,6 +12,7 @@ import { db, auth } from '@/firebaseConfig';
 import BDMMainLayout from '@/app/components/BDMMainLayout';
 import AppGradient from '@/app/components/AppGradient';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { showTripStartedNotification, hideTripStartedNotification } from '@/app/services/notificationService';
 
 type RootStackParamList = {
   BDMCameraScreen: {
@@ -126,6 +127,17 @@ const BDMAttendanceScreen = () => {
   const [isAutoPunchOut, setIsAutoPunchOut] = useState(false);
   const [autoPunchOutMessage, setAutoPunchOutMessage] = useState<string>('');
   const [locationAddress, setLocationAddress] = useState<string | null>(null);
+  const [totalDistance, setTotalDistance] = useState(0);
+  const [formattedWorkHours, setFormattedWorkHours] = useState('0hr 0min');
+  const [isTracking, setIsTracking] = useState(false);
+  const [tripPath, setTripPath] = useState<any[]>([]);
+  const [tripDistance, setTripDistance] = useState(0);
+  const [elapsedTime, setElapsedTime] = useState(0);
+  const [locationSubscription, setLocationSubscription] = useState<Location.LocationSubscription | null>(null);
+  const [timerInterval, setTimerInterval] = useState<NodeJS.Timeout|null>(null);
+  const [tripStartTime, setTripStartTime] = useState<Date | null>(null);
+  const [isSaveSuccessModalVisible, setIsSaveSuccessModalVisible] = useState(false);
+  const scaleAnim = useRef(new Animated.Value(0)).current;
 
   const navigation = useNavigation<BDMAttendanceScreenNavigationProp>();
   const route = useRoute<BDMAttendanceScreenRouteProp>();
@@ -1118,6 +1130,13 @@ useEffect(() => {
             </View>
           </Marker>
         )}
+        {isTracking && tripPath.length > 1 && (
+          <Polyline
+            coordinates={tripPath}
+            strokeColor="#007AFF"
+            strokeWidth={6}
+          />
+        )}
       </MapView>
       {isMapLoading && (
         <View style={styles.mapLoadingOverlay}>
@@ -1385,6 +1404,179 @@ useEffect(() => {
     }
   };
 
+  useEffect(() => {
+    if (todayRecord && todayRecord.punchIn && todayRecord.punchOut) {
+      const hours = calculateTotalHours(todayRecord.punchIn, todayRecord.punchOut);
+      setFormattedWorkHours(formatWorkHours(hours));
+
+      if (todayRecord.location && todayRecord.punchOutLocation) {
+        const distance = calculateDistance(
+          todayRecord.location.latitude,
+          todayRecord.location.longitude,
+          todayRecord.punchOutLocation.latitude,
+          todayRecord.punchOutLocation.longitude
+        );
+        setTotalDistance(distance);
+      }
+    } else {
+      setTotalDistance(0);
+      setFormattedWorkHours('0hr 0min');
+    }
+  }, [todayRecord]);
+
+  const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => {
+    if (!lat1 || !lon1 || !lat2 || !lon2) return 0;
+    const R = 6371; // Radius of the Earth in kilometers
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a =
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+      Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    const distance = R * c;
+    return distance; // in km
+  };
+
+  const formatWorkHours = (totalHours: number): string => {
+    if (totalHours <= 0) {
+      return '0hr 0min';
+    }
+    const hours = Math.floor(totalHours);
+    const minutes = Math.round((totalHours - hours) * 60);
+    
+    return `${hours}hr ${minutes}min`;
+  };
+
+  const formatElapsedTime = (seconds: number): string => {
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = Math.floor(seconds % 60);
+    return [
+      h > 0 ? `${h}h` : '',
+      m > 0 ? `${m}m` : '',
+      `${s}s`,
+    ].filter(Boolean).join(' ');
+  };
+
+  useEffect(() => {
+    if (isTracking) {
+      startTracking();
+    } else {
+      stopTracking();
+    }
+
+    return () => {
+      stopTracking();
+    };
+  }, [isTracking]);
+
+  const startTracking = async () => {
+    const { status } = await Location.requestForegroundPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission denied', 'Location permission is required for tracking.');
+      setIsTracking(false);
+      return;
+    }
+
+    setTripPath([]);
+    setTripDistance(0);
+    setElapsedTime(0);
+    setTripStartTime(new Date());
+
+    showTripStartedNotification();
+
+    const interval = setInterval(() => {
+      setElapsedTime(prevTime => prevTime + 1);
+    }, 1000);
+    setTimerInterval(interval);
+
+    const subscription = await Location.watchPositionAsync(
+      {
+        accuracy: Location.Accuracy.BestForNavigation,
+        timeInterval: 1000,
+        distanceInterval: 10,
+      },
+      (location) => {
+        setTripPath((prevPath) => {
+          const newPath = [...prevPath, location.coords];
+          if (newPath.length > 1) {
+            const lastPoint = newPath[newPath.length - 2];
+            const newPoint = newPath[newPath.length - 1];
+            const newDistance = calculateDistance(
+              lastPoint.latitude,
+              lastPoint.longitude,
+              newPoint.latitude,
+              newPoint.longitude
+            );
+            setTripDistance((prevDistance) => prevDistance + newDistance);
+          }
+          return newPath;
+        });
+      }
+    );
+    setLocationSubscription(subscription);
+  };
+
+  const stopTracking = async () => {
+    if (locationSubscription) {
+      locationSubscription.remove();
+      setLocationSubscription(null);
+    }
+    if (timerInterval) {
+      clearInterval(timerInterval);
+      setTimerInterval(null);
+    }
+  
+    hideTripStartedNotification();
+
+    if (tripPath.length > 0) {
+      const rideData = {
+        userId: auth.currentUser?.uid,
+        submittedBy: userDetails.employeeName,
+        startTime: tripStartTime,
+        stopTime: new Date(),
+        startLocation: tripPath[0],
+        stopLocation: tripPath[tripPath.length - 1],
+        path: tripPath,
+        distance: tripDistance,
+        duration: elapsedTime,
+        createdAt: serverTimestamp(),
+      };
+  
+      try {
+        await addDoc(collection(db, "user_rides"), rideData);
+        showSuccessAnimation();
+      } catch (error) {
+        console.error("Error saving ride data:", error);
+        Alert.alert("Error", "Could not save your ride data. Please try again.");
+      }
+    }
+  };
+
+  const showSuccessAnimation = () => {
+    setIsSaveSuccessModalVisible(true);
+    Animated.timing(scaleAnim, {
+      toValue: 1,
+      duration: 300,
+      useNativeDriver: true,
+    }).start();
+
+    setTimeout(() => {
+      Animated.timing(scaleAnim, {
+        toValue: 0,
+        duration: 300,
+        useNativeDriver: true,
+      }).start(() => {
+        setIsSaveSuccessModalVisible(false);
+      });
+    }, 2000);
+  };
+
+  const handleToggleTracking = () => {
+    setIsTracking(!isTracking);
+  };
+
   return (
     <AppGradient>
       <BDMMainLayout 
@@ -1393,7 +1585,19 @@ useEffect(() => {
         showDrawer={true}
       >
         <ScrollView style={styles.scrollView}>
-          {renderMap()}
+          <View style={styles.mapInfoCard}>
+            {renderMap()}
+            <View style={styles.travelInfoContainer}>
+              <TouchableOpacity style={styles.travelInfoItem} onPress={handleToggleTracking}>
+                <MaterialCommunityIcons name={isTracking ? "stop-circle-outline" : "bike-fast"} size={24} color="#007AFF" />
+                <Text style={styles.travelInfoText}>{isTracking ? `${tripDistance.toFixed(1)} km` : `${totalDistance.toFixed(1)} km`}</Text>
+              </TouchableOpacity>
+              <View style={styles.travelInfoItem}>
+                <MaterialIcons name="access-time" size={24} color="#007AFF" />
+                <Text style={styles.travelInfoText}>{isTracking ? formatElapsedTime(elapsedTime) : formattedWorkHours}</Text>
+              </View>
+            </View>
+          </View>
 
           {renderPunchCard()}
 
@@ -1501,6 +1705,18 @@ useEffect(() => {
             )}
           </View>
         </ScrollView>
+        <Modal
+          transparent
+          visible={isSaveSuccessModalVisible}
+          animationType="fade"
+        >
+          <View style={styles.modalContainer}>
+            <Animated.View style={[styles.modalContent, { transform: [{ scale: scaleAnim }] }]}>
+              <MaterialIcons name="check-circle" size={80} color="#4CAF50" />
+              <Text style={styles.modalText}>Trip Saved Successfully!</Text>
+            </Animated.View>
+          </View>
+        </Modal>
       </BDMMainLayout>
     </AppGradient>
   );
@@ -1511,10 +1727,41 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#FFF8F0',
   },
+  mapInfoCard: {
+    backgroundColor: 'white',
+    borderRadius: 12,
+    marginHorizontal: 16,
+    marginVertical: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  travelInfoContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    alignItems: 'center',
+    paddingVertical: 12,
+    borderBottomLeftRadius: 12,
+    borderBottomRightRadius: 12,
+    backgroundColor: '#F7F9FC',
+    paddingHorizontal: 16,
+  },
+  travelInfoItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  travelInfoText: {
+    marginLeft: 8,
+    fontSize: 16,
+    fontFamily: 'LexendDeca_500Medium',
+    color: '#333',
+  },
   mapContainer: {
     height: 200,
-    marginVertical: 10,
-    borderRadius: 12,
+    borderTopLeftRadius: 12,
+    borderTopRightRadius: 12,
     overflow: 'hidden',
     position: 'relative',
   },
@@ -1807,41 +2054,6 @@ const styles = StyleSheet.create({
   historySection: {
     marginTop: 16,
   },
-  loadingLocation: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#F5F5F5',
-  },
-  loadingText: {
-    marginTop: 12,
-    fontSize: 16,
-    fontFamily: 'LexendDeca_400Regular',
-    color: '#666',
-  },
-  punchButtonDisabled: {
-    backgroundColor: '#CCCCCC',
-    opacity: 0.7,
-  },
-  punchButtonTextDisabled: {
-    color: '#666',
-  },
-  nextPunchInfo: {
-    textAlign: 'center',
-    fontSize: 12,
-    fontFamily: 'LexendDeca_400Regular',
-    color: '#666',
-    marginTop: 8,
-    fontStyle: 'italic',
-  },
-  summaryItemBlurred: {
-    opacity: 0.5,
-  },
-  summaryItemActive: {
-    borderWidth: 2,
-    borderColor: '#FF8447',
-    transform: [{ scale: 1.05 }],
-  },
   historyHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -1956,6 +2168,54 @@ const styles = StyleSheet.create({
     fontFamily: 'LexendDeca_400Regular',
     fontStyle: 'italic',
     marginTop: 2,
+  },
+  punchButtonDisabled: {
+    backgroundColor: '#CCCCCC',
+    opacity: 0.7,
+  },
+  punchButtonTextDisabled: {
+    color: '#666',
+  },
+  nextPunchInfo: {
+    textAlign: 'center',
+    fontSize: 12,
+    fontFamily: 'LexendDeca_400Regular',
+    color: '#666',
+    marginTop: 8,
+    fontStyle: 'italic',
+  },
+  summaryItemBlurred: {
+    opacity: 0.5,
+  },
+  summaryItemActive: {
+    borderWidth: 2,
+    borderColor: '#FF8447',
+    transform: [{ scale: 1.05 }],
+  },
+  modalContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+  },
+  modalContent: {
+    width: 250,
+    padding: 20,
+    backgroundColor: 'white',
+    borderRadius: 12,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+  modalText: {
+    fontSize: 18,
+    fontFamily: 'LexendDeca_500Medium',
+    color: '#333',
+    marginTop: 16,
+    textAlign: 'center',
   },
 });
 

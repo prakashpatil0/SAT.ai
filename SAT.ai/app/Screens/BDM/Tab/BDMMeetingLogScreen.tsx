@@ -18,6 +18,7 @@ import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/dat
 import { format } from 'date-fns';
 import { Image } from "expo-image";
 import Ionicons from "react-native-vector-icons/Ionicons";
+import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import BDMMainLayout from '@/app/components/BDMMainLayout';
 import AppGradient from '@/app/components/AppGradient';
 import { auth, db } from '@/firebaseConfig';
@@ -41,7 +42,7 @@ interface MeetingFormData {
   date: string;
   submittedBy?: string; // <-- ADD
   rawDate?: Date;
-   locationReachTime: string;           // <-- ADD
+   locationReachTime: string;
   rawLocationReachTime?: Date;       
   startTime: string;
   rawStartTime?: Date;
@@ -85,12 +86,14 @@ const BDMMeetingLogScreen = () => {
   const [selectedEndTime, setSelectedEndTime] = useState(new Date());
   const [isLocationLoading, setIsLocationLoading] = useState(false);
   const [showLocationReachTimePicker, setShowLocationReachTimePicker] = useState(false);
-const [selectedLocationReachTime, setSelectedLocationReachTime] = useState(new Date());
-const [showScheduleForm, setShowScheduleForm] = useState(false);
-const [scheduleDate, setScheduleDate] = useState<Date | null>(null);
-const [scheduleTime, setScheduleTime] = useState<Date | null>(null);
-const [showScheduleDatePicker, setShowScheduleDatePicker] = useState(false);
-const [showScheduleTimePicker, setShowScheduleTimePicker] = useState(false);
+  const [selectedLocationReachTime, setSelectedLocationReachTime] = useState(new Date());
+  const [showScheduleForm, setShowScheduleForm] = useState(false);
+  const [scheduleDate, setScheduleDate] = useState<Date | null>(null);
+  const [scheduleTime, setScheduleTime] = useState<Date | null>(null);
+  const [showScheduleDatePicker, setShowScheduleDatePicker] = useState(false);
+  const [showScheduleTimePicker, setShowScheduleTimePicker] = useState(false);
+  const [location, setLocation] = useState<Location.LocationObject | null>(null);
+  const [mapRegion, setMapRegion] = useState<any>(null);
 
 const onLocationReachTimeChange = (event: DateTimePickerEvent, time?: Date) => {
   setShowLocationReachTimePicker(Platform.OS === 'ios');
@@ -134,8 +137,8 @@ const handleStatusSelect = (status: string) => {
   const [formData, setFormData] = useState<MeetingFormData>({
     date: '',
     rawDate: undefined,
-    locationReachTime: '',              // <-- ADD
-  rawLocationReachTime: undefined,    // <-- ADD
+    locationReachTime: '',
+    rawLocationReachTime: undefined,
     startTime: '',
     rawStartTime: undefined,
     endTime: '',
@@ -197,18 +200,55 @@ useEffect(() => {
       }
 
       // Get current location
-      const location = await Location.getCurrentPositionAsync({
+      const currentLocation = await Location.getCurrentPositionAsync({
         accuracy: Location.Accuracy.High
+      });
+      setLocation(currentLocation);
+      setMapRegion({
+        latitude: currentLocation.coords.latitude,
+        longitude: currentLocation.coords.longitude,
+        latitudeDelta: 0.01,
+        longitudeDelta: 0.01,
       });
 
       // Get address from coordinates
       const [address] = await Location.reverseGeocodeAsync({
-        latitude: location.coords.latitude,
-        longitude: location.coords.longitude
+        latitude: currentLocation.coords.latitude,
+        longitude: currentLocation.coords.longitude
       });
 
-      // Create Google Maps URL
-      const mapsUrl = `https://www.google.com/maps?q=${location.coords.latitude},${location.coords.longitude}`;
+      // Create location name from address components
+      let locationName = '';
+      if (address) {
+        const addressParts = [];
+        
+        if (address.street) addressParts.push(address.street);
+        if (address.district) addressParts.push(address.district);
+        if (address.city) addressParts.push(address.city);
+        if (address.region) addressParts.push(address.region);
+        if (address.postalCode) addressParts.push(address.postalCode);
+        if (address.country) addressParts.push(address.country);
+        
+        locationName = addressParts.join(', ');
+      }
+
+      // Create Google Maps URL with location name
+      let mapsUrl;
+      const lat = currentLocation.coords.latitude;
+      const lon = currentLocation.coords.longitude;
+      const zoom = 20; // High zoom level for a close-up view
+
+      let queryParam = `${lat},${lon}`; // Default to lat,lon for pinning
+
+      if (address && address.name) {
+        // If a specific place name is found, use it for a more descriptive search
+        // This will show the name in the map search results
+        const queryParts = [address.name, address.city, address.country].filter(Boolean);
+        queryParam = encodeURIComponent(queryParts.join(', '));
+      }
+
+      // This format searches for the best query we could build and sets the camera with a high zoom level.
+      mapsUrl = `https://www.google.com/maps/search/?api=1&query=${queryParam}&zoom=${zoom}`;
       
       // Update form with location URL
       setFormData(prev => ({
@@ -1814,6 +1854,17 @@ scheduleText: {
   meetingIdText: {
     color: '#666',
     fontFamily: 'LexendDeca_500Medium',
+  },
+  mapContainer: {
+    height: 200,
+    marginTop: 10,
+    borderRadius: 8,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  map: {
+    ...StyleSheet.absoluteFillObject,
   },
 });
 

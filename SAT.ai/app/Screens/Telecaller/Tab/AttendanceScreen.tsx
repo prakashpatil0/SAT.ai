@@ -276,13 +276,13 @@ const dateTimeObj = dateTime ? new Date(dateTime) : null;
       }
     }
 
-    // Handle punch-out restrictions
+    // If user has already punched out, disable both buttons until next day
     if (punchOutTime) {
       setIsPunchButtonDisabled(now < tomorrow);
       return;
     }
 
-    // Handle punch-in restrictions
+    // Handle punch-in and punch-out separately
     if (!punchInTime) {
      const punchInStartTime = '04:00'; // ✅ NEW: Allow Punch In from 4 AM
 
@@ -294,9 +294,6 @@ const dateTimeObj = dateTime ? new Date(dateTime) : null;
       const startMinutes = startHour * 60 + startMinute;
       const endMinutes = endHour * 60 + endMinute;
 
-      // Disable punch-in if:
-      // 1. Before 8 AM
-      // 2. After 6 PM
       const isBeforeStartTime = currentMinutes < startMinutes;
       const isAfterEndTime = currentMinutes > endMinutes;
       
@@ -320,7 +317,7 @@ const dateTimeObj = dateTime ? new Date(dateTime) : null;
 
       }
     } else if (punchInTime && !punchOutTime) {
-      // Enable punch out immediately after punch in
+      // Punch Out is always enabled after punch in until midnight
       setIsPunchButtonDisabled(false);
     }
   };
@@ -337,12 +334,12 @@ const dateTimeObj = dateTime ? new Date(dateTime) : null;
         if (!punchInTime) {
           Alert.alert(
             'Punch In Not Allowed',
-            'You can only punch in before 2:00 PM.'
+            'You can only punch in before 6:00 PM.'
           );
         } else {
           Alert.alert(
             'Punch Out Not Allowed',
-            'You can punch out after 2:15 PM today or punch in again tomorrow at 8:45 AM.'
+            'You can punch out after 11:00 PM today or punch in again tomorrow at 8:00 AM.'
           );
         }
         return;

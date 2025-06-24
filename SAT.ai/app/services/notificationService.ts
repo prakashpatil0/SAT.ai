@@ -1,7 +1,9 @@
 import { auth, db } from '@/firebaseConfig';
-import { collection, query, where, orderBy, limit, onSnapshot, doc } from 'firebase/firestore';
+import { collection, query, where, orderBy, limit, onSnapshot, doc, updateDoc } from 'firebase/firestore';
 import * as Notifications from 'expo-notifications';
 import { Timestamp } from 'firebase/firestore';
+
+const TRIP_NOTIFICATION_ID = 'trip-notification';
 
 // Interface for target data
 interface FirebaseTargetData {
@@ -46,6 +48,52 @@ export const initializeNotificationService = async () => {
 
   // Start listening for target updates
   initializeTargetNotificationListener();
+
+  // Start listening for common messages
+  initializeCommonMessageListener();
+};
+
+export const initializeCommonMessageListener = () => {
+  const messagesRef = collection(db, 'common_messages');
+  const q = query(
+    messagesRef,
+    where('type', '==', 'common_message'),
+    where('status', '==', 'unread')
+  );
+
+  const unsubscribe = onSnapshot(q, (snapshot) => {
+    snapshot.docChanges().forEach(async (change) => {
+      if (change.type === 'added') {
+        const docRef = change.doc.ref;
+        const messageData = change.doc.data();
+        const message = messageData.message;
+
+        // Send Notification
+        await Notifications.scheduleNotificationAsync({
+          content: {
+            title: 'New Message',
+            body: message,
+            sound: true,
+            priority: Notifications.AndroidNotificationPriority.HIGH,
+          },
+          trigger: null,
+        });
+
+        // Mark the message as "read" to prevent re-notifying
+        try {
+          await updateDoc(docRef, {
+            status: 'read'
+          });
+        } catch (error) {
+          console.error(`Failed to update message status for doc ${change.doc.id}:`, error);
+        }
+      }
+    });
+  }, (error) => {
+    console.error('Error in common message listener:', error);
+  });
+
+  return unsubscribe;
 };
 
 // Initialize target notification listener
@@ -135,4 +183,21 @@ export const initializeTargetNotificationListener = async () => {
 
   // Cleanup user listener
   return () => unsubscribeUser();
+};
+
+export const showTripStartedNotification = async () => {
+  await Notifications.scheduleNotificationAsync({
+    identifier: TRIP_NOTIFICATION_ID,
+    content: {
+      title: 'Trip in Progress',
+      body: 'Your trip is being tracked.',
+      sticky: true,
+      sound: false,
+    },
+    trigger: null,
+  });
+};
+
+export const hideTripStartedNotification = async () => {
+  await Notifications.dismissNotificationAsync(TRIP_NOTIFICATION_ID);
 };

@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Platform, Image, Alert } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Platform, Image, Alert, ActivityIndicator } from 'react-native';
 import { Camera, CameraView } from 'expo-camera';
 import * as Location from 'expo-location';
 import { MaterialIcons } from '@expo/vector-icons';
-import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
+import { useNavigation, useRoute, RouteProp, useFocusEffect } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { format, addHours } from 'date-fns';
 import { getFirestore, doc, getDoc, setDoc, serverTimestamp, Timestamp } from 'firebase/firestore';
@@ -70,6 +70,7 @@ const BDMCameraScreen = () => {
   const [isTimeValid, setIsTimeValid] = useState(true);
   const [timeValidationMessage, setTimeValidationMessage] = useState('');
   const [isLocationLoading, setIsLocationLoading] = useState(true);
+  const [isConfirming, setIsConfirming] = useState(false);
   const locationTimeoutRef = useRef<NodeJS.Timeout>();
 
   const cameraRef = useRef<any>(null);
@@ -201,8 +202,28 @@ const BDMCameraScreen = () => {
     return () => {
       isMounted = false;
       clearInterval(timer);
+      // Clear photo state on unmount
+      setPhoto(null);
+      setIsConfirming(false);
     };
   }, []);
+
+  // Add cleanup effect for navigation
+  useEffect(() => {
+    return () => {
+      // Clear photo state when component unmounts
+      setPhoto(null);
+      setIsConfirming(false);
+    };
+  }, []);
+
+  // Clear photo state when screen comes into focus
+  useFocusEffect(
+    React.useCallback(() => {
+      setPhoto(null);
+      setIsConfirming(false);
+    }, [])
+  );
 
   const validateDeviceTime = async () => {
     try {
@@ -326,6 +347,9 @@ const BDMCameraScreen = () => {
   };
 
   const handleConfirmPhoto = async () => {
+    // Prevent multiple confirmations
+    if (isConfirming) return;
+    
     // Validate time before confirming
     const isValid = await validateDeviceTime();
     if (!isValid) {
@@ -354,6 +378,11 @@ const BDMCameraScreen = () => {
 
     if (location && photo) {
       try {
+        setIsConfirming(true);
+        
+        // Add a small delay to ensure photo is properly processed
+        await new Promise(resolve => setTimeout(resolve, 100));
+        
         navigation.navigate('BDMAttendance' as never, {
           photo: { uri: photo.uri },
           location: {
@@ -366,9 +395,14 @@ const BDMCameraScreen = () => {
           locationName: locationAddress,
           isPunchIn: type === 'in',
         });
+        
+        // Clear photo after successful navigation
+        setPhoto(null);
       } catch (error) {
         console.error('Navigation error:', error);
         Alert.alert('Error', 'Failed to navigate to attendance screen. Please try again.');
+      } finally {
+        setIsConfirming(false);
       }
     } else {
       Alert.alert('Error', 'Location or photo not available. Please try again.');
@@ -410,16 +444,29 @@ const BDMCameraScreen = () => {
             style={[
               styles.previewButton, 
               styles.confirmButton,
-              !isTimeValid && styles.disabledButton
+              (!isTimeValid || isConfirming) && styles.disabledButton
             ]}
             onPress={handleConfirmPhoto}
-            disabled={!isTimeValid}
+            disabled={!isTimeValid || isConfirming}
           >
-            <MaterialIcons name="check" size={24} color={isTimeValid ? "#4CAF50" : "#999"} />
-            <Text style={[
-              styles.previewButtonText, 
-              { color: isTimeValid ? "#4CAF50" : "#999" }
-            ]}>Confirm</Text>
+            {isConfirming ? (
+              <View style={styles.loadingContainer}>
+                <ActivityIndicator size="small" color="#4CAF50" />
+                <Text style={[styles.previewButtonText, { color: '#999' }]}>
+                  Processing...
+                </Text>
+              </View>
+            ) : (
+              <>
+                <MaterialIcons name="check" size={24} color={isTimeValid && !isConfirming ? "#4CAF50" : "#999"} />
+                <Text style={[
+                  styles.previewButtonText, 
+                  { color: isTimeValid && !isConfirming ? "#4CAF50" : "#999" }
+                ]}>
+                  Confirm
+                </Text>
+              </>
+            )}
           </TouchableOpacity>
         </View>
       </View>
@@ -759,6 +806,11 @@ const styles = StyleSheet.create({
     fontFamily: 'LexendDeca_400Regular',
     marginLeft: 8,
     flex: 1,
+  },
+  loadingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });
 

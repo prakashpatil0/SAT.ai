@@ -156,30 +156,60 @@ const COMPANY_DATABASE: CompanyDatabase = {
   },
 };
 
-const detectCompany = (phoneNumber: string, contactName: string): { isCompany: boolean; company?: Company } => {
-  if (contactName) {
-    for (const domain in COMPANY_DATABASE) {
-      const company = COMPANY_DATABASE[domain];
-      if (contactName.toLowerCase().includes(company.name.toLowerCase())) {
-        return { isCompany: true, company };
-      }
+const COMPANY_KEYWORDS = [
+  "Pvt Ltd", "LLP", "Ltd", "Inc", "Enterprises", "Corporation", "Corp", "Company", "Co", 
+  "Limited", "Private Limited", "Public Limited", "Partnership", "Associates", "Group",
+  "Industries", "Solutions", "Technologies", "Systems", "Services", "Consulting",
+  "International", "Global", "Worldwide", "Trading", "Manufacturing", "Construction",
+  "Real Estate", "Finance", "Banking", "Insurance", "Healthcare", "Pharmaceuticals",
+  "Automotive", "Telecommunications", "Media", "Entertainment", "Education", "Hospitality",
+  "Retail", "E-commerce", "Logistics", "Transportation", "Energy", "Oil", "Gas",
+  "Mining", "Agriculture", "Food", "Beverages", "Textiles", "Chemicals", "Electronics"
+];
+
+const detectContactType = (contactName: string): 'company' | 'person' => {
+  if (!contactName) return 'person';
+  
+  const name = contactName.toLowerCase();
+  
+  // Check for company keywords
+  for (const keyword of COMPANY_KEYWORDS) {
+    if (name.includes(keyword.toLowerCase())) {
+      return 'company';
     }
   }
-
-  const companyPhonePatterns: Record<string, string> = {
-    "+1800": "google.com",
-    "+1844": "amazon.com",
-    "+1866": "microsoft.com",
-  };
-
-  for (const pattern in companyPhonePatterns) {
-    if (phoneNumber.startsWith(pattern)) {
-      const domain = companyPhonePatterns[pattern];
-      return { isCompany: true, company: COMPANY_DATABASE[domain] };
+  
+  // Additional company detection patterns
+  const companyPatterns = [
+    /\b(?:pvt|ltd|llp|inc|corp|co)\b/i,  // Common abbreviations
+    /\b(?:enterprises|corporation|company|limited|private|public)\b/i,  // Full words
+    /\b(?:solutions|technologies|systems|services|consulting)\b/i,  // Service companies
+    /\b(?:industries|manufacturing|construction|trading)\b/i,  // Industrial companies
+    /\b(?:international|global|worldwide)\b/i,  // International companies
+    /\b(?:group|associates|partners)\b/i,  // Group companies
+  ];
+  
+  for (const pattern of companyPatterns) {
+    if (pattern.test(name)) {
+      return 'company';
     }
   }
-
-  return { isCompany: false };
+  
+  // Check for personal name patterns (first name + last name)
+  const nameParts = contactName.trim().split(/\s+/);
+  if (nameParts.length >= 2 && nameParts.length <= 4) {
+    // If it looks like a personal name (2-4 words), check if it doesn't contain company indicators
+    const hasCompanyIndicators = COMPANY_KEYWORDS.some(keyword => 
+      name.includes(keyword.toLowerCase())
+    );
+    
+    if (!hasCompanyIndicators) {
+      return 'person';
+    }
+  }
+  
+  // Default to person if uncertain
+  return 'person';
 };
 
 const SkeletonLoader = React.memo(({ width, height, style }: { width: number | string; height: number; style?: any }) => {
@@ -883,6 +913,10 @@ const [meetingDetails, setMeetingDetails] = useState<
         index === 0 || formatDate(new Date(item.timestamp)) !== formatDate(new Date(callLogs[index - 1].timestamp));
       const isNumberSaved = item.contactName && item.contactName !== item.phoneNumber;
       const displayName = isNumberSaved ? item.contactName : item.phoneNumber;
+      
+      // Detect contact type based on name
+      const contactType = detectContactType(displayName || '');
+      const isCompany = contactType === 'company';
 
       return (
         <>
@@ -902,7 +936,11 @@ const [meetingDetails, setMeetingDetails] = useState<
                   style={styles.avatarContainer}
                   onPress={() => navigateToContactDetails(item)}
                 >
-                  <MaterialIcons name="person" size={24} color="#FF8447" />
+                  <MaterialIcons 
+                    name={isCompany ? "business" : "person"} 
+                    size={24} 
+                    color="#FF8447" 
+                  />
                 </TouchableOpacity>
                 <View style={styles.callDetails}>
                   <View style={styles.nameContainer}>
@@ -911,6 +949,7 @@ const [meetingDetails, setMeetingDetails] = useState<
                     >
                       {displayName}
                     </Text>
+                    
                     {item.monthlyHistory && item.monthlyHistory.totalCalls > 0 && (
                       <Text style={styles.monthlyCallCount}>({item.monthlyHistory.totalCalls})</Text>
                     )}
@@ -1517,6 +1556,7 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
     borderRadius: 12,
   },
+
   loadingContainer: {
     flex: 1,
     justifyContent: "center",

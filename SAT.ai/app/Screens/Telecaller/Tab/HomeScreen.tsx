@@ -23,7 +23,6 @@ import targetService from "@/app/services/targetService";
 import Dialer, { Contact as DialerContact } from '@/app/components/Dialer/Dialer';
 import { startOfWeek, endOfWeek } from 'date-fns';
 import { Timestamp } from 'firebase/firestore';
-import debounce from 'lodash.debounce';
 
 // Define navigation types
 type RootStackParamList = {
@@ -1172,7 +1171,7 @@ const HomeScreen = () => {
     setPhoneNumber(prev => prev.slice(0, -1));
   }, []);
 
-  const handleScroll = useCallback(debounce((event: NativeSyntheticEvent<NativeScrollEvent>) => {
+  const handleScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
     event.persist();
     const velocity = event.nativeEvent?.velocity?.y;
     const scrolling = velocity !== undefined && velocity !== 0;
@@ -1185,7 +1184,7 @@ const HomeScreen = () => {
         useNativeDriver: true
       }).start();
     }
-  }, 100), [isScrolling]);
+  }, [isScrolling]);
 
   const handleScrollEnd = useCallback(() => {
     setIsScrolling(false);

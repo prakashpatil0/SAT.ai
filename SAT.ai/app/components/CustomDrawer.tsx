@@ -1,10 +1,9 @@
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import {
   View,
   Image,
   StyleSheet,
   TouchableOpacity,
-  Alert,
   ActivityIndicator,
 } from "react-native";
 import { DrawerContentScrollView, DrawerItem } from "@react-navigation/drawer";
@@ -15,7 +14,6 @@ import { DrawerContentComponentProps } from "@react-navigation/drawer";
 import { getAuth, signOut } from "firebase/auth";
 import { useProfile } from "@/app/context/ProfileContext";
 import { LinearGradient } from "expo-linear-gradient";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { storage } from "@/firebaseConfig";
 import { ref, getDownloadURL } from "firebase/storage";
 
@@ -24,26 +22,15 @@ const CustomDrawer = (props: DrawerContentComponentProps) => {
   const auth = getAuth();
   const { userProfile, profileImage } = useProfile();
   const [loading, setLoading] = useState(false);
-  const [recentScreens, setRecentScreens] = useState<string[]>([]);
   const [defaultProfileImage, setDefaultProfileImage] = useState<string | null>(
     null
   );
   const [imageLoading, setImageLoading] = useState(true);
 
-  // Load recent screens from history
-  // useEffect(() => {
-  // This would normally load from AsyncStorage
-  // For now using static recent screens
-  //   setRecentScreens(['HomeScreen', 'Target', 'ContactBook']);
-  //   loadDefaultProfileImage();
-  // }, []);
-
   const loadDefaultProfileImage = async () => {
     try {
-      console.log("Loading default profile image from Firebase Storage");
-      const imageRef = ref(storage, "assets/girl.png");
+      const imageRef = ref(storage,'assets/girl.png');
       const url = await getDownloadURL(imageRef);
-      console.log("Successfully loaded default profile image URL:", url);
       setDefaultProfileImage(url);
     } catch (error) {
       console.error("Error loading default profile image:", error);
@@ -51,39 +38,6 @@ const CustomDrawer = (props: DrawerContentComponentProps) => {
       setImageLoading(false);
     }
   };
-
-  // const handleLogout = () => {
-  //   Alert.alert(
-  //     "Logout",
-  //     "Are you sure you want to logout?",
-  //     [
-  //       {
-  //         text: "Cancel",
-  //         style: "cancel"
-  //       },
-  //       {
-  //         text: "Logout",
-  //         onPress: async () => {
-  //           try {
-  //             setLoading(true);
-  //             // Clear session data
-  //             await AsyncStorage.multiRemove(['sessionToken', 'lastActiveTime', 'userRole']);
-  //             await signOut(auth);
-  //             navigation.reset({
-  //               index: 0,
-  //               routes: [{ name: 'Login' as never }]
-  //             });
-  //           } catch (error) {
-  //             console.error('Logout error:', error);
-  //             Alert.alert('Error', 'Failed to logout. Please try again.');
-  //           } finally {
-  //             setLoading(false);
-  //           }
-  //         }
-  //       }
-  //     ]
-  //   );
-  // };
 
   const handleLogout = async () => {
     try {
@@ -163,21 +117,7 @@ const CustomDrawer = (props: DrawerContentComponentProps) => {
         {...props}
         contentContainerStyle={styles.drawerContent}
       >
-        {/* Recent Screens Section */}
-        {/* <View style={styles.sectionContainer}>
-          <Text style={styles.sectionTitle}>RECENT</Text>
-          {recentScreens.map((screen, index) => (
-            <TouchableOpacity 
-              key={index}
-              style={styles.recentItem}
-              onPress={() => handleNavigate(screen)}
-            >
-              <MaterialIcons name="history" size={18} color="#777" />
-              <Text style={styles.recentItemText}>{screen}</Text>
-            </TouchableOpacity>
-          ))}
-        </View> */}
-
+       
         {/* Main Menu */}
         <View style={styles.sectionContainer}>
           <Text style={styles.sectionTitle}>MAIN MENU</Text>

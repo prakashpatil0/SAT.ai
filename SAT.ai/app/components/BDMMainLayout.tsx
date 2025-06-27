@@ -35,38 +35,26 @@ const BDMMainLayout: React.FC<BDMMainLayoutProps> = ({
     const loadProfileImage = async () => {
       try {
         setIsLoading(true);
-        // First try to use the profileImage from context if available
         if (profileImage) {
-          console.log('Using profile image from context:', profileImage);
           setFirebaseProfileImage(profileImage);
           setIsLoading(false);
           return;
         }
         
-        // If no profileImage in context, try to get from userProfile
         if (userProfile?.profileImageUrl) {
-          console.log('Using profile image from userProfile:', userProfile.profileImageUrl);
           setFirebaseProfileImage(userProfile.profileImageUrl);
           setIsLoading(false);
           return;
         }
         
-        // If no profile image URL in userProfile, try to get default from Firebase Storage
         try {
-          console.log('Attempting to load default profile image from Firebase Storage');
           const defaultImageRef = ref(storage, 'assets/person.png')
           const url = await getDownloadURL(defaultImageRef);
-          console.log('Successfully loaded default profile image URL:', url);
           setFirebaseProfileImage(url);
-        } catch (error: any) {
-          console.error('Error loading default profile image:', error);
-          console.error('Error code:', error.code);
-          console.error('Error message:', error.message);
-          // If Firebase Storage fails, set to null
+        } catch (error) {
           setFirebaseProfileImage(null);
         }
       } catch (error) {
-        console.error('Error in loadProfileImage:', error);
         setFirebaseProfileImage(null);
       } finally {
         setIsLoading(false);
@@ -193,4 +181,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default BDMMainLayout; 
+export default BDMMainLayout;

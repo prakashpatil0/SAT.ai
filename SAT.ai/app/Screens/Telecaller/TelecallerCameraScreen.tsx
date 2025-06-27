@@ -1,13 +1,15 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Platform, Image, Alert } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Platform, Image, Alert, Linking } from 'react-native';
 import { Camera, CameraView } from 'expo-camera';
 import * as Location from 'expo-location';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
-import { format, addHours } from 'date-fns';
+import { format, addHours, differenceInSeconds } from 'date-fns';
 import { collection, addDoc, getDocs, query, where, Timestamp, updateDoc, doc, getDoc, getFirestore, serverTimestamp, setDoc } from 'firebase/firestore';
 import { db, auth } from '@/firebaseConfig';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { detectFakeLocation, validateLocation, LocationValidationResult, LocationHistoryEntry } from '../../utils/fakeLocationDetector';
 
 type RootStackParamList = {
   AttendanceScreen: {
@@ -17,12 +19,12 @@ type RootStackParamList = {
     dateTime?: Date;
     isPunchIn?: boolean;
     isAutoPunchOut?: boolean;
+    locationValidation?: LocationValidationResult;
   };
   CameraScreen: {
     isPunchIn: boolean;
   };
 };
-
 
 type CameraScreenRouteProp = RouteProp<RootStackParamList, 'CameraScreen'>;
 type CameraScreenNavigationProp = StackNavigationProp<RootStackParamList, 'CameraScreen'>;
@@ -35,6 +37,11 @@ const CameraScreen = () => {
   const [photo, setPhoto] = useState<{ uri: string } | null>(null);
   const [locationAddress, setLocationAddress] = useState<string | null>(null);
   const [flash, setFlash] = useState<boolean>(false);
+  const [locationValidation, setLocationValidation] = useState<LocationValidationResult | null>(null);
+  const [isValidatingLocation, setIsValidatingLocation] = useState(false);
+  const [locationHistory, setLocationHistory] = useState<LocationHistoryEntry[]>([]);
+  const [locationSubscription, setLocationSubscription] = useState<Location.LocationSubscription | null>(null);
+  
   const cameraRef = useRef<any>(null);
   const navigation = useNavigation<CameraScreenNavigationProp>();
   const route = useRoute<CameraScreenRouteProp>();
@@ -164,7 +171,7 @@ const CameraScreen = () => {
     }
   };
 
-  // Optimized location fetching function
+  // Enhanced location fetching with fake location detection
   const fetchLocation = async (useHighAccuracy = false) => {
     try {
       const options: Location.LocationOptions = {
@@ -174,7 +181,37 @@ const CameraScreen = () => {
       };
 
       const location = await Location.getCurrentPositionAsync(options);
+      
+      // Validate location before setting it
+      setIsValidatingLocation(true);
+      const validationResult = await detectFakeLocation(location);
+      setLocationValidation(validationResult);
+      
+      if (validationResult.isFakeLocation) {
+        Alert.alert(
+          'Suspicious Location Detected',
+          `We detected potential location spoofing:\n\n${validationResult.warnings.join('\n')}\n\nConfidence: ${validationResult.confidence}%\n\nPlease ensure you are at your actual work location and try again.`,
+          [
+            {
+              text: 'Try Again',
+              onPress: () => {
+                setIsValidatingLocation(false);
+                fetchLocation(true);
+              }
+            },
+            {
+              text: 'Cancel',
+              style: 'cancel',
+              onPress: () => navigation.goBack()
+            }
+          ]
+        );
+        setIsValidatingLocation(false);
+        return;
+      }
+
       setLocation(location);
+      setIsValidatingLocation(false);
       
       // Get address from coordinates
       const geocode = await Location.reverseGeocodeAsync({
@@ -202,12 +239,39 @@ const CameraScreen = () => {
       setIsLocationLoading(false);
     } catch (error) {
       console.error('Error getting location:', error);
+      setIsValidatingLocation(false);
       // If low accuracy fails, try high accuracy
       if (!useHighAccuracy) {
         await fetchLocation(true);
       } else {
         setIsLocationLoading(false);
       }
+    }
+  };
+
+  // Start continuous location monitoring
+  const startLocationMonitoring = async () => {
+    try {
+      const subscription = await Location.watchPositionAsync(
+        {
+          accuracy: Location.Accuracy.Balanced,
+          timeInterval: 10000, // Check every 10 seconds
+          distanceInterval: 5, // Update if moved 5 meters
+        },
+        async (newLocation) => {
+          // Validate new location
+          const validationResult = await detectFakeLocation(newLocation);
+          setLocationValidation(validationResult);
+          
+          if (!validationResult.isFakeLocation) {
+            setLocation(newLocation);
+          }
+        }
+      );
+      
+      setLocationSubscription(subscription);
+    } catch (error) {
+      console.error('Error starting location monitoring:', error);
     }
   };
 
@@ -219,6 +283,7 @@ const CameraScreen = () => {
       if (isMounted) {
         setIsLocationLoading(true);
         await fetchLocation();
+        await startLocationMonitoring();
       }
     };
 
@@ -235,6 +300,9 @@ const CameraScreen = () => {
       isMounted = false;
       if (locationTimeoutRef.current) {
         clearTimeout(locationTimeoutRef.current);
+      }
+      if (locationSubscription) {
+        locationSubscription.remove();
       }
     };
   }, []);
@@ -291,7 +359,7 @@ const CameraScreen = () => {
     };
   }, []);
 
-  // Modify takePicture to include time validation
+  // Enhanced takePicture with location validation
   const takePicture = async () => {
     if (!isTimeValid) {
       Alert.alert(
@@ -301,6 +369,42 @@ const CameraScreen = () => {
           {
             text: 'Retry',
             onPress: validateDeviceTime
+          },
+          {
+            text: 'Cancel',
+            style: 'cancel'
+          }
+        ]
+      );
+      return;
+    }
+
+    if (!location) {
+      Alert.alert(
+        'Location Required',
+        'Please wait for location to be detected or check your location permissions.',
+        [{ text: 'OK' }]
+      );
+      return;
+    }
+
+    if (isValidatingLocation) {
+      Alert.alert(
+        'Validating Location',
+        'Please wait while we validate your location...',
+        [{ text: 'OK' }]
+      );
+      return;
+    }
+
+    if (locationValidation?.isFakeLocation) {
+      Alert.alert(
+        'Suspicious Location Detected',
+        'Please ensure you are at your actual work location and try again.',
+        [
+          {
+            text: 'Try Again',
+            onPress: () => fetchLocation(true)
           },
           {
             text: 'Cancel',
@@ -326,7 +430,7 @@ const CameraScreen = () => {
     setCameraType(cameraType === 0 ? 1 : 0);
   };
 
-  // Modify renderPhotoPreview to include time validation
+  // Enhanced renderPhotoPreview with location validation info
   const renderPhotoPreview = () => {
     return (
       <View style={styles.previewContainer}>
@@ -343,6 +447,27 @@ const CameraScreen = () => {
               {format(currentTime, 'dd MMM yyyy, h:mm a')}
             </Text>
           </View>
+          
+          {/* Location validation status */}
+          {locationValidation && (
+            <View style={[
+              styles.locationValidationContainer,
+              { backgroundColor: locationValidation.isFakeLocation ? 'rgba(255, 82, 82, 0.9)' : 'rgba(76, 175, 80, 0.9)' }
+            ]}>
+              <MaterialIcons 
+                name={locationValidation.isFakeLocation ? "warning" : "check-circle"} 
+                size={20} 
+                color="white" 
+              />
+              <Text style={styles.locationValidationText}>
+                {locationValidation.isFakeLocation 
+                  ? `Location Suspicious (${locationValidation.confidence}% confidence)`
+                  : 'Location Validated'
+                }
+              </Text>
+            </View>
+          )}
+
           {!isTimeValid && (
             <View style={styles.timeWarningContainer}>
               <MaterialIcons name="warning" size={20} color="#FF5252" />
@@ -362,7 +487,7 @@ const CameraScreen = () => {
             style={[
               styles.previewButton, 
               styles.confirmButton,
-              !isTimeValid && styles.disabledButton
+              (!isTimeValid || (locationValidation?.isFakeLocation)) && styles.disabledButton
             ]}
             onPress={async () => {
               if (!isTimeValid) {
@@ -373,6 +498,27 @@ const CameraScreen = () => {
                     {
                       text: 'Retry',
                       onPress: validateDeviceTime
+                    },
+                    {
+                      text: 'Cancel',
+                      style: 'cancel'
+                    }
+                  ]
+                );
+                return;
+              }
+
+              if (locationValidation?.isFakeLocation) {
+                Alert.alert(
+                  'Suspicious Location Detected',
+                  'Please ensure you are at your actual work location and try again.',
+                  [
+                    {
+                      text: 'Try Again',
+                      onPress: () => {
+                        setPhoto(null);
+                        fetchLocation(true);
+                      }
                     },
                     {
                       text: 'Cancel',
@@ -400,7 +546,8 @@ const CameraScreen = () => {
                     locationName: locationAddress,
                     dateTime: istTime,
                     isPunchIn,
-                    isAutoPunchOut
+                    isAutoPunchOut,
+                    locationValidation: locationValidation || undefined
                   });
                 } catch (error) {
                   console.error('Navigation error:', error);
@@ -410,12 +557,12 @@ const CameraScreen = () => {
                 Alert.alert('Error', 'Location or photo not available. Please try again.');
               }
             }}
-            disabled={!isTimeValid}
+            disabled={!isTimeValid || (locationValidation?.isFakeLocation || false)}
           >
-            <MaterialIcons name="check" size={24} color={isTimeValid ? "#4CAF50" : "#999"} />
+            <MaterialIcons name="check" size={24} color={isTimeValid && !locationValidation?.isFakeLocation ? "#4CAF50" : "#999"} />
             <Text style={[
               styles.previewButtonText, 
-              { color: isTimeValid ? "#4CAF50" : "#999" }
+              { color: isTimeValid && !locationValidation?.isFakeLocation ? "#4CAF50" : "#999" }
             ]}>Confirm</Text>
           </TouchableOpacity>
         </View>
@@ -423,15 +570,29 @@ const CameraScreen = () => {
     );
   };
 
-  // Modify the location display in the UI
+  // Enhanced location display with validation status
   const renderLocationInfo = () => (
     <View style={styles.locationContainer}>
       <MaterialIcons name="location-on" size={24} color="#FF8447" />
       <Text style={styles.locationText}>
         {isLocationLoading 
           ? 'Getting location...' 
+          : isValidatingLocation
+          ? 'Validating location...'
           : locationAddress || 'Location not available'}
       </Text>
+      {locationValidation && (
+        <View style={[
+          styles.locationStatusIndicator,
+          { backgroundColor: locationValidation.isFakeLocation ? '#FF5252' : '#4CAF50' }
+        ]}>
+          <MaterialIcons 
+            name={locationValidation.isFakeLocation ? "warning" : "check-circle"} 
+            size={16} 
+            color="white" 
+          />
+        </View>
+      )}
     </View>
   );
 
@@ -514,13 +675,15 @@ const CameraScreen = () => {
               <TouchableOpacity
                 style={[
                   styles.captureButton, 
-                  (!location || !isTimeValid) && styles.disabledButton
+                  (!location || !isTimeValid || isValidatingLocation) && styles.disabledButton
                 ]}
                 onPress={takePicture}
-                disabled={!location || !isTimeValid}
+                disabled={!location || !isTimeValid || isValidatingLocation}
               >
                 <Text style={styles.captureText}>
-                  {isPunchIn ? 'Punch In' : 'Punch Out'}
+                  {isValidatingLocation 
+                    ? 'Validating...' 
+                    : isPunchIn ? 'Punch In' : 'Punch Out'}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -586,6 +749,14 @@ const styles = StyleSheet.create({
     fontFamily: 'LexendDeca_400Regular',
     marginLeft: 10,
     flex: 1,
+  },
+  locationStatusIndicator: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 8,
   },
   dateTimeContainer: {
     position: 'absolute',
@@ -664,6 +835,7 @@ const styles = StyleSheet.create({
   previewDate: {
     flexDirection: 'row',
     alignItems: 'center',
+    marginBottom: 10,
   },
   previewAddressText: {
     color: 'white',
@@ -677,6 +849,20 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontFamily: 'LexendDeca_400Regular',
     marginLeft: 10,
+  },
+  locationValidationContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 8,
+    borderRadius: 8,
+    marginBottom: 10,
+  },
+  locationValidationText: {
+    color: 'white',
+    fontSize: 12,
+    fontFamily: 'LexendDeca_400Regular',
+    marginLeft: 8,
+    flex: 1,
   },
   previewButtons: {
     position: 'absolute',

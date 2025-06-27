@@ -32,7 +32,6 @@ const getISTTime = () => {
 const getNetworkTime = async (): Promise<Date | null> => {
   // List of reliable time servers
   const timeServers = [
-    // 'https://worldtimeapi.org/api/timezone/Asia/Kolkata',
     'https://timeapi.io/api/Time/current/zone?timeZone=Asia/Kolkata',
     'https://api.timezonedb.com/v2.1/get-time-zone?key=YOUR_API_KEY&format=json&by=zone&zone=Asia/Kolkata'
   ];
@@ -52,7 +51,6 @@ const getNetworkTime = async (): Promise<Date | null> => {
         return new Date(data.formatted);
       }
     } catch (error) {
-      console.log(`Failed to fetch from ${server}:`, error);
       continue;
     }
   }
@@ -78,7 +76,6 @@ const BDMCameraScreen = () => {
   const route = useRoute<BDMCameraScreenRouteProp>();
   const { type } = route.params;
 
-  // Optimized location fetching function
   const fetchLocation = async (useHighAccuracy = false) => {
     try {
       const options: Location.LocationOptions = {
@@ -115,7 +112,6 @@ const BDMCameraScreen = () => {
       
       setIsLocationLoading(false);
     } catch (error) {
-      console.error('Error getting location:', error);
       // If low accuracy fails, try high accuracy
       if (!useHighAccuracy) {
         await fetchLocation(true);
@@ -125,7 +121,6 @@ const BDMCameraScreen = () => {
     }
   };
 
-  // Start location fetching immediately
   useEffect(() => {
     let isMounted = true;
     
@@ -138,7 +133,6 @@ const BDMCameraScreen = () => {
 
     startLocationFetch();
 
-    // Set a timeout to try high accuracy if location takes too long
     locationTimeoutRef.current = setTimeout(() => {
       if (isMounted && isLocationLoading) {
         fetchLocation(true);
@@ -153,7 +147,6 @@ const BDMCameraScreen = () => {
     };
   }, []);
 
-  // Modify the existing useEffect to remove location fetching
   useEffect(() => {
     let isMounted = true;
     
@@ -165,7 +158,6 @@ const BDMCameraScreen = () => {
       
       setHasPermission(cameraStatus === 'granted' && locationStatus === 'granted');
       
-      // Add time validation
       const isTimeValid = await validateDeviceTime();
       if (!isTimeValid && isMounted) {
         Alert.alert(
@@ -192,7 +184,6 @@ const BDMCameraScreen = () => {
       }
     })();
     
-    // Update the time every second with IST
     const timer = setInterval(() => {
       if (isMounted) {
         setCurrentTime(getISTTime());
@@ -202,22 +193,18 @@ const BDMCameraScreen = () => {
     return () => {
       isMounted = false;
       clearInterval(timer);
-      // Clear photo state on unmount
       setPhoto(null);
       setIsConfirming(false);
     };
   }, []);
 
-  // Add cleanup effect for navigation
   useEffect(() => {
     return () => {
-      // Clear photo state when component unmounts
       setPhoto(null);
       setIsConfirming(false);
     };
   }, []);
 
-  // Clear photo state when screen comes into focus
   useFocusEffect(
     React.useCallback(() => {
       setPhoto(null);
@@ -227,33 +214,27 @@ const BDMCameraScreen = () => {
 
   const validateDeviceTime = async () => {
     try {
-      // Get network time (IST)
       const networkTime = await getNetworkTime();
       
-      // Get server time
       const db = getFirestore();
       const timeCheckRef = doc(db, '_timeCheck', 'serverTime');
       const serverTime = await getDoc(timeCheckRef);
       const serverTimestamp = serverTime.data()?.timestamp;
       
-      // Update server time
       await setDoc(timeCheckRef, {
         timestamp: Timestamp.now()
       }, { merge: true });
 
       if (!serverTimestamp) {
-        console.error('Failed to get server timestamp');
         return false;
       }
 
       const deviceTime = new Date();
       const serverTimeDate = serverTimestamp.toDate();
       
-      // Calculate server time difference
       const serverTimeDiff = Math.abs(deviceTime.getTime() - serverTimeDate.getTime());
-      const isServerTimeValid = serverTimeDiff <= 5 * 60 * 1000; // 5 minutes tolerance
+      const isServerTimeValid = serverTimeDiff <= 5 * 60 * 1000;
       
-      // If we couldn't get network time, fall back to server time only
       if (!networkTime) {
         if (!isServerTimeValid) {
           const serverDiffMinutes = Math.round(serverTimeDiff / (60 * 1000));
@@ -269,7 +250,6 @@ const BDMCameraScreen = () => {
         return true;
       }
       
-      // If we have network time, validate against both
       const networkTimeDiff = Math.abs(deviceTime.getTime() - networkTime.getTime());
       const isNetworkTimeValid = networkTimeDiff <= 5 * 60 * 1000;
       
@@ -296,7 +276,6 @@ const BDMCameraScreen = () => {
       setIsTimeValid(true);
       return true;
     } catch (error) {
-      console.error('Time validation error:', error);
       setTimeValidationMessage('Unable to validate time. Please check your internet connection and try again.');
       setIsTimeValid(false);
       return false;
@@ -304,7 +283,6 @@ const BDMCameraScreen = () => {
   };
 
   const takePicture = async () => {
-    // Validate time before taking picture
     const isValid = await validateDeviceTime();
     if (!isValid) {
       Alert.alert(
@@ -333,10 +311,8 @@ const BDMCameraScreen = () => {
     if (cameraRef.current && location) {
       try {
         const photo = await cameraRef.current.takePictureAsync();
-        console.log("Photo taken:", photo);
         setPhoto(photo);
       } catch (error) {
-        console.error('Error taking picture:', error);
         Alert.alert('Error', 'Failed to take picture. Please try again.');
       }
     }
@@ -347,10 +323,8 @@ const BDMCameraScreen = () => {
   };
 
   const handleConfirmPhoto = async () => {
-    // Prevent multiple confirmations
     if (isConfirming) return;
     
-    // Validate time before confirming
     const isValid = await validateDeviceTime();
     if (!isValid) {
       Alert.alert(
@@ -380,7 +354,6 @@ const BDMCameraScreen = () => {
       try {
         setIsConfirming(true);
         
-        // Add a small delay to ensure photo is properly processed
         await new Promise(resolve => setTimeout(resolve, 100));
         
         navigation.navigate('BDMAttendance' as never, {
@@ -396,10 +369,8 @@ const BDMCameraScreen = () => {
           isPunchIn: type === 'in',
         });
         
-        // Clear photo after successful navigation
         setPhoto(null);
       } catch (error) {
-        console.error('Navigation error:', error);
         Alert.alert('Error', 'Failed to navigate to attendance screen. Please try again.');
       } finally {
         setIsConfirming(false);
@@ -473,7 +444,6 @@ const BDMCameraScreen = () => {
     );
   };
 
-  // Modify the location display in the UI
   const renderLocationInfo = () => (
     <View style={styles.locationContainer}>
       <MaterialIcons name="location-on" size={24} color="#FF8447" />
@@ -525,9 +495,6 @@ const BDMCameraScreen = () => {
               style={styles.flashButton}
               onPress={() => {
                 setFlash(!flash);
-                if (cameraRef.current) {
-                  console.log('Flash toggled:', !flash);
-                }
               }}
             >
               <MaterialIcons 
@@ -814,4 +781,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default BDMCameraScreen; 
+export default BDMCameraScreen;

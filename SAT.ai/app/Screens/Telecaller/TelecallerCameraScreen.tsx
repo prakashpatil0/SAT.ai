@@ -10,14 +10,17 @@ import { collection, addDoc, getDocs, query, where, Timestamp, updateDoc, doc, g
 import { db, auth } from '@/firebaseConfig';
 
 type RootStackParamList = {
-  AttendanceScreen: {
-    photo?: { uri: string };
-    location?: { coords: { latitude: number; longitude: number } };
-    locationName?: string | null;
-    dateTime?: Date;
-    isPunchIn?: boolean;
-    isAutoPunchOut?: boolean;
-  };
+AttendanceScreen: {
+  photo?: { uri: string };
+  location?: { coords: { latitude: number; longitude: number } };
+  locationName?: string | null;
+  dateTime?: Date | string;
+  dateStr?: string;
+  dayStr?: string;
+  isPunchIn?: boolean;
+  isAutoPunchOut?: boolean;
+};
+
   CameraScreen: {
     isPunchIn: boolean;
   };
@@ -389,20 +392,25 @@ const CameraScreen = () => {
                   const currentHour = istTime.getHours();
                   const isAutoPunchOut = !isPunchIn && currentHour >= 23;
 
-                  navigation.navigate('Attendance' as never, {
-                    photo: { uri: photo.uri },
-                    location: {
-                      coords: {
-                        latitude: location.coords.latitude,
-                        longitude: location.coords.longitude
-                      }
-                    },
-                    locationName: locationAddress,
-            dateTime: istTime.toISOString(), // ✅ serializable string format
+                 const dateStr = format(istTime, 'yyyy-MM-dd'); // e.g., "2025-06-30"
+                  const dayStr = format(istTime, 'EEE').toUpperCase(); // e.g., "MON"
 
-                    isPunchIn,
-                    isAutoPunchOut
-                  });
+navigation.navigate('Attendance' as never, {
+  photo: { uri: photo.uri },
+  location: {
+    coords: {
+      latitude: location.coords.latitude,
+      longitude: location.coords.longitude,
+    },
+  },
+  locationName: locationAddress,
+  dateTime: istTime.toISOString(), // full timestamp
+  dateStr,                         // formatted date for Firestore queries
+  dayStr,                          // formatted day for display or logic
+  isPunchIn,
+  isAutoPunchOut,
+});
+
                 } catch (error) {
                   console.error('Navigation error:', error);
                   Alert.alert('Error', 'Failed to navigate to attendance screen. Please try again.');

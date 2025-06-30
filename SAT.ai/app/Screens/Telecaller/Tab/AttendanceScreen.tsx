@@ -67,7 +67,8 @@ type RootStackParamList = {
   locationName?: string | null;
 
   locationPunchout?: string | null; // ✅ Add this
-
+ dateStr?: string; // ✅ Add this
+  dayStr?: string;  // ✅ Add this
 };
 
 };
@@ -211,9 +212,10 @@ const dateTimeObj = dateTime ? new Date(dateTime) : null;
       }
 
       const currentTime = new Date();
-      const dateStr = format(currentTime, 'dd');
+const dateStr = format(currentTime, 'yyyy-MM-dd');
       const roleCollection = `${role}_monthly_attendance`;
       const attendanceRef = collection(db, roleCollection);
+      const displayDate = format(currentTime, 'dd');
       const todayQuery = query(
         attendanceRef,
         where('date', '==', dateStr),
@@ -252,7 +254,7 @@ const dateTimeObj = dateTime ? new Date(dateTime) : null;
     const now = new Date();
     const currentTime = format(now, 'HH:mm');
     const [currentHour, currentMinute] = currentTime.split(':').map(Number);
-    const today = format(now, 'dd');
+    const today = format(now, 'yyyy-MM-dd');
     const tomorrow = new Date(now);
     tomorrow.setDate(tomorrow.getDate() + 1);
    tomorrow.setHours(4, 0, 0, 0); // ✅ Set to 4 AM tomorrow
@@ -374,7 +376,7 @@ const dateTimeObj = dateTime ? new Date(dateTime) : null;
       const querySnapshot = await getDocs(attendanceRef);
 
       const history: AttendanceRecord[] = [];
-      const today = format(new Date(), 'dd');
+      const today = format(new Date(), 'yyyy-MM-dd');
 
       querySnapshot.forEach((doc) => {
         const data = doc.data();
@@ -449,7 +451,7 @@ const dateTimeObj = dateTime ? new Date(dateTime) : null;
         i + 1
       );
       return {
-        dateStr: format(date, 'dd'),
+        dateStr: format(date, 'yyyy-MM-dd'),
         isSunday: format(date, 'EEEE') === 'Sunday',
       };
     });
@@ -466,7 +468,7 @@ const dateTimeObj = dateTime ? new Date(dateTime) : null;
       counts[record.status]++;
     });
 
-    const today = format(new Date(), 'dd');
+    const today = format(new Date(), 'yyyy-MM-dd');
 
     const attendedDates = currentMonthRecords.map((record) => record.date);
     const onLeaveDates = allDates.filter(
@@ -508,8 +510,8 @@ const dateTimeObj = dateTime ? new Date(dateTime) : null;
       }
 
       const currentTime = new Date();
-      const dateStr = format(currentTime, 'dd');
-      const dayStr = format(currentTime, 'EEE').toUpperCase();
+  const dateStr = format(currentTime, 'yyyy-MM-dd'); // ✅ FULL date format    
+    const dayStr = format(currentTime, 'EEE').toUpperCase();
       const timeStr = format(currentTime, 'HH:mm');
       const roleCollection = `${role}_monthly_attendance`;
       const locationName = locationNameFromCamera || 'Unknown Location';
@@ -662,7 +664,8 @@ saveAttendance(isPunchIn, photo.uri, location, locationName);
       const currentDate = new Date(startOfWeek);
       currentDate.setDate(startOfWeek.getDate() + index);
 
-      const dateStr = format(currentDate, 'dd');
+      const dateStr = format(currentDate, 'yyyy-MM-dd');
+   const displayDate = format(currentDate, 'dd');
 
       const attendanceRecord = attendanceHistory.find(
         (record) => record.date === dateStr
@@ -671,13 +674,13 @@ saveAttendance(isPunchIn, photo.uri, location, locationName);
       if (currentDate > today) {
         return {
           day: dayObj.day,
-          date: dateStr,
+          date: displayDate,
           status: 'On Leave' as AttendanceStatus,
         };
       } else {
         return {
           day: dayObj.day,
-          date: dateStr,
+          date: displayDate,
           status: attendanceRecord
             ? attendanceRecord.status
             : ('On Leave' as AttendanceStatus),
@@ -1103,7 +1106,7 @@ saveAttendance(isPunchIn, photo.uri, location, locationName);
                 {filteredHistory.map((item, index) => (
                   <View key={index} style={styles.historyCard}>
                     <View style={styles.dateBlock}>
-                      <Text style={styles.dateNumber}>{item.date}</Text>
+                      <Text style={styles.dateNumber}>{format(new Date(item.date), 'dd')}</Text>
                       <Text style={styles.dateDay}>{item.day}</Text>
                     </View>
                     <View style={styles.timeBlock}>

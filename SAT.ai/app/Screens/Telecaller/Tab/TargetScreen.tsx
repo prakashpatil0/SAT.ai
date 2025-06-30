@@ -25,7 +25,7 @@ Notifications.setNotificationHandler({
 const TARGET_VALUES = {
   positiveLeads: 50,
   numCalls: 300,
-  callDuration: 20, // hours
+  callDuration: 2,
   closingAmount: 50000
 };
 
@@ -533,11 +533,22 @@ const WeeklyTargetScreen = () => {
   }, [loading]);
 
   const calculatePercentage = (achievements: Achievements, targets: Targets): number => {
-    const numCallsPercentage = (achievements.numCalls / targets.numCalls) * 100;
-    const callDurationPercentage = (achievements.callDuration / targets.callDuration) * 100;
-    const positiveLeadsPercentage = (achievements.positiveLeads / targets.positiveLeads) * 100;
-    const closingAmountPercentage = (achievements.closingAmount / targets.closingAmount) * 100;
-    return (numCallsPercentage + callDurationPercentage + positiveLeadsPercentage + closingAmountPercentage) / 4;
+    // Calculate individual scores (capped at 100% each)
+    const callScore = Math.min((achievements.numCalls / targets.numCalls) * 100, 100);
+    const durationScore = Math.min((achievements.callDuration / targets.callDuration) * 100, 100);
+    const leadScore = Math.min((achievements.positiveLeads / targets.positiveLeads) * 100, 100);
+    const closingScore = Math.min((achievements.closingAmount / targets.closingAmount) * 100, 100);
+
+    // Calculate weighted total score
+    const totalScore = (callScore * 0.25) +
+                      (durationScore * 0.20) +
+                      (leadScore * 0.25) +
+                      (closingScore * 0.30);
+
+    // Cap the final percentage to 100%
+    const achievedPercentage = Math.min(totalScore, 100);
+    
+    return achievedPercentage;
   };
 
   const renderWaveSkeleton = () => {

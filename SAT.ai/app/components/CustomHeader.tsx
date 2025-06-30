@@ -17,13 +17,11 @@ const CustomHeader = () => {
 
   const loadDefaultProfileImage = async () => {
     try {
-      console.log('Loading default profile image from Firebase Storage');
       const imageRef = ref(storage, 'assets/person.png');
       const url = await getDownloadURL(imageRef);
-      console.log('Successfully loaded default profile image URL:', url);
       setDefaultProfileImage(url);
     } catch (error) {
-      console.error('Error loading default profile image:', error);
+      // Error handling remains but without console log
     } finally {
       setImageLoading(false);
     }

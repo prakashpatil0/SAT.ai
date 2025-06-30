@@ -232,28 +232,35 @@ const BDMTargetScreen = () => {
 
       setTargetData(newTargetData);
 
-      const meetingsPercentage = (totalMeetings / newTargetData.projectedMeetings.target) * 100;
-      const attendedPercentage = (totalAttendedMeetings / newTargetData.attendedMeetings.target) * 100;
-      const durationPercentage = (totalDuration / (parseInt(newTargetData.meetingDuration.target) * 3600)) * 100;
-      const closingPercentage = (totalClosing / newTargetData.closing.target) * 100;
+      // Calculate individual scores (capped at 100% each)
+      const meetingsScore = Math.min((totalMeetings / newTargetData.projectedMeetings.target) * 100, 100);
+      const attendedScore = Math.min((totalAttendedMeetings / newTargetData.attendedMeetings.target) * 100, 100);
+      const durationScore = Math.min((totalDuration / (parseInt(newTargetData.meetingDuration.target) * 3600)) * 100, 100);
+      const closingScore = Math.min((totalClosing / newTargetData.closing.target) * 100, 100);
 
-      const overallProgress = Math.min(
-        (meetingsPercentage + attendedPercentage + durationPercentage + closingPercentage) / 4,
-        100
-      );
+      // Calculate weighted total score
+      const totalScore = (meetingsScore * 0.25) +
+                        (attendedScore * 0.25) +
+                        (durationScore * 0.20) +
+                        (closingScore * 0.30);
+
+      // Cap the final percentage to 100%
+      const overallProgress = Math.min(totalScore, 100);
 
       setOverallProgress(overallProgress);
 
-      const lastWeekMeetingsPercentage = (lastWeekMeetings / newTargetData.projectedMeetings.target) * 100;
-      const lastWeekAttendedPercentage = (lastWeekAttendedMeetings / newTargetData.attendedMeetings.target) * 100;
-      const lastWeekDurationPercentage = (lastWeekDuration / (parseInt(newTargetData.meetingDuration.target) * 3600)) * 100;
-      const lastWeekClosingPercentage = (lastWeekClosing / newTargetData.closing.target) * 100;
+      // Calculate last week's scores using the same weighted formula
+      const lastWeekMeetingsScore = Math.min((lastWeekMeetings / newTargetData.projectedMeetings.target) * 100, 100);
+      const lastWeekAttendedScore = Math.min((lastWeekAttendedMeetings / newTargetData.attendedMeetings.target) * 100, 100);
+      const lastWeekDurationScore = Math.min((lastWeekDuration / (parseInt(newTargetData.meetingDuration.target) * 3600)) * 100, 100);
+      const lastWeekClosingScore = Math.min((lastWeekClosing / newTargetData.closing.target) * 100, 100);
 
-      const lastWeekProgress = Math.min(
-        (lastWeekMeetingsPercentage + lastWeekAttendedPercentage + 
-         lastWeekDurationPercentage + lastWeekClosingPercentage) / 4,
-        100
-      );
+      const lastWeekTotalScore = (lastWeekMeetingsScore * 0.25) +
+                                (lastWeekAttendedScore * 0.25) +
+                                (lastWeekDurationScore * 0.20) +
+                                (lastWeekClosingScore * 0.30);
+
+      const lastWeekProgress = Math.min(lastWeekTotalScore, 100);
       
       setLastWeekProgress(lastWeekProgress);
       setIsLoading(false);

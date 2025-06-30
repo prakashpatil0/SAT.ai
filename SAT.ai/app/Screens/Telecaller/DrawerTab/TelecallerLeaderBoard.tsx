@@ -28,6 +28,7 @@ import {
   getDoc,
   doc,
   limit,
+  where,
 } from "firebase/firestore";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import debounce from "lodash.debounce";
@@ -37,6 +38,9 @@ type LeaderboardUser = {
   name: string;
   profileImage: string | null;
   percentageAchieved: number;
+  averageAchievement?: number;
+  totalAchievement?: number;
+  count?: number;
   rank: number;
   isPlaceholder?: boolean;
   isNotRanked?: boolean;
@@ -194,18 +198,25 @@ const LeaderBoard = () => {
       if (showRefreshing) setRefreshing(true);
       else if (!loading) setIsBackgroundFetching(true);
 
+      // Get current month start and end dates
+      const now = new Date();
+      const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+      const currentMonthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+
       const achievementsRef = collection(db, "telecaller_achievements");
       const achievementsQuery = query(
         achievementsRef,
+        where("createdAt", ">=", currentMonthStart),
+        where("createdAt", "<=", currentMonthEnd),
         orderBy("percentageAchieved", "desc"),
-        limit(10)
+        limit(50) // Fetch more to ensure we get top 10 after processing
       );
 
       const achievementsSnapshot = await getDocs(achievementsQuery);
 
       const userAchievements: Record<
         string,
-        { highestPercentage: number; latestDate: Date }
+        { highestPercentage: number; latestDate: Date; totalAchievement: number; count: number }
       > = {};
 
       achievementsSnapshot.forEach((doc) => {
@@ -214,24 +225,31 @@ const LeaderBoard = () => {
         const percentage = data.percentageAchieved;
         const date = data.createdAt.toDate();
 
-        if (
-          !userAchievements[userId] ||
-          percentage > userAchievements[userId].highestPercentage ||
-          (percentage === userAchievements[userId].highestPercentage &&
-            date > userAchievements[userId].latestDate)
-        ) {
+        if (!userAchievements[userId]) {
           userAchievements[userId] = {
             highestPercentage: percentage,
             latestDate: date,
+            totalAchievement: percentage,
+            count: 1
           };
+        } else {
+          userAchievements[userId].totalAchievement += percentage;
+          userAchievements[userId].count += 1;
+          if (percentage > userAchievements[userId].highestPercentage) {
+            userAchievements[userId].highestPercentage = percentage;
+            userAchievements[userId].latestDate = date;
+          }
         }
       });
 
       const sortedUsers = Object.entries(userAchievements)
         .map(([userId, data]) => ({
           userId,
-          percentageAchieved: data.highestPercentage,
+          percentageAchieved: data.highestPercentage, // Use highest percentage for ranking
+          averageAchievement: data.totalAchievement / data.count, // Calculate average
           latestDate: data.latestDate,
+          totalAchievement: data.totalAchievement,
+          count: data.count
         }))
         .sort((a, b) => b.percentageAchieved - a.percentageAchieved)
         .slice(0, 10);
@@ -248,7 +266,7 @@ const LeaderBoard = () => {
               userName =
                 userData.name ||
                 (userData.firstName && userData.lastName
-                  ? `${userData.firstName} ${data.lastName}`
+                  ? `${userData.firstName} ${userData.lastName}`
                   : null) ||
                 userData.displayName ||
                 userData.email ||
@@ -274,6 +292,9 @@ const LeaderBoard = () => {
               name: userName,
               profileImage: profileImage || defaultProfileImage,
               percentageAchieved: user.percentageAchieved,
+              averageAchievement: user.averageAchievement,
+              totalAchievement: user.totalAchievement,
+              count: user.count,
               rank: index + 1,
             };
           } catch {
@@ -282,12 +303,16 @@ const LeaderBoard = () => {
               name: userNameMap[user.userId] || "Unknown User",
               profileImage: defaultProfileImage,
               percentageAchieved: user.percentageAchieved,
+              averageAchievement: user.averageAchievement,
+              totalAchievement: user.totalAchievement,
+              count: user.count,
               rank: index + 1,
             };
           }
         })
       );
 
+      // If we have less than 10 users, add placeholders
       const topUsers = leaderboardData.slice(0, 10);
       const remainingPlaceholders = placeholderData
         .slice(topUsers.length)
@@ -300,7 +325,8 @@ const LeaderBoard = () => {
       setLeaderboardData(finalData);
       saveLeaderboardToCache(finalData);
       fetchUserNames(finalData);
-    } catch {
+    } catch (error) {
+      console.error('Error fetching leaderboard data:', error);
       if (showRefreshing) {
         Alert.alert(
           "Error",
@@ -345,7 +371,7 @@ const LeaderBoard = () => {
     user: LeaderboardUser | { profileImage: string | null; rank: number; isPlaceholder?: boolean }
   ) => {
     const imageSource = getProfileImage(user);
-    return imageSource || { uri: "https://via.placeholder.com/40" };
+    return imageSource || { uri: "../assets/girl.png" };
   };
 
   const isCurrentUser = (userId: string) => {
@@ -408,24 +434,41 @@ const LeaderBoard = () => {
           >
             {currentUserRanking && !currentUserRanking.isPlaceholder && (
               <View style={styles.currentUserBanner}>
-                <Text style={styles.currentUserText}>
-                  Your Position:{" "}
-                  {currentUserRanking.isNotRanked ? (
-                    <Text style={styles.notRankedText}>Not Ranked Yet</Text>
-                  ) : (
-                    <Text style={styles.currentUserRank}>#{currentUserRanking.rank}</Text>
-                  )}
-                </Text>
-                <Text style={styles.currentUserScore}>
-                  Achievement:{" "}
-                  {currentUserRanking.isNotRanked ? (
-                    <Text style={styles.notRankedText}>No Data</Text>
-                  ) : (
-                    <Text style={styles.currentUserScoreValue}>
-                      {formatPercentage(currentUserRanking.percentageAchieved)}
+                <View style={styles.currentUserInfo}>
+                  <View style={styles.currentUserRow}>
+                    <Text style={styles.currentUserText}>
+                      Your Position:{" "}
+                      {currentUserRanking.isNotRanked ? (
+                        <Text style={styles.notRankedText}>Not Ranked Yet</Text>
+                      ) : (
+                        <Text style={styles.currentUserRank}>#{currentUserRanking.rank}</Text>
+                      )}
                     </Text>
+                  </View>
+                  <View style={styles.currentUserRow}>
+                    <Text style={styles.currentUserScore}>
+                      Highest Achievement:{" "}
+                      {currentUserRanking.isNotRanked ? (
+                        <Text style={styles.notRankedText}>No Data</Text>
+                      ) : (
+                        <Text style={styles.currentUserScoreValue}>
+                          {formatPercentage(currentUserRanking.percentageAchieved)}
+                        </Text>
+                      )}
+                    </Text>
+                  </View>
+                  {currentUserRanking.averageAchievement && (
+                    <View style={styles.currentUserRow}>
+                      <Text style={styles.currentUserAverage}>
+                        Average:{" "}
+                        <Text style={styles.currentUserScoreValue}>
+                          {formatPercentage(currentUserRanking.averageAchievement)}
+                        </Text>
+                        {" "}({currentUserRanking.count} entries)
+                      </Text>
+                    </View>
                   )}
-                </Text>
+                </View>
               </View>
             )}
 
@@ -939,6 +982,36 @@ const styles = StyleSheet.create({
   currentUserRank: {
     color: "#FF8447",
     fontFamily: "LexendDeca_700Bold",
+  },
+  monthHeader: {
+    padding: 15,
+    backgroundColor: "#FFF8F0",
+    borderBottomWidth: 1,
+    borderBottomColor: "#F0F0F0",
+  },
+  monthHeaderTitle: {
+    fontSize: 18,
+    fontFamily: "LexendDeca_700Bold",
+    color: "#333",
+  },
+  monthHeaderSubtitle: {
+    fontSize: 14,
+    fontFamily: "LexendDeca_500Medium",
+    color: "#666",
+  },
+  currentUserInfo: {
+    flex: 1,
+  },
+  currentUserRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 4,
+  },
+  currentUserAverage: {
+    fontSize: 12,
+    fontFamily: "LexendDeca_500Medium",
+    color: "#666",
   },
 });
 

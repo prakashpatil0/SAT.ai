@@ -16,7 +16,7 @@ type RootStackParamList = {
     photo?: { uri: string };
     location?: { coords: { latitude: number; longitude: number } };
     locationName?: string | null;
-    dateTime?: Date;
+    dateTime?: string;
     isPunchIn?: boolean;
     isAutoPunchOut?: boolean;
     locationValidation?: LocationValidationResult;
@@ -32,6 +32,7 @@ type CameraScreenNavigationProp = StackNavigationProp<RootStackParamList, 'Camer
 const CameraScreen = () => {
   const [location, setLocation] = useState<Location.LocationObject | null>(null);
   const [currentTime, setCurrentTime] = useState(new Date());
+  const [capturedTime, setCapturedTime] = useState<Date | null>(null);
   const [hasPermission, setHasPermission] = useState(false);
   const [cameraType, setCameraType] = useState<number>(0); // 0 is front, 1 is back
   const [photo, setPhoto] = useState<{ uri: string } | null>(null);
@@ -41,15 +42,17 @@ const CameraScreen = () => {
   const [isValidatingLocation, setIsValidatingLocation] = useState(false);
   const [locationHistory, setLocationHistory] = useState<LocationHistoryEntry[]>([]);
   const [locationSubscription, setLocationSubscription] = useState<Location.LocationSubscription | null>(null);
+  const [isTimeValid, setIsTimeValid] = useState(true);
+  const [timeValidationMessage, setTimeValidationMessage] = useState('');
+  const [isLocationLoading, setIsLocationLoading] = useState(true);
+  const [lastTimeValidation, setLastTimeValidation] = useState<Date | null>(null);
+  const [isValidatingTime, setIsValidatingTime] = useState(false);
+  const locationTimeoutRef = useRef<NodeJS.Timeout>();
   
   const cameraRef = useRef<any>(null);
   const navigation = useNavigation<CameraScreenNavigationProp>();
   const route = useRoute<CameraScreenRouteProp>();
   const { isPunchIn } = route.params;
-  const [isTimeValid, setIsTimeValid] = useState(true);
-  const [timeValidationMessage, setTimeValidationMessage] = useState('');
-  const [isLocationLoading, setIsLocationLoading] = useState(true);
-  const locationTimeoutRef = useRef<NodeJS.Timeout>();
 
   // Function to get current IST time
   const getISTTime = () => {
@@ -95,12 +98,11 @@ const CameraScreen = () => {
 
   const validateDeviceTime = async () => {
     try {
-      // Get network time (IST)
-      const networkTime = await getNetworkTime();
-      
-      // Get server time
+      // Use a faster, simpler validation approach
       const db = getFirestore();
       const timeCheckRef = doc(db, '_timeCheck', 'serverTime');
+      
+      // Get current server time
       const serverTime = await getDoc(timeCheckRef);
       const serverTimestamp = serverTime.data()?.timestamp;
       
@@ -117,45 +119,15 @@ const CameraScreen = () => {
       const deviceTime = new Date();
       const serverTimeDate = serverTimestamp.toDate();
       
-      // Calculate server time difference
-      const serverTimeDiff = Math.abs(deviceTime.getTime() - serverTimeDate.getTime());
-      const isServerTimeValid = serverTimeDiff <= 5 * 60 * 1000; // 5 minutes tolerance
-      
-      // If we couldn't get network time, fall back to server time only
-      if (!networkTime) {
-        if (!isServerTimeValid) {
-          const serverDiffMinutes = Math.round(serverTimeDiff / (60 * 1000));
-          setTimeValidationMessage(
-            `Device time differs from server time by ${serverDiffMinutes} minutes. ` +
-            'Please sync your device time with network time to continue.'
-          );
-          setIsTimeValid(false);
-          return false;
-        }
-        setTimeValidationMessage('');
-        setIsTimeValid(true);
-        return true;
-      }
-      
-      // If we have network time, validate against both
-      const networkTimeDiff = Math.abs(deviceTime.getTime() - networkTime.getTime());
-      const isNetworkTimeValid = networkTimeDiff <= 5 * 60 * 1000;
-      
-      const isValid = isServerTimeValid && isNetworkTimeValid;
+      const timeDiff = Math.abs(deviceTime.getTime() - serverTimeDate.getTime());
+      const isValid = timeDiff <= 5 * 60 * 1000; // 5 minutes tolerance
       
       if (!isValid) {
-        let message = 'Time validation failed: ';
-        if (!isServerTimeValid) {
-          const serverDiffMinutes = Math.round(serverTimeDiff / (60 * 1000));
-          message += `Device time differs from server time by ${serverDiffMinutes} minutes. `;
-        }
-        if (!isNetworkTimeValid) {
-          const networkDiffMinutes = Math.round(networkTimeDiff / (60 * 1000));
-          message += `Device time differs from network time by ${networkDiffMinutes} minutes. `;
-        }
-        message += 'Please sync your device time with network time to continue.';
-        
-        setTimeValidationMessage(message);
+        const diffMinutes = Math.round(timeDiff / (60 * 1000));
+        setTimeValidationMessage(
+          `Device time differs from server time by ${diffMinutes} minutes. ` +
+          'Please sync your device time with network time to continue.'
+        );
         setIsTimeValid(false);
         return false;
       }
@@ -319,7 +291,7 @@ const CameraScreen = () => {
       
       setHasPermission(cameraStatus === 'granted' && locationStatus === 'granted');
       
-      // Add time validation
+      // Initial time validation
       const isTimeValid = await validateDeviceTime();
       if (!isTimeValid && isMounted) {
         Alert.alert(
@@ -352,15 +324,40 @@ const CameraScreen = () => {
         setCurrentTime(getISTTime());
       }
     }, 1000);
+
+    // Background time validation every 5 seconds for faster response
+    const timeValidationTimer = setInterval(async () => {
+      if (isMounted) {
+        const isValid = await validateDeviceTime();
+        if (isMounted) {
+          setIsTimeValid(isValid);
+          setLastTimeValidation(new Date());
+        }
+      }
+    }, 5000);
+
+    // Pre-validate time when camera becomes active (every 2 seconds)
+    const preValidationTimer = setInterval(async () => {
+      if (isMounted && !isValidatingTime) {
+        const isValid = await validateDeviceTime();
+        if (isMounted) {
+          setIsTimeValid(isValid);
+          setLastTimeValidation(new Date());
+        }
+      }
+    }, 2000);
     
     return () => {
       isMounted = false;
       clearInterval(timer);
+      clearInterval(timeValidationTimer);
+      clearInterval(preValidationTimer);
     };
   }, []);
 
   // Enhanced takePicture with location validation
   const takePicture = async () => {
+    // Use pre-validated state - validation happens in background every 2 seconds
     if (!isTimeValid) {
       Alert.alert(
         'Time Sync Required',
@@ -368,7 +365,16 @@ const CameraScreen = () => {
         [
           {
             text: 'Retry',
-            onPress: validateDeviceTime
+            onPress: async () => {
+              setIsValidatingTime(true);
+              const isValid = await validateDeviceTime();
+              setIsValidatingTime(false);
+              if (isValid) {
+                setIsTimeValid(true);
+                setTimeValidationMessage('');
+                setLastTimeValidation(new Date());
+              }
+            }
           },
           {
             text: 'Cancel',
@@ -417,8 +423,11 @@ const CameraScreen = () => {
 
     if (cameraRef.current && location) {
       try {
+        // Take photo instantly when all validations pass (pre-validated)
         const photo = await cameraRef.current.takePictureAsync();
         setPhoto(photo);
+        // Use actual current time for saving, not IST time
+        setCapturedTime(new Date());
       } catch (error) {
         console.error('Error taking picture:', error);
         Alert.alert('Error', 'Failed to take picture. Please try again.');
@@ -444,7 +453,7 @@ const CameraScreen = () => {
           <View style={styles.previewDate}>
             <MaterialIcons name="event" size={20} color="#FF8447" />
             <Text style={styles.previewDateText}>
-              {format(currentTime, 'dd MMM yyyy, h:mm a')}
+              {format(capturedTime || new Date(), 'dd MMM yyyy, h:mm:ss a')}
             </Text>
           </View>
           
@@ -531,9 +540,13 @@ const CameraScreen = () => {
 
               if (location && photo) {
                 try {
-                  const istTime = getISTTime();
-                  const currentHour = istTime.getHours();
+                  // Use actual current time for saving, not IST time
+                  const actualTime = capturedTime || new Date();
+                  const currentHour = actualTime.getHours();
                   const isAutoPunchOut = !isPunchIn && currentHour >= 23;
+
+                  // Pass captured time as ISO string to avoid serialization issues
+                  const capturedTimeString = actualTime.toISOString();
 
                   navigation.navigate('Attendance' as never, {
                     photo: { uri: photo.uri },
@@ -544,7 +557,7 @@ const CameraScreen = () => {
                       }
                     },
                     locationName: locationAddress,
-                    dateTime: istTime,
+                    dateTime: capturedTimeString,
                     isPunchIn,
                     isAutoPunchOut,
                     locationValidation: locationValidation || undefined
@@ -653,14 +666,14 @@ const CameraScreen = () => {
             <View style={styles.dateTimeContainer}>
               <MaterialIcons name="event" size={24} color="#FF8447" />
               <Text style={styles.dateTimeText}>
-                {format(getISTTime(), 'dd-MM-yyyy')}
+                {format(currentTime, 'dd-MM-yyyy')}
               </Text>
             </View>
 
             <View style={styles.timeContainer}>
               <MaterialIcons name="access-time" size={24} color="#FF8447" />
               <Text style={styles.dateTimeText}>
-                {format(getISTTime(), 'h:mm:ss a')}
+                {format(currentTime, 'h:mm:ss a')} IST
               </Text>
             </View>
 
@@ -675,13 +688,15 @@ const CameraScreen = () => {
               <TouchableOpacity
                 style={[
                   styles.captureButton, 
-                  (!location || !isTimeValid || isValidatingLocation) && styles.disabledButton
+                  (!location || !isTimeValid || isValidatingLocation || isValidatingTime) && styles.disabledButton
                 ]}
                 onPress={takePicture}
-                disabled={!location || !isTimeValid || isValidatingLocation}
+                disabled={!location || !isTimeValid || isValidatingLocation || isValidatingTime}
               >
                 <Text style={styles.captureText}>
-                  {isValidatingLocation 
+                  {isValidatingTime 
+                    ? 'Validating Time...' 
+                    : isValidatingLocation 
                     ? 'Validating...' 
                     : isPunchIn ? 'Punch In' : 'Punch Out'}
                 </Text>

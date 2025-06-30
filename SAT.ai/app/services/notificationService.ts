@@ -33,7 +33,6 @@ export const initializeNotificationService = async () => {
   // Request notification permissions
   const { status } = await Notifications.requestPermissionsAsync();
   if (status !== 'granted') {
-    console.warn('Notification permissions not granted');
     return;
   }
 
@@ -85,12 +84,10 @@ export const initializeCommonMessageListener = () => {
             status: 'read'
           });
         } catch (error) {
-          console.error(`Failed to update message status for doc ${change.doc.id}:`, error);
         }
       }
     });
   }, (error) => {
-    console.error('Error in common message listener:', error);
   });
 
   return unsubscribe;
@@ -100,7 +97,6 @@ export const initializeCommonMessageListener = () => {
 export const initializeTargetNotificationListener = async () => {
   // Ensure user is authenticated
   if (!auth.currentUser) {
-    console.warn('No authenticated user');
     return;
   }
 
@@ -171,14 +167,12 @@ export const initializeTargetNotificationListener = async () => {
           }
         }
       }, (error) => {
-        console.error('Error in target listener:', error);
       });
 
       // Cleanup target listener
       return () => unsubscribeTarget();
     }
   }, (error) => {
-    console.error('Error in user listener:', error);
   });
 
   // Cleanup user listener

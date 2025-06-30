@@ -29,10 +29,10 @@ export const loadDefaultProfileImage = async (role: string = 'telecaller'): Prom
       return cachedUrl;
     }
     
-    console.log(`Loading default profile image for ${role} from Firebase Storage`);
+    // console.log(`Loading default profile image for ${role} from Firebase Storage`);
     const imageRef = ref(storage, imagePath);
     const url = await getDownloadURL(imageRef);
-    console.log('Successfully loaded default profile image URL:', url);
+    // console.log('Successfully loaded default profile image URL:', url);
     
     // Cache the URL based on role
     if (role.toLowerCase() === 'telecaller') {
@@ -43,7 +43,7 @@ export const loadDefaultProfileImage = async (role: string = 'telecaller'): Prom
     
     return url;
   } catch (error) {
-    console.error('Error loading default profile image:', error);
+    // console.error('Error loading default profile image:', error);
     // Fallback to a placeholder image if Firebase Storage fails
     return 'https://via.placeholder.com/150';
   }
@@ -53,7 +53,7 @@ export const saveProfilePhoto = async (photoUri: string) => {
   try {
     await AsyncStorage.setItem('profilePhoto', photoUri);
   } catch (error) {
-    console.error('Error saving profile photo:', error);
+    // console.error('Error saving profile photo:', error);
   }
 };
 
@@ -67,7 +67,7 @@ export const getProfilePhoto = async (role?: string) => {
     // If no profile photo is saved, return the default based on role
     return await loadDefaultProfileImage(role);
   } catch (error) {
-    console.error('Error getting profile photo:', error);
+    // console.error('Error getting profile photo:', error);
     // Fallback to the default image based on role
     return await loadDefaultProfileImage(role);
   }

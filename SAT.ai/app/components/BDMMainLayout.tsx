@@ -101,7 +101,11 @@ const BDMMainLayout: React.FC<BDMMainLayoutProps> = ({
           <View style={styles.leftContainer}>
             {showBackButton && (
               <TouchableOpacity 
-                onPress={() => navigation.goBack()}
+                onPress={() => {
+                  if (navigation.canGoBack()) {
+                    navigation.goBack();
+                  }
+                }}
                 style={styles.backButton}
               >
                 <MaterialIcons name="arrow-back" size={24} color="#333" />

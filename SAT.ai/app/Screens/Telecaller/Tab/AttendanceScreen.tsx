@@ -56,6 +56,7 @@ type RootStackParamList = {
   AttendanceScreen: {
     photo?: { uri: string };
     location?: { coords: { latitude: number; longitude: number } };
+    dateTime?: string;
     isPunchIn?: boolean;
     locationName?: string | null;
   };
@@ -197,7 +198,7 @@ const AttendanceScreen = () => {
       }
 
       const currentTime = new Date();
-      const dateStr = format(currentTime, 'dd');
+      const dateStr = format(currentTime, 'yyyy:MM:dd');
       const roleCollection = `${role}_monthly_attendance`;
       const attendanceRef = collection(db, roleCollection);
       const todayQuery = query(
@@ -238,7 +239,7 @@ const AttendanceScreen = () => {
     const now = new Date();
     const currentTime = format(now, 'HH:mm');
     const [currentHour, currentMinute] = currentTime.split(':').map(Number);
-    const today = format(now, 'dd');
+    const today = format(now, 'yyyy:MM:dd');
     const tomorrow = new Date(now);
     tomorrow.setDate(tomorrow.getDate() + 1);
     tomorrow.setHours(8, 0, 0, 0); // Set to 8 AM tomorrow
@@ -354,7 +355,7 @@ const AttendanceScreen = () => {
       const querySnapshot = await getDocs(attendanceRef);
 
       const history: AttendanceRecord[] = [];
-      const today = format(new Date(), 'dd');
+      const today = format(new Date(), 'yyyy:MM:dd');
 
       querySnapshot.forEach((doc) => {
         const data = doc.data();
@@ -429,7 +430,7 @@ const AttendanceScreen = () => {
         i + 1
       );
       return {
-        dateStr: format(date, 'dd'),
+        dateStr: format(date, 'yyyy:MM:dd'),
         isSunday: format(date, 'EEEE') === 'Sunday',
       };
     });
@@ -446,14 +447,14 @@ const AttendanceScreen = () => {
       counts[record.status]++;
     });
 
-    const today = format(new Date(), 'dd');
+    const today = format(new Date(), 'yyyy:MM:dd');
 
     const attendedDates = currentMonthRecords.map((record) => record.date);
     const onLeaveDates = allDates.filter(
       ({ dateStr, isSunday }) =>
         !isSunday &&
         !attendedDates.includes(dateStr) &&
-        parseInt(dateStr) < parseInt(today)
+        parseInt(dateStr.split(':')[2]) <= parseInt(today.split(':')[2])
     );
 
     counts['On Leave'] += onLeaveDates.length;
@@ -465,7 +466,8 @@ const AttendanceScreen = () => {
     isPunchIn: boolean,
     photoUri: string,
     location: any,
-    locationNameFromCamera?: string | null
+    locationNameFromCamera?: string | null,
+    capturedDateTime?: Date
   ) => {
     try {
       // Validate time before saving
@@ -487,8 +489,8 @@ const AttendanceScreen = () => {
         return;
       }
 
-      const currentTime = new Date();
-      const dateStr = format(currentTime, 'dd');
+      const currentTime = capturedDateTime || new Date();
+      const dateStr = format(currentTime, 'yyyy:MM:dd');
       const dayStr = format(currentTime, 'EEE').toUpperCase();
       const timeStr = format(currentTime, 'HH:mm');
       const roleCollection = `${role}_monthly_attendance`;
@@ -580,8 +582,12 @@ const AttendanceScreen = () => {
       route.params?.location &&
       route.params?.isPunchIn !== undefined
     ) {
-      const { photo, location, locationName, isPunchIn } = route.params;
-      saveAttendance(isPunchIn, photo.uri, location, locationName);
+      const { photo, location, locationName, isPunchIn, dateTime } = route.params;
+      
+      // Convert dateTime string back to Date object for processing
+      const capturedDateTime = dateTime ? new Date(dateTime) : new Date();
+      
+      saveAttendance(isPunchIn, photo.uri, location, locationName, capturedDateTime);
     }
   }, [route.params]);
 
@@ -626,7 +632,8 @@ const AttendanceScreen = () => {
       const currentDate = new Date(startOfWeek);
       currentDate.setDate(startOfWeek.getDate() + index);
 
-      const dateStr = format(currentDate, 'dd');
+      const dateStr = format(currentDate, 'yyyy:MM:dd');
+      const displayDate = format(currentDate, 'dd'); // For UI display
 
       const attendanceRecord = attendanceHistory.find(
         (record) => record.date === dateStr
@@ -635,13 +642,13 @@ const AttendanceScreen = () => {
       if (currentDate > today) {
         return {
           day: dayObj.day,
-          date: dateStr,
+          date: displayDate, // Show 'dd' format in UI
           status: 'On Leave' as AttendanceStatus,
         };
       } else {
         return {
           day: dayObj.day,
-          date: dateStr,
+          date: displayDate, // Show 'dd' format in UI
           status: attendanceRecord
             ? attendanceRecord.status
             : ('On Leave' as AttendanceStatus),
@@ -1067,7 +1074,9 @@ const AttendanceScreen = () => {
                 {filteredHistory.map((item, index) => (
                   <View key={index} style={styles.historyCard}>
                     <View style={styles.dateBlock}>
-                      <Text style={styles.dateNumber}>{item.date}</Text>
+                      <Text style={styles.dateNumber}>
+                        {item.date.includes(':') ? item.date.split(':')[2] : item.date}
+                      </Text>
                       <Text style={styles.dateDay}>{item.day}</Text>
                     </View>
                     <View style={styles.timeBlock}>

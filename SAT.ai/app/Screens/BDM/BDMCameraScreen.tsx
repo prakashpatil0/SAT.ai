@@ -13,7 +13,7 @@ type RootStackParamList = {
     photo?: { uri: string };
     location?: { coords: { latitude: number; longitude: number } };
     locationName?: string | null; 
-    dateTime?: Date;
+    dateTime?: string;
     isPunchIn?: boolean;
   };
   BDMCameraScreen: {
@@ -60,6 +60,7 @@ const getNetworkTime = async (): Promise<Date | null> => {
 const BDMCameraScreen = () => {
   const [location, setLocation] = useState<Location.LocationObject | null>(null);
   const [currentTime, setCurrentTime] = useState(new Date());
+  const [capturedTime, setCapturedTime] = useState<Date | null>(null);
   const [hasPermission, setHasPermission] = useState(false);
   const [cameraType, setCameraType] = useState<number>(0);
   const [photo, setPhoto] = useState<{ uri: string } | null>(null);
@@ -69,6 +70,8 @@ const BDMCameraScreen = () => {
   const [timeValidationMessage, setTimeValidationMessage] = useState('');
   const [isLocationLoading, setIsLocationLoading] = useState(true);
   const [isConfirming, setIsConfirming] = useState(false);
+  const [lastTimeValidation, setLastTimeValidation] = useState<Date | null>(null);
+  const [isValidatingTime, setIsValidatingTime] = useState(false);
   const locationTimeoutRef = useRef<NodeJS.Timeout>();
 
   const cameraRef = useRef<any>(null);
@@ -158,6 +161,7 @@ const BDMCameraScreen = () => {
       
       setHasPermission(cameraStatus === 'granted' && locationStatus === 'granted');
       
+      // Initial time validation
       const isTimeValid = await validateDeviceTime();
       if (!isTimeValid && isMounted) {
         Alert.alert(
@@ -189,10 +193,34 @@ const BDMCameraScreen = () => {
         setCurrentTime(getISTTime());
       }
     }, 1000);
+
+    // Background time validation every 5 seconds for faster response
+    const timeValidationTimer = setInterval(async () => {
+      if (isMounted) {
+        const isValid = await validateDeviceTime();
+        if (isMounted) {
+          setIsTimeValid(isValid);
+          setLastTimeValidation(new Date());
+        }
+      }
+    }, 5000);
+
+    // Pre-validate time when camera becomes active (every 2 seconds)
+    const preValidationTimer = setInterval(async () => {
+      if (isMounted && !isValidatingTime) {
+        const isValid = await validateDeviceTime();
+        if (isMounted) {
+          setIsTimeValid(isValid);
+          setLastTimeValidation(new Date());
+        }
+      }
+    }, 2000);
     
     return () => {
       isMounted = false;
       clearInterval(timer);
+      clearInterval(timeValidationTimer);
+      clearInterval(preValidationTimer);
       setPhoto(null);
       setIsConfirming(false);
     };
@@ -214,13 +242,15 @@ const BDMCameraScreen = () => {
 
   const validateDeviceTime = async () => {
     try {
-      const networkTime = await getNetworkTime();
-      
+      // Use a faster, simpler validation approach
       const db = getFirestore();
       const timeCheckRef = doc(db, '_timeCheck', 'serverTime');
+      
+      // Get current server time
       const serverTime = await getDoc(timeCheckRef);
       const serverTimestamp = serverTime.data()?.timestamp;
       
+      // Update server time
       await setDoc(timeCheckRef, {
         timestamp: Timestamp.now()
       }, { merge: true });
@@ -232,42 +262,15 @@ const BDMCameraScreen = () => {
       const deviceTime = new Date();
       const serverTimeDate = serverTimestamp.toDate();
       
-      const serverTimeDiff = Math.abs(deviceTime.getTime() - serverTimeDate.getTime());
-      const isServerTimeValid = serverTimeDiff <= 5 * 60 * 1000;
-      
-      if (!networkTime) {
-        if (!isServerTimeValid) {
-          const serverDiffMinutes = Math.round(serverTimeDiff / (60 * 1000));
-          setTimeValidationMessage(
-            `Device time differs from server time by ${serverDiffMinutes} minutes. ` +
-            'Please sync your device time with network time to continue.'
-          );
-          setIsTimeValid(false);
-          return false;
-        }
-        setTimeValidationMessage('');
-        setIsTimeValid(true);
-        return true;
-      }
-      
-      const networkTimeDiff = Math.abs(deviceTime.getTime() - networkTime.getTime());
-      const isNetworkTimeValid = networkTimeDiff <= 5 * 60 * 1000;
-      
-      const isValid = isServerTimeValid && isNetworkTimeValid;
+      const timeDiff = Math.abs(deviceTime.getTime() - serverTimeDate.getTime());
+      const isValid = timeDiff <= 5 * 60 * 1000; // 5 minutes tolerance
       
       if (!isValid) {
-        let message = 'Time validation failed: ';
-        if (!isServerTimeValid) {
-          const serverDiffMinutes = Math.round(serverTimeDiff / (60 * 1000));
-          message += `Device time differs from server time by ${serverDiffMinutes} minutes. `;
-        }
-        if (!isNetworkTimeValid) {
-          const networkDiffMinutes = Math.round(networkTimeDiff / (60 * 1000));
-          message += `Device time differs from network time by ${networkDiffMinutes} minutes. `;
-        }
-        message += 'Please sync your device time with network time to continue.';
-        
-        setTimeValidationMessage(message);
+        const diffMinutes = Math.round(timeDiff / (60 * 1000));
+        setTimeValidationMessage(
+          `Device time differs from server time by ${diffMinutes} minutes. ` +
+          'Please sync your device time with network time to continue.'
+        );
         setIsTimeValid(false);
         return false;
       }
@@ -276,6 +279,7 @@ const BDMCameraScreen = () => {
       setIsTimeValid(true);
       return true;
     } catch (error) {
+      console.error('Time validation error:', error);
       setTimeValidationMessage('Unable to validate time. Please check your internet connection and try again.');
       setIsTimeValid(false);
       return false;
@@ -283,8 +287,8 @@ const BDMCameraScreen = () => {
   };
 
   const takePicture = async () => {
-    const isValid = await validateDeviceTime();
-    if (!isValid) {
+    // Use pre-validated state - validation happens in background every 2 seconds
+    if (!isTimeValid) {
       Alert.alert(
         'Time Sync Required',
         timeValidationMessage,
@@ -292,10 +296,13 @@ const BDMCameraScreen = () => {
           {
             text: 'Retry',
             onPress: async () => {
+              setIsValidatingTime(true);
               const isValid = await validateDeviceTime();
+              setIsValidatingTime(false);
               if (isValid) {
                 setIsTimeValid(true);
                 setTimeValidationMessage('');
+                setLastTimeValidation(new Date());
               }
             }
           },
@@ -310,8 +317,11 @@ const BDMCameraScreen = () => {
 
     if (cameraRef.current && location) {
       try {
+        // Take photo instantly when time is valid (pre-validated)
         const photo = await cameraRef.current.takePictureAsync();
         setPhoto(photo);
+        // Use actual current time for saving, not IST time
+        setCapturedTime(new Date());
       } catch (error) {
         Alert.alert('Error', 'Failed to take picture. Please try again.');
       }
@@ -324,37 +334,16 @@ const BDMCameraScreen = () => {
 
   const handleConfirmPhoto = async () => {
     if (isConfirming) return;
-    
-    const isValid = await validateDeviceTime();
-    if (!isValid) {
-      Alert.alert(
-        'Time Sync Required',
-        timeValidationMessage,
-        [
-          {
-            text: 'Retry',
-            onPress: async () => {
-              const isValid = await validateDeviceTime();
-              if (isValid) {
-                setIsTimeValid(true);
-                setTimeValidationMessage('');
-              }
-            }
-          },
-          {
-            text: 'Cancel',
-            style: 'cancel'
-          }
-        ]
-      );
-      return;
-    }
 
     if (location && photo) {
       try {
         setIsConfirming(true);
         
         await new Promise(resolve => setTimeout(resolve, 100));
+        
+        // Use actual current time for saving, not IST time
+        const actualTime = capturedTime || new Date();
+        const capturedTimeString = actualTime.toISOString();
         
         navigation.navigate('BDMAttendance' as never, {
           photo: { uri: photo.uri },
@@ -364,7 +353,7 @@ const BDMCameraScreen = () => {
               longitude: location.coords.longitude
             }
           },
-          dateTime: currentTime,
+          dateTime: capturedTimeString,
           locationName: locationAddress,
           isPunchIn: type === 'in',
         });
@@ -393,7 +382,7 @@ const BDMCameraScreen = () => {
           <View style={styles.previewDate}>
             <MaterialIcons name="event" size={20} color="#FF8447" />
             <Text style={styles.previewDateText}>
-              {format(currentTime, 'dd MMM yyyy, h:mm a')}
+              {format(capturedTime || new Date(), 'dd MMM yyyy, hh:mm:ss a')}
             </Text>
           </View>
           {!isTimeValid && (
@@ -509,14 +498,14 @@ const BDMCameraScreen = () => {
             <View style={styles.dateTimeContainer}>
               <MaterialIcons name="event" size={24} color="#FF8447" />
               <Text style={styles.dateTimeText}>
-                {format(getISTTime(), 'dd-MM-yyyy')}
+                {format(currentTime, 'dd-MM-yyyy')}
               </Text>
             </View>
 
             <View style={styles.timeContainer}>
               <MaterialIcons name="access-time" size={24} color="#FF8447" />
               <Text style={styles.dateTimeText}>
-                {format(getISTTime(), 'h:mm:ss a')}
+                {format(currentTime, 'hh:mm:ss a')} IST
               </Text>
             </View>
 
@@ -531,13 +520,15 @@ const BDMCameraScreen = () => {
               <TouchableOpacity
                 style={[
                   styles.captureButton, 
-                  (!location || !isTimeValid) && styles.disabledButton
+                  (!location || !isTimeValid || isValidatingTime) && styles.disabledButton
                 ]}
                 onPress={takePicture}
-                disabled={!location || !isTimeValid}
+                disabled={!location || !isTimeValid || isValidatingTime}
               >
                 <Text style={styles.captureText}>
-                  {type === 'in' ? 'Punch In' : 'Punch Out'}
+                  {isValidatingTime 
+                    ? 'Validating Time...' 
+                    : type === 'in' ? 'Punch In' : 'Punch Out'}
                 </Text>
               </TouchableOpacity>
             </View>

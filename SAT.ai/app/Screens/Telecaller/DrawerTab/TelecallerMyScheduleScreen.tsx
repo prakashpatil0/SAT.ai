@@ -497,7 +497,10 @@ const schedule8amNotification = async (followup: any) => {
       body: `${followup.title} at ${followup.startTime}`,
       sound: 'default',
     },
-    trigger: notifyTime,
+    trigger: {
+      type: 'date',
+      date: notifyTime,
+    },
   });
 
   await AsyncStorage.setItem(key, id);
@@ -511,8 +514,6 @@ await schedule8amNotification(doc); // 👈 Add this line
 
       }
     });
-
-    console.log('Fetched follow-ups:', fetchedFollowUps);
     setFollowUps(fetchedFollowUps);
 
   } catch (error) {

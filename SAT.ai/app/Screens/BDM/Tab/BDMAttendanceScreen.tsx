@@ -21,7 +21,7 @@ type RootStackParamList = {
   BDMAttendanceScreen: {
     photo?: { uri: string };
     location?: { coords: { latitude: number; longitude: number } };
-    dateTime?: Date;
+    dateTime?: string;
     isPunchIn?: boolean;
      locationName?: string | null;
   };
@@ -265,7 +265,7 @@ const BDMAttendanceScreen = () => {
       const now = new Date();
       const currentTime = format(now, 'HH:mm');
       const [currentHour, currentMinute] = currentTime.split(':').map(Number);
-      const today = format(now, 'dd');
+      const today = format(now, 'yyyy:MM:dd');
       const tomorrow = new Date(now);
       tomorrow.setDate(tomorrow.getDate() + 1);
       tomorrow.setHours(8, 0, 0, 0); // Set to 8 AM tomorrow
@@ -342,12 +342,17 @@ const BDMAttendanceScreen = () => {
   useEffect(() => {
     if (route.params && route.params.photo && route.params.location && !isSavingAttendance) {
       try {
-        const { photo, location, isPunchIn, locationName } = route.params;
+        const { photo, location, isPunchIn, locationName, dateTime } = route.params;
+        
+        // Convert dateTime string back to Date object for processing
+        const capturedDateTime = dateTime ? new Date(dateTime) : new Date();
+        
         saveAttendance(
           isPunchIn || false,
           photo.uri,
           location.coords,
-          locationName || 'Unknown Location'
+          locationName || 'Unknown Location',
+          capturedDateTime
         );
       } catch (error) {
         console.error("Error processing camera data:", error);
@@ -369,11 +374,12 @@ const BDMAttendanceScreen = () => {
     const updatedWeekDays = weekDaysStatus.map((day, index) => {
       const currentDate = new Date(startOfWeek);
       currentDate.setDate(startOfWeek.getDate() + index);
-      const dateStr = format(currentDate, 'dd');
+      const dateStr = format(currentDate, 'yyyy:MM:dd');
+      const displayDate = format(currentDate, 'dd'); // For UI display
       
       return { 
         day: day.day,
-        date: dateStr,
+        date: displayDate, // Show 'dd' format in UI
         status: (index <= adjustedDay ? 'active' : 'inactive') as 'active' | 'inactive' | 'Present' | 'Half Day' | 'On Leave'
       };
     });
@@ -447,7 +453,7 @@ const BDMAttendanceScreen = () => {
       const querySnapshot = await getDocs(monthQuery);
       
       const history: AttendanceRecord[] = [];
-      const today = format(new Date(), 'dd');
+      const today = format(new Date(), 'yyyy:MM:dd');
       
       querySnapshot.forEach((doc) => {
         const data = doc.data();
@@ -478,7 +484,7 @@ const BDMAttendanceScreen = () => {
 
         history.push(record);
 
-        if (data.date === today && data.month === format(new Date(), 'MM')) {
+        if (data.date === today) {
           setTodayRecord(record);
           setPunchInTime(data.punchIn ? format(new Date(`2000-01-01T${data.punchIn}`), 'hh:mm a') : '');
           setPunchOutTime(data.punchOut ? format(new Date(`2000-01-01T${data.punchOut}`), 'hh:mm a') : '');
@@ -519,7 +525,8 @@ const BDMAttendanceScreen = () => {
       const currentDate = new Date(startOfWeek);
       currentDate.setDate(startOfWeek.getDate() + index);
       
-      const dateStr = format(currentDate, 'dd');
+      const dateStr = format(currentDate, 'yyyy:MM:dd');
+      const displayDate = format(currentDate, 'dd'); // For UI display
       const attendanceRecord = history.find(record => record.date === dateStr);
       
       let status: 'active' | 'inactive' | 'Present' | 'Half Day' | 'On Leave';
@@ -533,7 +540,7 @@ const BDMAttendanceScreen = () => {
       
       return {
         day: day.day,
-        date: dateStr,
+        date: displayDate, // Show 'dd' format in UI
         status
       };
     });
@@ -556,7 +563,7 @@ const BDMAttendanceScreen = () => {
     const allDates = Array.from({ length: daysInMonth }, (_, i) => {
       const date = new Date(parseInt(currentYear), parseInt(currentMonth) - 1, i + 1);
       return {
-        dateStr: format(date, 'dd'),
+        dateStr: format(date, 'yyyy:MM:dd'),
         isSunday: format(date, 'EEEE') === 'Sunday'
       };
     });
@@ -574,12 +581,12 @@ const BDMAttendanceScreen = () => {
     });
 
     const attendedDates = currentMonthRecords.map(record => record.date);
-    const today = format(new Date(), 'dd');
+    const today = format(new Date(), 'yyyy:MM:dd');
     
     const onLeaveDates = allDates.filter(({ dateStr, isSunday }) => 
       !isSunday && 
       !attendedDates.includes(dateStr) && 
-      parseInt(dateStr) <= parseInt(today)
+      parseInt(dateStr.split(':')[2]) <= parseInt(today.split(':')[2])
     );
     
     counts['On Leave'] = onLeaveDates.length;
@@ -625,7 +632,11 @@ const BDMAttendanceScreen = () => {
     const labels = Array.from({ length: daysInMonth }, (_, i) => (i + 1).toString());
     
     const data = labels.map(day => {
-      const record = monthRecords.find(r => r.date === day);
+      // Find record by extracting day number from the date format
+      const record = monthRecords.find(r => {
+        const recordDay = r.date.includes(':') ? r.date.split(':')[2] : r.date;
+        return recordDay === day;
+      });
       if (!record) return 0;
       
       switch (record.status) {
@@ -681,12 +692,16 @@ const BDMAttendanceScreen = () => {
   isPunchIn: boolean,
   photoUri: string,
   locationCoords: any,
-  locationNameFromCamera: string
+  locationNameFromCamera: string,
+  capturedDateTime?: Date
 ) => {
     if (isSavingAttendance) return; // Prevent multiple saves
     
     try {
       setIsSavingAttendance(true);
+      
+      // Use captured time if available, otherwise use current time
+      const attendanceTime = capturedDateTime || new Date();
       
       // Validate time before saving
       const db = getFirestore();
@@ -728,19 +743,16 @@ const BDMAttendanceScreen = () => {
         return;
       }
   
-      const currentTime = new Date();
-      const dateStr = format(currentTime, 'dd');
-      const dayStr = format(currentTime, 'EEE').toUpperCase();
-      const monthStr = format(currentTime, 'MM');
-      const yearStr = format(currentTime, 'yyyy');
-      const timeStr = format(currentTime, 'HH:mm');
+      const dateStr = format(attendanceTime, 'yyyy:MM:dd');
+      const dayStr = format(attendanceTime, 'EEE').toUpperCase();
+      const monthStr = format(attendanceTime, 'MM');
+      const yearStr = format(attendanceTime, 'yyyy');
+      const timeStr = format(attendanceTime, 'HH:mm');
   
       const attendanceRef = collection(db, 'bdm_monthly_attendance');
       const todayQuery = query(
         attendanceRef,
         where('date', '==', dateStr),
-        where('month', '==', monthStr),
-        where('year', '==', yearStr),
         where('userId', '==', userId)
       );
   
@@ -762,7 +774,7 @@ const BDMAttendanceScreen = () => {
           punchOut: newPunchOut,
           status: newStatus,
           userId,
-          timestamp: Timestamp.fromDate(currentTime),
+          timestamp: Timestamp.fromDate(attendanceTime),
           photoUri: isPunchIn ? photoUri : '',
           punchOutPhotoUri: !isPunchIn ? photoUri : '',
           location: isPunchIn ? locationCoords : null,
@@ -775,7 +787,7 @@ const BDMAttendanceScreen = () => {
           workMode: 'Office',
           locationName: isPunchIn ? locationNameFromCamera : '',
           punchOutLocationName: !isPunchIn ? locationNameFromCamera : '',
-          lastUpdated: Timestamp.fromDate(currentTime)
+          lastUpdated: Timestamp.fromDate(attendanceTime)
         });
       } else {
         // Update existing record
@@ -810,12 +822,12 @@ const BDMAttendanceScreen = () => {
           totalHours: totalHours,
           locationName: isPunchIn ? locationNameFromCamera : existingData.locationName,
           punchOutLocationName: !isPunchIn ? locationNameFromCamera : existingData.punchOutLocationName,
-          lastUpdated: Timestamp.fromDate(currentTime)
+          lastUpdated: Timestamp.fromDate(attendanceTime)
         });
       }
   
       if (isPunchIn) {
-        setPunchInTime(format(currentTime, 'hh:mm a'));
+        setPunchInTime(format(attendanceTime, 'hh:mm a'));
         setIsPunchedIn(true);
         setTodayRecord({
           date: dateStr,
@@ -826,7 +838,7 @@ const BDMAttendanceScreen = () => {
           punchOut: newPunchOut,
           status: newStatus,
           userId,
-          timestamp: currentTime,
+          timestamp: attendanceTime,
           photoUri: photoUri,
           punchOutPhotoUri: '',
           location: locationCoords,
@@ -839,10 +851,10 @@ const BDMAttendanceScreen = () => {
           workMode: 'Office',
           locationName: locationNameFromCamera,
           punchOutLocationName: '',
-          lastUpdated: currentTime
+          lastUpdated: attendanceTime
         });
       } else {
-        setPunchOutTime(format(currentTime, 'hh:mm a'));
+        setPunchOutTime(format(attendanceTime, 'hh:mm a'));
         setIsPunchedIn(false);
         setTodayRecord({
           ...todayRecord,
@@ -852,7 +864,7 @@ const BDMAttendanceScreen = () => {
           punchOutLocation: locationCoords,
           totalHours: totalHours,
           punchOutLocationName: locationNameFromCamera,
-          lastUpdated: currentTime
+          lastUpdated: attendanceTime
         } as AttendanceRecord);
       }
   
@@ -870,7 +882,7 @@ const BDMAttendanceScreen = () => {
       // Show success message
       Alert.alert(
         'Success',
-        `Attendance ${isPunchIn ? 'Punch In' : 'Punch Out'} recorded successfully at ${format(currentTime, 'hh:mm a')}`,
+        `Attendance ${isPunchIn ? 'Punch In' : 'Punch Out'} recorded successfully at ${format(attendanceTime, 'hh:mm a')}`,
         [{ text: 'OK' }]
       );
       
@@ -1217,10 +1229,13 @@ const BDMAttendanceScreen = () => {
   const renderHistoryCard = (record: AttendanceRecord, index: number) => {
     const isAutoPunchOutRecord = record.punchOut === '23:59' && !record.punchOutPhotoUri;
     
+    // Extract day number from the date format for display
+    const displayDate = record.date.includes(':') ? record.date.split(':')[2] : record.date;
+    
     return (
       <View key={index} style={styles.historyCard}>
         <View style={styles.dateColumn}>
-          <Text style={styles.dateNumber}>{record.date}</Text>
+          <Text style={styles.dateNumber}>{displayDate}</Text>
           <Text style={styles.dateDay}>{record.day}</Text>
         </View>
         <View style={styles.punchDetails}>
@@ -1267,16 +1282,9 @@ const BDMAttendanceScreen = () => {
         return;
       }
 
-      const role = await getUserRole();
-      if (!role) {
-        console.error('User role not found');
-        return;
-      }
-
       const currentTime = new Date();
-      const dateStr = format(currentTime, 'dd');
-      const roleCollection = `${role}_monthly_attendance`;
-      const attendanceRef = collection(db, roleCollection);
+      const dateStr = format(currentTime, 'yyyy:MM:dd');
+      const attendanceRef = collection(db, 'bdm_monthly_attendance');
       const todayQuery = query(
         attendanceRef,
         where('date', '==', dateStr),

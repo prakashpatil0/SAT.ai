@@ -35,11 +35,11 @@ const MainLayout = ({
             </TouchableOpacity>
           )}
           <TouchableOpacity 
-            onPress={() => navigation.navigate('Profile')}
+            onPress={() => navigation.navigate('Profile' as never)}
             style={styles.profileButton}
           >
             <Image 
-              source={{ uri: profileImage }} 
+              source={{ uri: profileImage || '' }} 
               style={styles.profileImage}
             />
           </TouchableOpacity>
@@ -50,7 +50,11 @@ const MainLayout = ({
           <View style={styles.leftContainer}>
             {showBackButton && (
               <TouchableOpacity 
-                onPress={() => navigation.goBack()}
+                onPress={() => {
+                  if (navigation.canGoBack()) {
+                    navigation.goBack();
+                  }
+                }}
                 style={styles.backButton}
               >
                 <MaterialIcons name="arrow-back" size={24} color="#333" />

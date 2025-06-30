@@ -417,24 +417,6 @@ const AttendanceScreen = () => {
       return;
     }
 
-    const daysInMonth = new Date(
-      parseInt(currentYear),
-      parseInt(currentMonth),
-      0
-    ).getDate();
-
-    const allDates = Array.from({ length: daysInMonth }, (_, i) => {
-      const date = new Date(
-        parseInt(currentYear),
-        parseInt(currentMonth) - 1,
-        i + 1
-      );
-      return {
-        dateStr: format(date, 'yyyy:MM:dd'),
-        isSunday: format(date, 'EEEE') === 'Sunday',
-      };
-    });
-
     const currentMonthRecords = history.filter((record) => {
       const recordDate = new Date(record.timestamp);
       return (
@@ -444,20 +426,10 @@ const AttendanceScreen = () => {
     });
 
     currentMonthRecords.forEach((record) => {
-      counts[record.status]++;
+      if (record.status in counts) {
+        counts[record.status]++;
+      }
     });
-
-    const today = format(new Date(), 'yyyy:MM:dd');
-
-    const attendedDates = currentMonthRecords.map((record) => record.date);
-    const onLeaveDates = allDates.filter(
-      ({ dateStr, isSunday }) =>
-        !isSunday &&
-        !attendedDates.includes(dateStr) &&
-        parseInt(dateStr.split(':')[2]) <= parseInt(today.split(':')[2])
-    );
-
-    counts['On Leave'] += onLeaveDates.length;
 
     setStatusCounts(counts);
   };

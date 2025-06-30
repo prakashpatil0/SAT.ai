@@ -575,21 +575,21 @@ const AttendanceScreen = () => {
 
   useEffect(() => {
     if (attendanceHistory.length > 0) {
-      let filtered = [...attendanceHistory];
-
-      filtered = filtered.filter((record) => {
+      const monthlyRecords = attendanceHistory.filter((record) => {
         const recordDate = new Date(record.timestamp);
-        return format(recordDate, 'MMMM') === selectedMonth;
+        return format(recordDate, "MMMM") === selectedMonth;
       });
 
+      calculateStatusCounts(monthlyRecords);
+
+      let recordsToDisplay = monthlyRecords;
       if (selectedStatus) {
-        filtered = filtered.filter(
+        recordsToDisplay = monthlyRecords.filter(
           (record) => record.status === selectedStatus
         );
       }
 
-      setFilteredHistory(filtered);
-      calculateStatusCounts(filtered);
+      setFilteredHistory(recordsToDisplay);
     }
   }, [selectedMonth, selectedStatus, attendanceHistory]);
 

@@ -1,47 +1,53 @@
-import React, { useState, useRef, useEffect } from "react";
-import { 
-  View, 
-  Text, 
-  FlatList, 
-  StyleSheet, 
-  TouchableOpacity, 
-  Animated, 
-  Image,
-  Alert,
+import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import {
+  View,
+  Text,
+  FlatList,
+  StyleSheet,
+  TouchableOpacity,
+  Animated,
   ActivityIndicator,
   NativeSyntheticEvent,
   NativeScrollEvent,
   Platform,
   RefreshControl,
   PermissionsAndroid,
-  ScrollView,
-  Easing, Dimensions 
+  Dimensions,
+  Alert,
 } from "react-native";
-import { ProgressBar, Card } from "react-native-paper";
-import { useNavigation } from "@react-navigation/native";
-import { StackNavigationProp } from '@react-navigation/stack';
-import * as Haptics from 'expo-haptics';
-import { MaterialIcons } from '@expo/vector-icons';
-import { useProfile } from '@/app/context/ProfileContext';
-import { BDMStackParamList, RootStackParamList } from '@/app/index';
-import BDMMainLayout from '@/app/components/BDMMainLayout';
-import CallLog from 'react-native-call-log';
-import { collection, addDoc,query, where, getDocs, doc, getDoc, setDoc, orderBy, limit, serverTimestamp, Timestamp } from 'firebase/firestore';
-import { db, auth } from '@/firebaseConfig';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { ProgressBar } from "react-native-paper";
+import { useNavigation, useFocusEffect } from "@react-navigation/native";
+import { StackNavigationProp } from "@react-navigation/stack";
+import * as Haptics from "expo-haptics";
+import { MaterialIcons } from "@expo/vector-icons";
+import { useProfile } from "@/app/context/ProfileContext";
+import { BDMStackParamList } from "@/app/index";
+import BDMMainLayout from "@/app/components/BDMMainLayout";
+import CallLogModule from "react-native-call-log";
+
+const SCREEN_HEIGHT = Dimensions.get("window").height;
+import {
+  collection,
+  addDoc,
+  query,
+  where,
+  getDocs,
+  doc,
+  getDoc,
+  orderBy,
+  serverTimestamp,
+  Timestamp,
+  onSnapshot,
+  updateDoc,
+} from "firebase/firestore";
+import { db, auth } from "@/firebaseConfig";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import AppGradient from "@/app/components/AppGradient";
-import { getAuth } from 'firebase/auth';
-import { getFirestore, onSnapshot, updateDoc } from 'firebase/firestore';
-import api from '@/app/services/api';
-import { getCurrentWeekAchievements } from "@/app/services/targetService";
-import TelecallerAddContactModal from '@/app/Screens/Telecaller/TelecallerAddContactModal';
-import { useSharedValue, withRepeat, withSequence, withTiming, withDelay, useAnimatedStyle } from 'react-native-reanimated';
-import AnimatedReanimated from 'react-native-reanimated';
-import { startOfWeek, endOfWeek, format } from 'date-fns';
-import Dialer from '@/app/components/Dialer/Dialer';
-import * as Linking from 'expo-linking';
-
-
+import { startOfWeek, endOfWeek, format } from "date-fns";
+import Dialer from "@/app/components/Dialer/Dialer";
+import * as Linking from "expo-linking";
+import TelecallerAddContactModal from "@/app/Screens/Telecaller/TelecallerAddContactModal";
+// Interfaces remain unchanged
 interface CallLogEntry {
   phoneNumber: string;
   timestamp: string;
@@ -56,13 +62,13 @@ interface CallLog {
   phoneNumber: string;
   timestamp: Date;
   duration: number;
-  type: 'incoming' | 'outgoing' | 'missed';
-  status: 'completed' | 'missed' | 'in-progress';
+  type: "incoming" | "outgoing" | "missed";
+  status: "completed" | "missed" | "in-progress";
   contactId?: string;
   contactName?: string;
   isNewContact?: boolean;
   notes?: string[];
-  contactType?: 'person' | 'company';
+  contactType?: "person" | "company";
   companyInfo?: Company;
 }
 
@@ -106,7 +112,7 @@ interface Contact {
     number: string;
   }>;
   company?: string;
-  contactType?: 'person' | 'company';
+  contactType?: "person" | "company";
 }
 
 interface Company {
@@ -120,75 +126,94 @@ interface CompanyDatabase {
   [domain: string]: Company;
 }
 
-const CALL_LOGS_STORAGE_KEY = 'device_call_logs';
-const CALL_LOGS_LAST_UPDATE = 'call_logs_last_update';
-const OLDER_LOGS_UPDATE_INTERVAL = 12 * 60 * 60 * 1000; // 12 hours
-const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000; // 30 days in milliseconds
-const ACHIEVEMENT_STORAGE_KEY = 'bdm_weekly_achievement';
-
-// Mock company database - in a real app, this would come from a backend API or Firestore
+const CALL_LOGS_STORAGE_KEY = "device_call_logs";
+const CALL_LOGS_LAST_UPDATE = "call_logs_last_update";
+const OLDER_LOGS_UPDATE_INTERVAL = 12 * 60 * 60 * 1000;
+const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+const ACHIEVEMENT_STORAGE_KEY = "bdm_weekly_achievement";
+const SCREEN_WIDTH = Dimensions.get("window").width;
 const COMPANY_DATABASE: CompanyDatabase = {
-  'google.com': {
-    name: 'Google',
-    domain: 'google.com',
-    industry: 'Technology',
+  "google.com": {
+    name: "Google",
+    domain: "google.com",
+    industry: "Technology",
     contacts: [
-      { firstName: 'John', lastName: 'Smith', id: 'gs1', contactType: 'company', company: 'Google' },
-      { firstName: 'Sarah', lastName: 'Lee', id: 'gs2', contactType: 'company', company: 'Google' }
-    ]
+      { firstName: "John", lastName: "Smith", id: "gs1", contactType: "company", company: "Google" },
+      { firstName: "Sarah", lastName: "Lee", id: "gs2", contactType: "company", company: "Google" },
+    ],
   },
-  'amazon.com': {
-    name: 'Amazon',
-    domain: 'amazon.com',
-    industry: 'E-commerce',
-    contacts: [
-      { firstName: 'Mike', lastName: 'Johnson', id: 'am1', contactType: 'company', company: 'Amazon' }
-    ]
+  "amazon.com": {
+    name: "Amazon",
+    domain: "amazon.com",
+    industry: "E-commerce",
+    contacts: [{ firstName: "Mike", lastName: "Johnson", id: "am1", contactType: "company", company: "Amazon" }],
   },
-  'microsoft.com': {
-    name: 'Microsoft',
-    domain: 'microsoft.com',
-    industry: 'Technology',
-    contacts: [
-      { firstName: 'Priya', lastName: 'Patel', id: 'ms1', contactType: 'company', company: 'Microsoft' }
-    ]
-  }
+  "microsoft.com": {
+    name: "Microsoft",
+    domain: "microsoft.com",
+    industry: "Technology",
+    contacts: [{ firstName: "Priya", lastName: "Patel", id: "ms1", contactType: "company", company: "Microsoft" }],
+  },
 };
 
-// Function to detect if a phone number belongs to a company
-const detectCompany = (phoneNumber: string, contactName: string): { isCompany: boolean; company?: Company } => {
-  // First check if we have company information from the contact name
-  if (contactName) {
-    // Check against our known company names
-    for (const domain in COMPANY_DATABASE) {
-      const company = COMPANY_DATABASE[domain];
-      if (contactName.toLowerCase().includes(company.name.toLowerCase())) {
-        return { isCompany: true, company };
-      }
+const COMPANY_KEYWORDS = [
+  "Pvt Ltd", "LLP", "Ltd", "Inc", "Enterprises", "Corporation", "Corp", "Company", "Co", 
+  "Limited", "Private Limited", "Public Limited", "Partnership", "Associates", "Group",
+  "Industries", "Solutions", "Technologies", "Systems", "Services", "Consulting",
+  "International", "Global", "Worldwide", "Trading", "Manufacturing", "Construction",
+  "Real Estate", "Finance", "Banking", "Insurance", "Healthcare", "Pharmaceuticals",
+  "Automotive", "Telecommunications", "Media", "Entertainment", "Education", "Hospitality",
+  "Retail", "E-commerce", "Logistics", "Transportation", "Energy", "Oil", "Gas",
+  "Mining", "Agriculture", "Food", "Beverages", "Textiles", "Chemicals", "Electronics"
+];
+
+const detectContactType = (contactName: string): 'company' | 'person' => {
+  if (!contactName) return 'person';
+  
+  const name = contactName.toLowerCase();
+  
+  // Check for company keywords
+  for (const keyword of COMPANY_KEYWORDS) {
+    if (name.includes(keyword.toLowerCase())) {
+      return 'company';
     }
   }
   
-  // Check some common company phone numbers (mock data)
-  const companyPhonePatterns: Record<string, string> = {
-    '+1800': 'google.com',
-    '+1844': 'amazon.com',
-    '+1866': 'microsoft.com',
-    // Add more patterns as needed
-  };
-
-  // Check if the phone number matches any known patterns
-  for (const pattern in companyPhonePatterns) {
-    if (phoneNumber.startsWith(pattern)) {
-      const domain = companyPhonePatterns[pattern];
-      return { isCompany: true, company: COMPANY_DATABASE[domain] };
+  // Additional company detection patterns
+  const companyPatterns = [
+    /\b(?:pvt|ltd|llp|inc|corp|co)\b/i,  // Common abbreviations
+    /\b(?:enterprises|corporation|company|limited|private|public)\b/i,  // Full words
+    /\b(?:solutions|technologies|systems|services|consulting)\b/i,  // Service companies
+    /\b(?:industries|manufacturing|construction|trading)\b/i,  // Industrial companies
+    /\b(?:international|global|worldwide)\b/i,  // International companies
+    /\b(?:group|associates|partners)\b/i,  // Group companies
+  ];
+  
+  for (const pattern of companyPatterns) {
+    if (pattern.test(name)) {
+      return 'company';
     }
   }
-
-  return { isCompany: false };
+  
+  // Check for personal name patterns (first name + last name)
+  const nameParts = contactName.trim().split(/\s+/);
+  if (nameParts.length >= 2 && nameParts.length <= 4) {
+    // If it looks like a personal name (2-4 words), check if it doesn't contain company indicators
+    const hasCompanyIndicators = COMPANY_KEYWORDS.some(keyword => 
+      name.includes(keyword.toLowerCase())
+    );
+    
+    if (!hasCompanyIndicators) {
+      return 'person';
+    }
+  }
+  
+  // Default to person if uncertain
+  return 'person';
 };
 
-const SkeletonLoader = ({ width, height, style }: { width: number | string; height: number; style?: any }) => {
-  const [opacity] = useState(new Animated.Value(0.3));
+const SkeletonLoader = React.memo(({ width, height, style }: { width: number | string; height: number; style?: any }) => {
+  const opacity = useRef(new Animated.Value(0.3)).current;
 
   useEffect(() => {
     const animation = Animated.loop(
@@ -197,13 +222,11 @@ const SkeletonLoader = ({ width, height, style }: { width: number | string; heig
           toValue: 0.7,
           duration: 1000,
           useNativeDriver: true,
-          easing: Easing.inOut(Easing.ease),
         }),
         Animated.timing(opacity, {
           toValue: 0.3,
           duration: 1000,
           useNativeDriver: true,
-          easing: Easing.inOut(Easing.ease),
         }),
       ])
     );
@@ -211,30 +234,13 @@ const SkeletonLoader = ({ width, height, style }: { width: number | string; heig
     return () => animation.stop();
   }, []);
 
-  return (
-    <Animated.View
-      style={[
-        {
-          width,
-          height,
-          backgroundColor: '#E5E7EB',
-          borderRadius: 8,
-          opacity,
-        },
-        style,
-      ]}
-    />
-  );
-};
+  return <Animated.View style={[{ width, height, backgroundColor: "#E5E7EB", borderRadius: 8, opacity }, style]} />;
+});
 
 const BDMHomeScreen = () => {
   const [callLogs, setCallLogs] = useState<GroupedCallLog[]>([]);
   const [isDialerVisible, setDialerVisible] = useState(false);
-  const [dialerHeight] = useState(new Animated.Value(0));
-  const [dialerY] = useState(new Animated.Value(Dimensions.get('window').height));
-  const dialerOpacity = useRef(new Animated.Value(1)).current;
-  const [phoneNumber, setPhoneNumber] = useState('');
-  const [isLoading, setIsLoading] = useState(true);
+  const [phoneNumber, setPhoneNumber] = useState("");
   const [isScrolling, setIsScrolling] = useState(false);
   const [callDuration, setCallDuration] = useState(0);
   const [callTimer, setCallTimer] = useState<NodeJS.Timeout | null>(null);
@@ -245,158 +251,73 @@ const BDMHomeScreen = () => {
   const [progressText, setProgressText] = useState("40%");
   const [contacts, setContacts] = useState<Record<string, Contact>>({});
   const [userName, setUserName] = useState("User");
-  const [expandedCardId, setExpandedCardId] = useState<string | null>(null);
+  const [expandedCallId, setExpandedCallId] = useState<string | null>(null);
   const [isFirstTimeUser, setIsFirstTimeUser] = useState(true);
   const [showWelcomeModal, setShowWelcomeModal] = useState(false);
   const [isLoadingSimLogs, setIsLoadingSimLogs] = useState(false);
-  const [savedContacts, setSavedContacts] = useState<{[key: string]: boolean}>({});
-  const [expandedCallId, setExpandedCallId] = useState<string | null>(null);
-  const [selectedNumber, setSelectedNumber] = useState('');
+  const [savedContacts, setSavedContacts] = useState<{ [key: string]: boolean }>({});
+  const [selectedNumber, setSelectedNumber] = useState("");
   const [addContactModalVisible, setAddContactModalVisible] = useState(false);
+  
+const [meetingDetails, setMeetingDetails] = useState<
+  Array<{
+    meetingId: string;
+    meetingDate: { seconds: number };
+    individuals: Array<{ name: string }>;
+  }>
+>([]); // Type this to match the structure of your meeting data
+  const [isLoading, setIsLoading] = useState(true);  // Loading state for fetching data
   const [weeklyAchievement, setWeeklyAchievement] = useState({
     percentageAchieved: 0,
-    isLoading: true
+    isLoading: true,
   });
   const [meetingStats, setMeetingStats] = useState({
     totalMeetings: 0,
-    totalDuration: 0
+    totalDuration: 0,
   });
-  const statsUpdateInterval = useRef<NodeJS.Timeout | null>(null);
-  const [waveAnimation] = useState(new Animated.Value(0));
-  
+
   const navigation = useNavigation<StackNavigationProp<BDMStackParamList>>();
   const fadeAnim = useRef(new Animated.Value(0)).current;
-  const scaleAnim = useRef(new Animated.Value(1)).current;
-  const scrollY = useRef(new Animated.Value(0));
+  const dialerHeight = useRef(new Animated.Value(0)).current;
+  const dialerY = useRef(new Animated.Value(Dimensions.get("window").height)).current;
+  const dialerOpacity = useRef(new Animated.Value(1)).current;
+  const scrollY = useRef(new Animated.Value(0)).current;
   const { userProfile } = useProfile();
   const processedLogs = useRef<CallLog[]>([]);
 
-  useEffect(() => {
-    checkAndRequestPermissions();
-    
-    // Load data
-    const loadInitialData = async () => {
-      try {
-        setIsLoading(true);
-        
-        // Check if user is first time
-        const isFirstTime = await AsyncStorage.getItem('isFirstTimeUser');
-        if (isFirstTime === null) {
-          // First time user
-          await AsyncStorage.setItem('isFirstTimeUser', 'false');
-          setIsFirstTimeUser(true);
-          setShowWelcomeModal(true);
-        } else {
-          setIsFirstTimeUser(false);
-        }
-        
-        // Set user name
-        if (userProfile?.name) {
-          setUserName(userProfile.name);
-        } else if (userProfile?.firstName) {
-          setUserName(`${userProfile.firstName} ${userProfile.lastName || ''}`);
-        } else if (auth.currentUser?.displayName) {
-          setUserName(auth.currentUser.displayName);
-        }
-        
-        // Load data in parallel
-        await Promise.all([
-          loadSavedContacts(),
-          fetchCallLogs(),
-          fetchWeeklyAchievement()
-        ]);
-
-        // Mark as visited
-        await AsyncStorage.setItem('has_visited_bdm_home', 'true');
-      } catch (error) {
-        console.error("Error loading initial data:", error);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-    
-    loadInitialData();
-    
-    // Animation
-    Animated.timing(fadeAnim, {
-      toValue: 1,
-      duration: 500,
-      useNativeDriver: true,
-    }).start();
-    
-  }, []);
-
-  // Add wave animation effect
-  useEffect(() => {
-    if (isLoading) {
-      Animated.loop(
-        Animated.sequence([
-          Animated.timing(waveAnimation, {
-            toValue: 1,
-            duration: 1000,
-            useNativeDriver: true,
-            easing: Easing.inOut(Easing.ease),
-          }),
-          Animated.timing(waveAnimation, {
-            toValue: 0,
-            duration: 1000,
-            useNativeDriver: true,
-            easing: Easing.inOut(Easing.ease),
-          }),
-        ])
-      ).start();
-    } else {
-      waveAnimation.setValue(0);
-    }
-  }, [isLoading]);
-
-  const checkAndRequestPermissions = async () => {
+  const checkAndRequestPermissions = useCallback(async () => {
     try {
       const hasPermission = await requestCallLogPermission();
       return hasPermission;
     } catch (error) {
-      console.error('Error checking permissions:', error);
       return false;
     }
-  };
+  }, []);
 
-  const requestCallLogPermission = async () => {
-    if (Platform.OS === 'android') {
+  const requestCallLogPermission = useCallback(async () => {
+    if (Platform.OS === "android") {
       try {
-        const permissions = [
-          PermissionsAndroid.PERMISSIONS.READ_CALL_LOG,
-          PermissionsAndroid.PERMISSIONS.READ_PHONE_STATE
-        ];
-
+        const permissions = [PermissionsAndroid.PERMISSIONS.READ_CALL_LOG, PermissionsAndroid.PERMISSIONS.READ_PHONE_STATE];
         const granted = await PermissionsAndroid.requestMultiple(permissions);
-        
-        const allGranted = Object.values(granted).every(
-          permission => permission === PermissionsAndroid.RESULTS.GRANTED
-        );
+        const allGranted = Object.values(granted).every((permission) => permission === PermissionsAndroid.RESULTS.GRANTED);
 
         if (!allGranted) {
-          Alert.alert(
-            'Permission Required',
-            'Call log permissions are required to view call history.',
-            [{ text: 'OK' }]
-          );
+          Alert.alert("Permission Required", "Call log permissions are required to view call history.", [{ text: "OK" }]);
         }
-
         return allGranted;
       } catch (err) {
-        console.warn('Error requesting permissions:', err);
         return false;
       }
     }
     return false;
-  };
+  }, []);
 
-  const loadSavedContacts = async () => {
+  const loadSavedContacts = useCallback(async () => {
     try {
-      const storedContacts = await AsyncStorage.getItem('contacts');
+      const storedContacts = await AsyncStorage.getItem("contacts");
       if (storedContacts) {
         const contacts = JSON.parse(storedContacts);
-        const contactsMap = contacts.reduce((acc: {[key: string]: boolean}, contact: any) => {
+        const contactsMap = contacts.reduce((acc: { [key: string]: boolean }, contact: any) => {
           if (contact.phoneNumber) {
             acc[contact.phoneNumber] = true;
           }
@@ -404,103 +325,68 @@ const BDMHomeScreen = () => {
         }, {});
         setSavedContacts(contactsMap);
       }
-    } catch (error) {
-      console.error('Error loading saved contacts:', error);
-    }
-  };
+    } catch (error) {}
+  }, []);
 
-  const fetchCallLogs = async () => {
+  const fetchCallLogs = useCallback(async () => {
     try {
       const userId = auth.currentUser?.uid;
-      if (!userId) {
-        console.log('No user ID found for call logs');
-        return;
-      }
+      if (!userId) return;
 
       const now = new Date();
       const startOfToday = new Date(now.setHours(0, 0, 0, 0));
+      const callLogsRef = collection(db, "callLogs");
+      const logsQuery = query(callLogsRef, where("userId", "==", userId), where("timestamp", ">=", startOfToday), orderBy("timestamp", "desc"));
 
-      const callLogsRef = collection(db, 'callLogs');
-
-      // Set up real-time listener for today's logs
-      const logsQuery = query(
-        callLogsRef,
-        where('userId', '==', userId),
-        where('timestamp', '>=', startOfToday),
-        orderBy('timestamp', 'desc')
-      );
-
-      // Set up real-time listener
-      const unsubscribe = onSnapshot(logsQuery, async (snapshot) => {
+      return onSnapshot(logsQuery, async (snapshot) => {
         const logs = await processCallLogs(snapshot);
-        updateCallLogsState(logs, 'current');
-        
-        // Calculate total duration for today
-        const totalDuration = logs.reduce((acc, log) => acc + (log.duration || 0), 0);
-        console.log(`Total Duration for Today: ${formatDuration(totalDuration)}`); // Debugging line
+        updateCallLogsState(logs, "current");
       });
+    } catch (error) {}
+  }, []);
 
-      return unsubscribe;
-    } catch (err: unknown) {
-      const error = err as Error;
-      console.error('Error fetching call logs:', error);
-    }
-  };
-
-  const processCallLogs = async (snapshot: any) => {
+  const processCallLogs = useCallback(async (snapshot: any) => {
     const logs: CallLog[] = [];
-    
+
     for (const docSnapshot of snapshot.docs) {
       const data = docSnapshot.data();
-      
       const log: CallLog = {
         id: docSnapshot.id,
-        phoneNumber: data.phoneNumber || '',
+        phoneNumber: data.phoneNumber || "",
         timestamp: data.timestamp?.toDate() || new Date(),
         duration: data.duration || 0,
-        type: data.type || 'outgoing',
-        status: data.status || 'completed',
+        type: data.type || "outgoing",
+        status: data.status || "completed",
         contactId: data.contactId,
-        contactName: data.contactName || ''
+        contactName: data.contactName || "",
       };
 
       if (data.contactId) {
         try {
-          const contactDocRef = doc(db, 'contacts', data.contactId);
+          const contactDocRef = doc(db, "contacts", data.contactId);
           const contactDoc = await getDoc(contactDocRef);
           if (contactDoc.exists()) {
             const contactData = contactDoc.data();
-            log.contactName = contactData.name || '';
+            log.contactName = contactData.name || "";
           }
-        } catch (err) {
-          console.error('Error fetching contact:', err);
-        }
+        } catch (err) {}
       }
 
       logs.push(log);
     }
 
     return logs;
-  };
+  }, []);
 
-  const updateCallLogsState = (logs: CallLog[], type: 'current' | 'all') => {
-    // Group logs by phone number
+  const updateCallLogsState = useCallback((logs: CallLog[], type: "current" | "all") => {
     const groupedLogs = logs.reduce((acc: { [key: string]: GroupedCallLog }, log) => {
-      // Skip logs with invalid phone numbers
       if (!log.phoneNumber) return acc;
-      
       const key = log.phoneNumber;
       if (!acc[key]) {
-        acc[key] = {
-          ...log,
-          callCount: 1,
-          allCalls: [log]
-        };
+        acc[key] = { ...log, callCount: 1, allCalls: [log] };
       } else {
         acc[key].callCount++;
         acc[key].allCalls.push(log);
-        // Update the most recent call details
-        // Ensure both timestamps are valid before comparing
         if (log.timestamp && acc[key].timestamp && log.timestamp > acc[key].timestamp) {
           acc[key].timestamp = log.timestamp;
           acc[key].duration = log.duration;
@@ -512,63 +398,45 @@ const BDMHomeScreen = () => {
       return acc;
     }, {});
 
-    // Convert to array and sort by timestamp with proper error handling
     const sortedLogs = Object.values(groupedLogs).sort((a, b) => {
-      // Ensure both timestamps are valid Date objects
       const aTime = a.timestamp instanceof Date ? a.timestamp.getTime() : 0;
       const bTime = b.timestamp instanceof Date ? b.timestamp.getTime() : 0;
       return bTime - aTime;
     });
 
     setCallLogs(sortedLogs);
-  };
+  }, []);
 
-  const fetchDeviceCallLogs = async () => {
+  const fetchDeviceCallLogs = useCallback(async () => {
     try {
       setIsLoadingSimLogs(true);
-
-      // Check last update time
       const lastUpdate = await AsyncStorage.getItem(CALL_LOGS_LAST_UPDATE);
       const storedLogs = await AsyncStorage.getItem(CALL_LOGS_STORAGE_KEY);
       const now = Date.now();
       const thirtyDaysAgo = new Date(now - THIRTY_DAYS_MS);
 
-      // If we have stored logs and they're recent, use them
-      if (storedLogs && lastUpdate && (now - parseInt(lastUpdate)) < 60000) { // 1 minute threshold
+      if (storedLogs && lastUpdate && now - parseInt(lastUpdate) < 60000) {
         try {
           const parsedLogs = JSON.parse(storedLogs);
-          // Filter logs from last 30 days and deduplicate
-          const recentLogs = deduplicateCallLogs(parsedLogs.filter((log: any) => {
-            const logTimestamp = new Date(log.timestamp).getTime();
-            return logTimestamp >= thirtyDaysAgo.getTime();
-          }));
-          
-          // Format and update logs
+          const recentLogs = deduplicateCallLogs(
+            parsedLogs.filter((log: any) => new Date(log.timestamp).getTime() >= thirtyDaysAgo.getTime())
+          );
           const formattedLogs = recentLogs.map((log: any) => ({
             ...log,
             timestamp: new Date(log.timestamp).toISOString(),
             duration: parseInt(log.duration) || 0,
-            type: log.type || 'outgoing',
-            status: log.status || 'completed'
+            type: log.type || "outgoing",
+            status: log.status || "completed",
           }));
-          
-          // Update logs in state
-          updateCallLogsState(formattedLogs, 'all');
+          updateCallLogsState(formattedLogs, "all");
         } catch (error) {
-          console.error('Error parsing stored logs:', error);
           await fetchFreshLogs();
         }
-        setIsLoadingSimLogs(false);
-        return;
+      } else {
+        await fetchFreshLogs();
       }
-
-      await fetchFreshLogs();
-    } catch (err: unknown) {
-      const error = err as Error;
-      console.error('Error fetching device call logs:', error);
-      Alert.alert('Error', 'Failed to fetch call logs');
-      
-      // Try to use stored logs as fallback
+    } catch (error) {
+      Alert.alert("Error", "Failed to fetch call logs");
       try {
         const storedLogs = await AsyncStorage.getItem(CALL_LOGS_STORAGE_KEY);
         if (storedLogs) {
@@ -578,126 +446,222 @@ const BDMHomeScreen = () => {
             ...log,
             timestamp: new Date(log.timestamp).toISOString(),
             duration: parseInt(log.duration) || 0,
-            type: log.type || 'outgoing',
-            status: log.status || 'completed'
+            type: log.type || "outgoing",
+            status: log.status || "completed",
           }));
-          updateCallLogsState(formattedLogs, 'all');
+          updateCallLogsState(formattedLogs, "all");
         }
-      } catch (storageError) {
-        console.error('Error reading from storage:', storageError);
-      }
+      } catch (storageError) {}
     } finally {
       setIsLoadingSimLogs(false);
     }
-  };
+  }, []);
 
+  const fetchFreshLogs = useCallback(async () => {
+    if (Platform.OS === "android") {
+      const hasPermission = await requestCallLogPermission();
+      if (hasPermission) {
+        const logs = await CallLogModule.loadAll();
+        const thirtyDaysAgo = new Date();
+        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+        const recentLogs = logs.filter((log: any) => parseInt(log.timestamp) >= thirtyDaysAgo.getTime());
+        const formattedLogs = recentLogs.map((log: any) => ({
+          id: String(log.timestamp),
+          phoneNumber: log.phoneNumber,
+          contactName: log.name && log.name !== "Unknown" ? log.name : log.phoneNumber,
+          timestamp: new Date(parseInt(log.timestamp)),
+          duration: parseInt(log.duration) || 0,
+          type: (log.type || "OUTGOING").toLowerCase() as "incoming" | "outgoing" | "missed",
+          status: (log.type === "MISSED" ? "missed" : "completed") as "missed" | "completed" | "in-progress",
+        }));
 
-  const [isLoadingContacts, setIsLoadingContacts] = useState(false);
-  const dialPad = [
-    { num: '1', alpha: '' },
-    { num: '2', alpha: 'ABC' },
-    { num: '3', alpha: 'DEF' },
-    { num: '4', alpha: 'GHI' },
-    { num: '5', alpha: 'JKL' },
-    { num: '6', alpha: 'MNO' },
-    { num: '7', alpha: 'PQRS' },
-    { num: '8', alpha: 'TUV' },
-    { num: '9', alpha: 'WXYZ' },
-    { num: '*', alpha: '' },
-    { num: '0', alpha: '+' },
-    { num: '#', alpha: '' }
-  ];
-
-  const handleDialPress = (digit: string) => {
-    setPhoneNumber(prev => prev + digit);
-  };
-    const handleBackspace = () => {
-      setPhoneNumber(prev => prev.slice(0, -1));
-    };
-  
-    const handleScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
-      const velocity = event.nativeEvent.velocity?.y;
-      const scrolling = velocity !== undefined && velocity !== 0;
-      
-      if (scrolling && !isScrolling) {
-        setIsScrolling(true);
-        Animated.timing(dialerOpacity, {
-          toValue: 0,
-          duration: 200,
-          useNativeDriver: true
-        }).start();
+        await AsyncStorage.setItem(CALL_LOGS_STORAGE_KEY, JSON.stringify(formattedLogs));
+        await AsyncStorage.setItem(CALL_LOGS_LAST_UPDATE, String(Date.now()));
+        updateCallLogsState(formattedLogs, "all");
       }
-    };
-  
-    const handleScrollEnd = () => {
-      setIsScrolling(false);
-      Animated.timing(dialerOpacity, {
-        toValue: 1,
-        duration: 200,
-        useNativeDriver: true
-      }).start();
-    };
-  
-    // Function to start call duration timer
-    const startCallTimer = () => {
-      const startTime = new Date();
-      setCallStartTime(startTime);
-      
-      // Update duration every second
-      const timer = setInterval(() => {
-        const currentTime = new Date();
-        const durationInSeconds = Math.floor((currentTime.getTime() - startTime.getTime()) / 1000);
-        setCallDuration(durationInSeconds);
-  
-        // Update the call log in Firestore with current duration
-        updateCallDurationInFirestore(durationInSeconds);
-      }, 1000);
-      
-      setCallTimer(timer);
-    };
-  
-    // Function to stop call duration timer
-    const stopCallTimer = () => {
-      if (callTimer) {
-        clearInterval(callTimer);
-        setCallTimer(null);
-      }
-      setCallStartTime(null);
-      setCallDuration(0);
-    };
-      // Function to update call duration in Firestore
-      const updateCallDurationInFirestore = async (duration: number) => {
-        try {
-          const userId = auth.currentUser?.uid;
-          if (!userId) return;
-    
-          const callLogsRef = collection(db, 'callLogs');
-          const q = query(
-            callLogsRef,
-            where('userId', '==', userId),
-            where('status', '==', 'in-progress'),
-            orderBy('timestamp', 'desc')
-          );
-    
-          const querySnapshot = await getDocs(q);
-          const lastCallLog = querySnapshot.docs[0];
-    
-          if (lastCallLog) {
-            await updateDoc(doc(db, 'callLogs', lastCallLog.id), {
-              duration: duration,
-              lastUpdated: new Date()
-            });
-          }
-        } catch (error) {
-          console.error('Error updating call duration:', error);
-        }
-      };
- // Update the handleCall function
-  const handleCall = async (phoneNumber: string) => {
+    }
+  }, [requestCallLogPermission, updateCallLogsState]);
+
+  const fetchWeeklyAchievement = useCallback(async () => {
     try {
-      if (Platform.OS === 'android') {
+      const userId = auth.currentUser?.uid;
+      if (!userId) return;
+
+      const now = new Date();
+      const weekStart = startOfWeek(now, { weekStartsOn: 1 });
+      const weekEnd = endOfWeek(now, { weekStartsOn: 1 });
+      const currentMonth = now.getMonth() + 1;
+      const currentYear = now.getFullYear();
+      const currentWeekNumber = Math.ceil((now.getDate() + new Date(currentYear, now.getMonth(), 1).getDay()) / 7);
+
+      const achievementsRef = collection(db, "bdm_achievements");
+      const q = query(
+        achievementsRef,
+        where("userId", "==", userId),
+        where("year", "==", currentYear),
+        where("month", "==", currentMonth),
+        where("weekNumber", "==", currentWeekNumber)
+      );
+
+      const querySnapshot = await getDocs(q);
+
+      if (!querySnapshot.empty) {
+        const achievementData = querySnapshot.docs[0].data();
+        setWeeklyAchievement({
+          percentageAchieved: achievementData.percentageAchieved || 0,
+          isLoading: false,
+        });
+      } else {
+        const reportsRef = collection(db, "bdm_reports");
+        const reportsQuery = query(
+          reportsRef,
+          where("userId", "==", userId),
+          where("year", "==", currentYear),
+          where("month", "==", currentMonth),
+          where("weekNumber", "==", currentWeekNumber)
+        );
+
+        const reportsSnapshot = await getDocs(reportsQuery);
+
+        let totalMeetings = 0;
+        let totalAttendedMeetings = 0;
+        let totalDuration = 0;
+        let totalClosing = 0;
+
+        reportsSnapshot.forEach((doc) => {
+          const data = doc.data();
+          totalMeetings += data.numMeetings || 0;
+          totalAttendedMeetings += data.positiveLeads || 0;
+          totalClosing += data.totalClosingAmount || 0;
+
+          const durationStr = data.meetingDuration || "";
+          if (durationStr.includes(":")) {
+            const [hours, minutes, seconds] = durationStr.split(":").map(Number);
+            totalDuration += hours * 3600 + minutes * 60 + seconds;
+          } else {
+            const hrMatch = durationStr.match(/(\d+)\s*hr/);
+            const minMatch = durationStr.match(/(\d+)\s*min/);
+            const hours = (hrMatch ? parseInt(hrMatch[1]) : 0) + (minMatch ? parseInt(minMatch[1]) / 60 : 0);
+            totalDuration += hours * 3600;
+          }
+        });
+
+        const meetingsPercentage = (totalMeetings / 30) * 100;
+        const attendedPercentage = (totalAttendedMeetings / 30) * 100;
+        const durationPercentage = (totalDuration / (20 * 3600)) * 100;
+        const closingPercentage = (totalClosing / 50000) * 100;
+
+        const percentageAchieved = Math.min(
+          (meetingsPercentage + attendedPercentage + durationPercentage + closingPercentage) / 4,
+          100
+        );
+        const roundedPercentage = Math.min(Math.max(Math.round(percentageAchieved * 10) / 10, 0), 100);
+
+        await addDoc(collection(db, "bdm_achievements"), {
+          userId,
+          year: currentYear,
+          month: currentMonth,
+          weekNumber: currentWeekNumber,
+          weekStart: Timestamp.fromDate(weekStart),
+          weekEnd: Timestamp.fromDate(weekEnd),
+          percentageAchieved: roundedPercentage,
+          totalMeetings,
+          totalAttendedMeetings,
+          totalDuration,
+          totalClosingAmount: totalClosing,
+          createdAt: serverTimestamp(),
+        });
+
+        setWeeklyAchievement({
+          percentageAchieved: roundedPercentage,
+          isLoading: false,
+        });
+      }
+    } catch (error) {
+      setWeeklyAchievement({
+        percentageAchieved: 0,
+        isLoading: false,
+      });
+    }
+  }, []);
+
+  const handleDialPress = useCallback((digit: string) => {
+    setPhoneNumber((prev) => prev + digit);
+  }, []);
+
+  const handleBackspace = useCallback(() => {
+    setPhoneNumber((prev) => prev.slice(0, -1));
+  }, []);
+
+  const handleScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const velocity = event.nativeEvent.velocity?.y;
+    const scrolling = velocity !== undefined && velocity !== 0;
+
+    if (scrolling && !isScrolling) {
+      setIsScrolling(true);
+      Animated.timing(dialerOpacity, {
+        toValue: 0,
+        duration: 200,
+        useNativeDriver: true,
+      }).start();
+    }
+  }, [isScrolling]);
+
+  const handleScrollEnd = useCallback(() => {
+    setIsScrolling(false);
+    Animated.timing(dialerOpacity, {
+      toValue: 1,
+      duration: 200,
+      useNativeDriver: true,
+    }).start();
+  }, []);
+
+  const startCallTimer = useCallback(() => {
+    const startTime = new Date();
+    setCallStartTime(startTime);
+
+    const timer = setInterval(() => {
+      const currentTime = new Date();
+      const durationInSeconds = Math.floor((currentTime.getTime() - startTime.getTime()) / 1000);
+      setCallDuration(durationInSeconds);
+      updateCallDurationInFirestore(durationInSeconds);
+    }, 1000);
+
+    setCallTimer(timer);
+  }, []);
+
+  const stopCallTimer = useCallback(() => {
+    if (callTimer) {
+      clearInterval(callTimer);
+      setCallTimer(null);
+    }
+    setCallStartTime(null);
+    setCallDuration(0);
+  }, [callTimer]);
+
+  const updateCallDurationInFirestore = useCallback(async (duration: number) => {
+    try {
+      const userId = auth.currentUser?.uid;
+      if (!userId) return;
+
+      const callLogsRef = collection(db, "callLogs");
+      const q = query(callLogsRef, where("userId", "==", userId), where("status", "==", "in-progress"), orderBy("timestamp", "desc"));
+      const querySnapshot = await getDocs(q);
+      const lastCallLog = querySnapshot.docs[0];
+
+      if (lastCallLog) {
+        await updateDoc(doc(db, "callLogs", lastCallLog.id), {
+          duration: duration,
+          lastUpdated: new Date(),
+        });
+      }
+    } catch (error) {}
+  }, []);
+
+  const handleCall = useCallback(async (phoneNumber: string) => {
+    try {
+      if (Platform.OS === "android") {
         const hasPermission = await requestCallLogPermission();
-        
         if (hasPermission) {
           const url = `tel:${phoneNumber}`;
           await Linking.openURL(url);
@@ -709,297 +673,109 @@ const BDMHomeScreen = () => {
         setDialerVisible(false);
       }
     } catch (error) {
-      console.error('Error making call:', error);
-      Alert.alert('Error', 'Failed to initiate call');
+      Alert.alert("Error", "Failed to initiate call");
     }
-  };
- // Function to handle call from call logs
-  const handleCallFromLogs = async (phoneNumber: string) => {
+  }, [requestCallLogPermission]);
+
+  const handleCallFromLogs = useCallback(async (phoneNumber: string) => {
     try {
       const userId = auth.currentUser?.uid;
       if (!userId) {
-        Alert.alert('Error', 'User not authenticated');
+        Alert.alert("Error", "User not authenticated");
         return;
       }
 
       const startTime = new Date();
-      // Create call log entry with initial state
-      const callLogRef = await addDoc(collection(db, 'callLogs'), {
+      const callLogRef = await addDoc(collection(db, "callLogs"), {
         userId,
         phoneNumber,
         timestamp: startTime,
         startTime: startTime,
-        type: 'outgoing',
-        status: 'in-progress',
-        duration: 0
+        type: "outgoing",
+        status: "in-progress",
+        duration: 0,
       });
 
-      // Start call duration timer
       startCallTimer();
 
-      // Make the actual phone call
       const phoneUrl = Platform.select({
         ios: `telprompt:${phoneNumber}`,
-        android: `tel:${phoneNumber}`
+        android: `tel:${phoneNumber}`,
       });
 
-      if (phoneUrl && await Linking.canOpenURL(phoneUrl)) {
+      if (phoneUrl && (await Linking.canOpenURL(phoneUrl))) {
         await Linking.openURL(phoneUrl);
         setCallActive(true);
-        // Clear the phone number if dialer is open
         if (isDialerVisible) {
-          setPhoneNumber('');
+          setPhoneNumber("");
           closeDialer();
         }
       } else {
-        throw new Error('Cannot make phone call');
+        throw new Error("Cannot make phone call");
       }
-
     } catch (error) {
-      console.error('Call Error:', error);
-      Alert.alert('Error', 'Failed to initiate call. Please check phone permissions.');
+      Alert.alert("Error", "Failed to initiate call. Please check phone permissions.");
       setCallActive(false);
       stopCallTimer();
     }
-  };
-  const resetPermissions = async () => {
-    if (__DEV__) {
-      Alert.alert(
-        'Dev: Reset Permissions',
-        'Do you want to open settings to reset permissions?',
-        [
-          { text: 'Cancel', style: 'cancel' },
-          { 
-            text: 'Open Settings',
-            onPress: () => Linking.openSettings()
-          }
-        ]
-      );
-    }
-  };
+  }, [isDialerVisible, startCallTimer, stopCallTimer]);
 
-    // Add these functions to handle dialer animations
-    const openDialer = () => {
-      setDialerVisible(true);
-      Animated.parallel([
-        Animated.timing(dialerHeight, {
-          toValue: 1,
-          duration: 300,
-          useNativeDriver: true,
-        }),
-        Animated.spring(dialerY, {
-          toValue: 0,
-          tension: 65,
-          friction: 11,
-          useNativeDriver: true,
-        }),
-      ]).start();
-    };
-  
-    const closeDialer = () => {
-      Animated.parallel([
-        Animated.timing(dialerHeight, {
-          toValue: 0,
-          duration: 300,
-          useNativeDriver: true,
-        }),
-        Animated.timing(dialerY, {
-          toValue: Dimensions.get('window').height,
-          duration: 300,
-          useNativeDriver: true,
-        }),
-      ]).start(() => setDialerVisible(false));
-    };
-  // Add new function to deduplicate call logs
-  const deduplicateCallLogs = (logs: any[]): any[] => {
+  const resetPermissions = useCallback(async () => {
+    if (__DEV__) {
+      Alert.alert("Dev: Reset Permissions", "Do you want to open settings to reset permissions?", [
+        { text: "Cancel", style: "cancel" },
+        { text: "Open Settings", onPress: () => Linking.openSettings() },
+      ]);
+    }
+  }, []);
+
+  const openDialer = useCallback(() => {
+    setDialerVisible(true);
+    Animated.parallel([
+      Animated.timing(dialerHeight, {
+        toValue: 1,
+        duration: 300,
+        useNativeDriver: true,
+      }),
+      Animated.spring(dialerY, {
+        toValue: 0,
+        tension: 65,
+        friction: 11,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, []);
+
+  const closeDialer = useCallback(() => {
+    Animated.parallel([
+      Animated.timing(dialerHeight, {
+        toValue: 0,
+        duration: 300,
+        useNativeDriver: true,
+      }),
+      Animated.timing(dialerY, {
+        toValue: Dimensions.get("window").height,
+        duration: 300,
+        useNativeDriver: true,
+      }),
+    ]).start(() => setDialerVisible(false));
+  }, []);
+
+  const deduplicateCallLogs = useCallback((logs: any[]): any[] => {
     const seen = new Set();
-    return logs.filter(log => {
-      // Create a unique key for each call based on timestamp and phone number
+    return logs.filter((log) => {
       const key = `${log.timestamp}-${log.phoneNumber}`;
-      if (seen.has(key)) {
-        return false;
-      }
+      if (seen.has(key)) return false;
       seen.add(key);
       return true;
     });
-  };
+  }, []);
 
-  const fetchFreshLogs = async () => {
-    if (Platform.OS === 'android') {
-      const hasPermission = await requestCallLogPermission();
-      
-      if (hasPermission) {
-        const logs = await CallLog.loadAll();
-        console.log('Device call logs:', logs);
-
-        const thirtyDaysAgo = new Date();
-        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-        
-        // Filter logs from last 30 days
-        const recentLogs = logs.filter((log: any) => {
-          const logTimestamp = parseInt(log.timestamp);
-          return logTimestamp >= thirtyDaysAgo.getTime();
-        });
-
-        const formattedLogs = recentLogs.map((log: any) => ({
-          id: String(log.timestamp),
-          phoneNumber: log.phoneNumber,
-          contactName: log.name && log.name !== "Unknown" ? log.name : log.phoneNumber,
-          timestamp: new Date(parseInt(log.timestamp)),
-          duration: parseInt(log.duration) || 0,
-          type: (log.type || 'OUTGOING').toLowerCase() as 'incoming' | 'outgoing' | 'missed',
-          status: (log.type === 'MISSED' ? 'missed' : 'completed') as 'missed' | 'completed' | 'in-progress'
-        }));
-
-        // Store logs in AsyncStorage
-        await AsyncStorage.setItem(CALL_LOGS_STORAGE_KEY, JSON.stringify(formattedLogs));
-        await AsyncStorage.setItem(CALL_LOGS_LAST_UPDATE, String(Date.now()));
-
-        // Update logs in state
-        updateCallLogsState(formattedLogs, 'all');
-      }
-    }
-  };
-
-  const fetchWeeklyAchievement = async () => {
-    try {
-      const userId = auth.currentUser?.uid;
-      if (!userId) {
-        console.log('No user ID found for fetching achievements');
-        return;
-      }
-
-      const now = new Date();
-      const weekStart = startOfWeek(now, { weekStartsOn: 1 }); // Monday
-      const weekEnd = endOfWeek(now, { weekStartsOn: 1 });
-
-      // Get current month, year, and week number
-      const currentMonth = now.getMonth() + 1;
-      const currentYear = now.getFullYear();
-      const currentWeekNumber = Math.ceil((now.getDate() + new Date(currentYear, now.getMonth(), 1).getDay()) / 7);
-
-      console.log("Fetching achievements for week:", currentYear, currentMonth, currentWeekNumber);
-
-      // First try to get from bdm_achievements collection
-      const achievementsRef = collection(db, 'bdm_achievements');
-      const q = query(
-        achievementsRef,
-        where('userId', '==', userId),
-        where('year', '==', currentYear),
-        where('month', '==', currentMonth),
-        where('weekNumber', '==', currentWeekNumber)
-      );
-
-      const querySnapshot = await getDocs(q);
-      
-      if (!querySnapshot.empty) {
-        const achievementData = querySnapshot.docs[0].data();
-        console.log('Found achievement data:', achievementData);
-        
-        setWeeklyAchievement({
-          percentageAchieved: achievementData.percentageAchieved || 0,
-          isLoading: false
-        });
-      } else {
-        // If no achievement record exists, calculate it directly from reports
-        console.log('No achievement record found, calculating from daily reports');
-        
-        // Query reports for the current week
-        const reportsRef = collection(db, 'bdm_reports');
-        const reportsQuery = query(
-          reportsRef,
-          where('userId', '==', userId),
-          where('year', '==', currentYear),
-          where('month', '==', currentMonth),
-          where('weekNumber', '==', currentWeekNumber)
-        );
-        
-        const reportsSnapshot = await getDocs(reportsQuery);
-        
-        let totalMeetings = 0;
-        let totalAttendedMeetings = 0;
-        let totalDuration = 0;
-        let totalClosing = 0;
-        
-        reportsSnapshot.forEach(doc => {
-          const data = doc.data();
-          totalMeetings += data.numMeetings || 0;
-          totalAttendedMeetings += data.positiveLeads || 0;
-          totalClosing += data.totalClosingAmount || 0;
-          
-          // Parse duration string - handle both formats
-          const durationStr = data.meetingDuration || '';
-          
-          // Check if it's in HH:MM:SS format
-          if (durationStr.includes(':')) {
-            const [hours, minutes, seconds] = durationStr.split(':').map(Number);
-            totalDuration += (hours * 3600) + (minutes * 60) + seconds;
-          } else {
-            // Handle "X hr Y mins" format
-            const hrMatch = durationStr.match(/(\d+)\s*hr/);
-            const minMatch = durationStr.match(/(\d+)\s*min/);
-            const hours = (hrMatch ? parseInt(hrMatch[1]) : 0) +
-                         (minMatch ? parseInt(minMatch[1]) / 60 : 0);
-            totalDuration += hours * 3600; // Convert to seconds
-          }
-        });
-        
-        // Calculate individual percentages using the same logic as BDM Target Screen
-        const meetingsPercentage = (totalMeetings / 30) * 100;
-        const attendedPercentage = (totalAttendedMeetings / 30) * 100;
-        const durationPercentage = (totalDuration / (20 * 3600)) * 100; // 20 hours in seconds
-        const closingPercentage = (totalClosing / 50000) * 100;
-        
-        // Calculate overall progress as average of all percentages
-        // Use the same rounding as in BDM View Full Report for consistency
-        const percentageAchieved = Math.min(
-          (meetingsPercentage + attendedPercentage + durationPercentage + closingPercentage) / 4,
-          100
-        );
-        
-        // Round to 1 decimal place for consistency with BDM View Full Report
-        const roundedPercentage = Math.min(Math.max(Math.round(percentageAchieved * 10) / 10, 0), 100);
-        
-        // Store the calculated achievement in the bdm_achievements collection
-        try {
-          await addDoc(collection(db, 'bdm_achievements'), {
-            userId,
-            year: currentYear,
-            month: currentMonth,
-            weekNumber: currentWeekNumber,
-            weekStart: Timestamp.fromDate(weekStart),
-            weekEnd: Timestamp.fromDate(weekEnd),
-            percentageAchieved: roundedPercentage,
-            totalMeetings,
-            totalAttendedMeetings,
-            totalDuration,
-            totalClosingAmount: totalClosing,
-            createdAt: serverTimestamp()
-          });
-          console.log('Stored weekly achievement in database');
-        } catch (error) {
-          console.error('Error storing weekly achievement:', error);
-        }
-        
-        setWeeklyAchievement({
-          percentageAchieved: roundedPercentage,
-          isLoading: false
-        });
-      }
-    } catch (error) {
-      console.error('Error fetching weekly achievement:', error);
-      setWeeklyAchievement({
-        percentageAchieved: 0,
-        isLoading: false
-      });
-    }
-  };
-
-  const formatDate = (date: Date) => {
+  const formatDate = useCallback((date: Date) => {
     const today = new Date();
     const yesterday = new Date(today);
     yesterday.setDate(yesterday.getDate() - 1);
-    
+
     if (date.toDateString() === today.toDateString()) {
       return `Today (${date.getDate()}${getDaySuffix(date.getDate())})`;
     } else if (date.toDateString() === yesterday.toDateString()) {
@@ -1007,21 +783,24 @@ const BDMHomeScreen = () => {
     } else {
       return `${date.toLocaleDateString()} (${date.getDate()}${getDaySuffix(date.getDate())})`;
     }
-  };
+  }, []);
 
-  const getDaySuffix = (day: number) => {
-    if (day > 3 && day < 21) return 'th';
+  const getDaySuffix = useCallback((day: number) => {
+    if (day > 3 && day < 21) return "th";
     switch (day % 10) {
-      case 1: return 'st';
-      case 2: return 'nd';
-      case 3: return 'rd';
-      default: return 'th';
+      case 1:
+        return "st";
+      case 2:
+        return "nd";
+      case 3:
+        return "rd";
+      default:
+        return "th";
     }
-  };
+  }, []);
 
-  const formatDuration = (seconds: number) => {
-    if (!seconds) return '';
-    
+  const formatDuration = useCallback((seconds: number) => {
+    if (!seconds) return "";
     const hours = Math.floor(seconds / 3600);
     const minutes = Math.floor((seconds % 3600) / 60);
     const remainingSeconds = seconds % 60;
@@ -1033,237 +812,212 @@ const BDMHomeScreen = () => {
     } else {
       return `${remainingSeconds}s`;
     }
-  };
+  }, []);
 
-  const calculateTotalDuration = (date: string) => {
-    // Get all logs for the specified date
-    const dayLogs = callLogs.filter(log => {
-      const logDate = new Date(log.timestamp).toLocaleDateString();
-      return logDate === date;
-    });
+  const calculateTotalDuration = useCallback(
+    (date: string) => {
+      const dayLogs = callLogs.filter((log) => new Date(log.timestamp).toLocaleDateString() === date);
+      let totalSeconds = 0;
+      dayLogs.forEach((log) => {
+        totalSeconds += log.duration || 0;
+      });
 
-    // Calculate total duration for the day
-    let totalSeconds = 0;
-    
-    // Sum up all call durations for the day, including multiple calls to the same number
-    dayLogs.forEach(log => {
-      totalSeconds += log.duration || 0;
-    });
+      const hours = Math.floor(totalSeconds / 3600);
+      const minutes = Math.floor((totalSeconds % 3600) / 60);
+      const seconds = totalSeconds % 60;
 
-    const hours = Math.floor(totalSeconds / 3600);
-    const minutes = Math.floor((totalSeconds % 3600) / 60);
-    const seconds = totalSeconds % 60;
+      if (hours > 0) {
+        return `${hours}h ${minutes}m`;
+      } else if (minutes > 0) {
+        return `${minutes}m ${seconds}s`;
+      } else {
+        return `${seconds}s`;
+      }
+    },
+    [callLogs]
+  );
 
-    if (hours > 0) {
-      return `${hours}h ${minutes}m`;
-    } else if (minutes > 0) {
-      return `${minutes}m ${seconds}s`;
-    } else {
-      return `${seconds}s`;
-    }
-  };
-
-  const handleCardClick = (id: string) => {
+  const handleCardClick = useCallback((id: string) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    setExpandedCallId(expandedCallId === id ? null : id);
-  };
+    setExpandedCallId((prev) => (prev === id ? null : id));
+  }, []);
 
-  const navigateToCallHistory = (callItem: GroupedCallLog) => {
-    if (!callItem || !callItem.allCalls) {
-      console.error('Invalid call item:', callItem);
-      return;
-    }
+  const navigateToCallHistory = useCallback(
+    (callItem: GroupedCallLog) => {
+      if (!callItem || !callItem.allCalls) return;
 
-    const meetings = callItem.allCalls.map(call => ({
-      date: formatDate(new Date(call.timestamp)),
-      time: formatTime(new Date(call.timestamp)),
-      duration: formatDuration(call.duration || 0),
-      notes: call.notes || [],
-      type: call.type || 'unknown'
-    }));
+      const meetings = callItem.allCalls.map((call) => ({
+        date: formatDate(new Date(call.timestamp)),
+        time: formatTime(new Date(call.timestamp)),
+        duration: formatDuration(call.duration || 0),
+        notes: call.notes || [],
+        type: call.type || "unknown",
+      }));
 
-    const callStats = callItem.monthlyHistory ? {
-      totalCalls: callItem.monthlyHistory.totalCalls,
-      totalDuration: callItem.monthlyHistory.totalDuration,
-      callTypes: callItem.monthlyHistory.callTypes,
-      dailyCalls: callItem.monthlyHistory.dailyCalls
-    } : undefined;
+      const callStats = callItem.monthlyHistory
+        ? {
+            totalCalls: callItem.monthlyHistory.totalCalls,
+            totalDuration: callItem.monthlyHistory.totalDuration,
+            callTypes: callItem.monthlyHistory.callTypes,
+            dailyCalls: callItem.monthlyHistory.dailyCalls,
+          }
+        : undefined;
 
-    navigation.navigate('BDMCallHistory', {
-      customerName: callItem.contactName || callItem.phoneNumber,
-      meetings,
-      callStats
-    });
-  };
-
-  const navigateToContactDetails = (callItem: GroupedCallLog) => {
-    if (callItem.contactType === 'company') {
-      navigation.navigate('BDMCompanyDetails', {
-        company: {
-          name: callItem.contactName || callItem.phoneNumber
-        }
+      navigation.navigate("BDMCallHistory", {
+        customerName: callItem.contactName || callItem.phoneNumber,
+        meetings,
+        callStats,
       });
-    } else {
-      navigation.navigate('BDMContactDetails', {
-        contact: {
-          name: callItem.contactName || callItem.phoneNumber,
-          phone: callItem.phoneNumber,
-          email: ''
-        }
-      });
-    }
-  };
+    },
+    [navigation, formatDate, formatDuration]
+  );
 
-  const handleRefresh = async () => {
+  const navigateToContactDetails = useCallback(
+    (callItem: GroupedCallLog) => {
+      if (callItem.contactType === "company") {
+        navigation.navigate("BDMCompanyDetails", {
+          company: {
+            name: callItem.contactName || callItem.phoneNumber,
+          },
+        });
+      } else {
+        navigation.navigate("BDMContactDetails", {
+          contact: {
+            name: callItem.contactName || callItem.phoneNumber,
+            phone: callItem.phoneNumber,
+            email: "",
+          },
+        });
+      }
+    },
+    [navigation]
+  );
+
+  const handleRefresh = useCallback(async () => {
     try {
-    setRefreshing(true);
+      setRefreshing(true);
       setIsLoadingSimLogs(true);
-      
-      // Fetch fresh data in parallel
-    await Promise.all([
-      fetchWeeklyAchievement(),
-        fetchDeviceCallLogs(), // This will update call logs in real-time
-      fetchCallLogs()
-    ]);
-
-      // Trigger haptic feedback
+      await Promise.all([fetchWeeklyAchievement(), fetchDeviceCallLogs(), fetchCallLogs()]);
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     } catch (error) {
-      console.error('Error refreshing data:', error);
-      Alert.alert('Error', 'Failed to refresh data');
+      Alert.alert("Error", "Failed to refresh data");
     } finally {
-    setRefreshing(false);
+      setRefreshing(false);
       setIsLoadingSimLogs(false);
     }
-  };
+  }, [fetchWeeklyAchievement, fetchDeviceCallLogs, fetchCallLogs]);
 
-  // const handleScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
-  //   scrollY.current.setValue(event.nativeEvent.contentOffset.y);
-  // };
+  const renderCallCard = useCallback(
+    ({ item, index }: { item: GroupedCallLog; index: number }) => {
+      const isNewDate =
+        index === 0 || formatDate(new Date(item.timestamp)) !== formatDate(new Date(callLogs[index - 1].timestamp));
+      const isNumberSaved = item.contactName && item.contactName !== item.phoneNumber;
+      const displayName = isNumberSaved ? item.contactName : item.phoneNumber;
+      
+      // Detect contact type based on name
+      const contactType = detectContactType(displayName || '');
+      const isCompany = contactType === 'company';
 
-  const renderCallCard = ({ item, index }: { item: GroupedCallLog; index: number }) => {
-    const isNewDate = index === 0 || 
-      formatDate(new Date(item.timestamp)) !== formatDate(new Date(callLogs[index - 1].timestamp));
-
-    const isNumberSaved = item.contactName && item.contactName !== item.phoneNumber;
-    const displayName = isNumberSaved ? item.contactName : item.phoneNumber;
-
-    return (
-      <>
-        {isNewDate && (
-          <View style={styles.dateHeader}>
-            <Text style={styles.dateText}>{formatDate(new Date(item.timestamp))}</Text>
-            <View style={styles.durationContainer}>
-              <MaterialIcons name="access-time" size={16} color="#666" style={styles.durationIcon} />
-              <Text style={styles.durationText}>
-                {calculateTotalDuration(new Date(item.timestamp).toLocaleDateString())}
-              </Text>
-            </View>
-          </View>
-        )}
-        <TouchableOpacity onPress={() => handleCardClick(item.id)}>
-          <View style={styles.callCard}>
-            <View style={styles.callInfo}>
-              <TouchableOpacity 
-                style={styles.avatarContainer}
-                onPress={() => navigation.navigate('BDMContactDetails', {
-                  contact: {
-                    name: item.contactName || item.phoneNumber,
-                    phone: item.phoneNumber,
-                    email: ''
-                  }
-                })}
-              >
-                <MaterialIcons 
-                  name="person" 
-                  size={24} 
-                  color="#FF8447"
-                />
-              </TouchableOpacity>
-              <View style={styles.callDetails}>
-                <View style={styles.nameContainer}>
-                  <Text style={[
-                    styles.callName,
-                    { color: item.type === 'missed' ? '#DC2626' : '#333' }
-                  ]}>
-                    {displayName}
-                  </Text>
-                  {item.monthlyHistory && item.monthlyHistory.totalCalls > 0 && (
-                    <Text style={styles.monthlyCallCount}>
-                      ({item.monthlyHistory.totalCalls})
-                    </Text>
-                  )}
-                </View>
-                <View style={styles.timeContainer}>
-                  <MaterialIcons 
-                    name={item.type === 'outgoing' ? 'call-made' : 'call-received'} 
-                    size={14} 
-                    color={item.type === 'missed' ? '#DC2626' : '#059669'}
-                    style={styles.callIcon}
-                  />
-                  <Text style={styles.callTime}>
-                    {new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    {item.duration > 0 && 
-                      ` • ${formatDuration(item.duration)}`}
-                  </Text>
-                </View>
+      return (
+        <>
+          {isNewDate && (
+            <View style={styles.dateHeader}>
+              <Text style={styles.dateText}>{formatDate(new Date(item.timestamp))}</Text>
+              <View style={styles.durationContainer}>
+                <MaterialIcons name="access-time" size={16} color="#666" style={styles.durationIcon} />
+                <Text style={styles.durationText}>{calculateTotalDuration(new Date(item.timestamp).toLocaleDateString())}</Text>
               </View>
             </View>
-            {expandedCallId === item.id && renderCallActions(item)}
-          </View>
-        </TouchableOpacity>
-      </>
-    );
-  };
-
-  const renderCallActions = (call: GroupedCallLog) => {
-    const isNumberSaved = call.contactName && call.contactName !== call.phoneNumber;
-
-    return (
-      <View style={styles.actionContainer}>
-              <TouchableOpacity 
-          style={styles.actionButton}
-          onPress={() => navigateToCallHistory(call)}
-        >
-          <MaterialIcons name="history" size={24} color="#FF8447" />
-          <Text style={styles.actionText}>History ({call.callCount})</Text>
-          </TouchableOpacity>
-          
-              <TouchableOpacity 
-          style={styles.actionButton}
-                onPress={() => {
-            if (isNumberSaved) {
-              navigation.navigate('BDMCallNoteDetailsScreen', { 
-                meeting: {
-                  name: call.contactName || call.phoneNumber,
-                  time: formatTime(new Date(call.timestamp)),
-                  duration: formatDuration(call.duration),
-                  phoneNumber: call.phoneNumber,
-                  date: formatDate(new Date(call.timestamp)),
-                  type: call.type,
-                  contactType: call.contactType
-                      }
-                    });
-                  } else {
-              setSelectedNumber(call.phoneNumber);
-              setAddContactModalVisible(true);
-                  }
-                }}
-              >
-                <MaterialIcons 
-            name={isNumberSaved ? "note-add" : "person-add"} 
-            size={24} 
-                  color="#FF8447" 
-                />
-          <Text style={styles.actionText}>
-            {isNumberSaved ? 'Add Notes' : 'Add Contact'}
-          </Text>
-              </TouchableOpacity>
+          )}
+          <TouchableOpacity onPress={() => handleCardClick(item.id)}>
+            <View style={styles.callCard}>
+              <View style={styles.callInfo}>
+                <TouchableOpacity
+                  style={styles.avatarContainer}
+                  onPress={() => navigateToContactDetails(item)}
+                >
+                  <MaterialIcons 
+                    name={isCompany ? "business" : "person"} 
+                    size={24} 
+                    color="#FF8447" 
+                  />
+                </TouchableOpacity>
+                <View style={styles.callDetails}>
+                  <View style={styles.nameContainer}>
+                    <Text
+                      style={[styles.callName, { color: item.type === "missed" ? "#DC2626" : "#333" }]}
+                    >
+                      {displayName}
+                    </Text>
+                    
+                    {item.monthlyHistory && item.monthlyHistory.totalCalls > 0 && (
+                      <Text style={styles.monthlyCallCount}>({item.monthlyHistory.totalCalls})</Text>
+                    )}
+                  </View>
+                  <View style={styles.timeContainer}>
+                    <MaterialIcons
+                      name={item.type === "outgoing" ? "call-made" : "call-received"}
+                      size={14}
+                      color={item.type === "missed" ? "#DC2626" : "#059669"}
+                      style={styles.callIcon}
+                    />
+                    <Text style={styles.callTime}>
+                      {new Date(item.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                      {item.duration > 0 && ` • ${formatDuration(item.duration)}`}
+                    </Text>
+                  </View>
+                </View>
+              </View>
+              {expandedCallId === item.id && renderCallActions(item)}
             </View>
-    );
-  };
+          </TouchableOpacity>
+        </>
+      );
+    },
+    [callLogs, expandedCallId, formatDate, calculateTotalDuration, formatDuration, handleCardClick, navigateToContactDetails]
+  );
 
-  const renderEmptyState = () => (
+  const renderCallActions = useCallback(
+    (call: GroupedCallLog) => {
+      const isNumberSaved = call.contactName && call.contactName !== call.phoneNumber;
+
+      return (
+        <View style={styles.actionContainer}>
+          <TouchableOpacity style={styles.actionButton} onPress={() => navigateToCallHistory(call)}>
+            <MaterialIcons name="history" size={24} color="#FF8447" />
+            <Text style={styles.actionText}>History ({call.callCount})</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.actionButton}
+            onPress={() => {
+              if (isNumberSaved) {
+                navigation.navigate("BDMCallNoteDetailsScreen", {
+                  meeting: {
+                    name: call.contactName || call.phoneNumber,
+                    time: formatTime(new Date(call.timestamp)),
+                    duration: formatDuration(call.duration),
+                    phoneNumber: call.phoneNumber,
+                    date: formatDate(new Date(call.timestamp)),
+                    type: call.type,
+                    contactType: call.contactType,
+                  },
+                });
+              } else {
+                setSelectedNumber(call.phoneNumber);
+                setAddContactModalVisible(true);
+              }
+            }}
+          >
+            <MaterialIcons name={isNumberSaved ? "note-add" : "person-add"} size={24} color="#FF8447" />
+            <Text style={styles.actionText}>{isNumberSaved ? "Add Notes" : "Add Contact"}</Text>
+          </TouchableOpacity>
+        </View>
+      );
+    },
+    [navigation, formatDate, formatDuration]
+  );
+
+  const renderEmptyState = useCallback(() => (
     <View style={styles.emptyContainer}>
       <MaterialIcons name="phone-missed" size={64} color="#DDDDDD" />
       <Text style={styles.emptyTitle}>No Call History Yet</Text>
@@ -1271,106 +1025,223 @@ const BDMHomeScreen = () => {
         Your recent calls will appear here once you start making or receiving calls.
       </Text>
     </View>
-  );
+  ), []);
 
-  const formatTime = (date: Date) => {
-    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  };
+  const formatTime = useCallback((date: Date) => {
+    return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  }, []);
 
-  // Add this new function to calculate meeting stats
-  const calculateMeetingStats = async () => {
+  const calculateMeetingStats = useCallback(async () => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-
-    const todayLogs = callLogs.filter(log => {
-      const logDate = new Date(log.timestamp);
-      return logDate >= today;
-    });
-
+    const todayLogs = callLogs.filter((log) => new Date(log.timestamp) >= today);
     const totalMeetings = todayLogs.length;
     let totalDuration = 0;
-
-    todayLogs.forEach(log => {
-      totalDuration += log.duration || 0; // Ensure this is correctly calculated
+    todayLogs.forEach((log) => {
+      totalDuration += log.duration || 0;
     });
 
-    const stats = {
-      totalMeetings,
-      totalDuration,
-      lastUpdated: new Date().toISOString()
-    };
+    const stats = { totalMeetings, totalDuration, lastUpdated: new Date().toISOString() };
+    await AsyncStorage.setItem("bdm_meeting_stats", JSON.stringify(stats));
+  }, [callLogs]);
 
-    await AsyncStorage.setItem('bdm_meeting_stats', JSON.stringify(stats));
-  };
-
-  // Add useEffect for background updates
   useEffect(() => {
-    // Initial calculation
-    calculateMeetingStats();
+    const loadInitialData = async () => {
+      try {
+        setIsLoading(true);
+        const isFirstTime = await AsyncStorage.getItem("isFirstTimeUser");
+        if (isFirstTime === null) {
+          await AsyncStorage.setItem("isFirstTimeUser", "false");
+          setIsFirstTimeUser(true);
+          setShowWelcomeModal(true);
+        } else {
+          setIsFirstTimeUser(false);
+        }
 
-    // Set up interval for background updates
-    statsUpdateInterval.current = setInterval(() => {
-      calculateMeetingStats();
-    }, 5000); // Update every 5 seconds
+        if (userProfile?.name) {
+          setUserName(userProfile.name);
+        } else if (userProfile?.firstName) {
+          setUserName(`${userProfile.firstName} ${userProfile.lastName || ""}`);
+        } else if (auth.currentUser?.displayName) {
+          setUserName(auth.currentUser.displayName);
+        }
 
-    // Cleanup interval on unmount
-    return () => {
-      if (statsUpdateInterval.current) {
-        clearInterval(statsUpdateInterval.current);
+        await Promise.all([loadSavedContacts(), fetchCallLogs(), fetchWeeklyAchievement()]);
+        await AsyncStorage.setItem("has_visited_bdm_home", "true");
+      } catch (error) {
+      } finally {
+        setIsLoading(false);
       }
     };
-  }, [callLogs]); // Re-run when callLogs change
 
-  // Add background update interval
+    loadInitialData();
+    Animated.timing(fadeAnim, { toValue: 1, duration: 500, useNativeDriver: true }).start();
+  }, [fetchCallLogs, fetchWeeklyAchievement, loadSavedContacts, userProfile]);
+
   useEffect(() => {
-    // Initial fetch
+    calculateMeetingStats();
+    const statsUpdateInterval = setInterval(() => calculateMeetingStats(), 5000);
+    return () => clearInterval(statsUpdateInterval);
+  }, [calculateMeetingStats]);
+useEffect(() => {
+  const meetingRef = collection(db, 'bdm_schedule_meeting');
+  const q = query(meetingRef, where('meetingDate', '>=', new Date())); // Listen for upcoming meetings
+
+  const unsubscribe = onSnapshot(q, (querySnapshot) => {
+    const meetingsData = querySnapshot.docs.map((doc) => {
+      const data = doc.data();
+      return {
+        meetingId: data.meetingId || doc.id,
+        meetingDate: data.meetingDate || { seconds: 0 },
+        individuals: data.individuals || [],
+      };
+    });
+    setMeetingDetails(meetingsData);
+    setIsLoading(false);
+  }, (error) => {
+    console.error("Error listening to meeting updates:", error);
+    setIsLoading(false);
+  });
+
+  return () => unsubscribe(); // Cleanup listener on unmount
+}, []);
+
+
+const flatListRef = useRef<FlatList<any>>(null);
+const currentIndex = useRef(0);
+
+
+useEffect(() => {
+  if (meetingDetails.length > 0 && flatListRef.current) {
+    const interval = setInterval(() => {
+      // Ensure currentIndex is within bounds
+      if (currentIndex.current >= meetingDetails.length) {
+        currentIndex.current = 0;
+      }
+      
+      // Only scroll if the index is valid
+      if (currentIndex.current < meetingDetails.length) {
+        try {
+          flatListRef.current?.scrollToIndex({
+            animated: true,
+            index: currentIndex.current,
+          });
+          currentIndex.current = (currentIndex.current + 1) % meetingDetails.length;
+        } catch (error) {
+          console.warn('Error scrolling to index:', error);
+          // Reset to 0 if there's an error
+          currentIndex.current = 0;
+        }
+      }
+    }, 3000);
+
+    return () => clearInterval(interval);
+  }
+}, [meetingDetails]);
+
+  useEffect(() => {
     fetchCallLogs();
     fetchDeviceCallLogs();
-
-    // Set up background update interval
     const backgroundInterval = setInterval(() => {
       fetchCallLogs();
       fetchDeviceCallLogs();
-    }, 20000); // Update every 20 seconds
+    }, 20000);
+    return () => clearInterval(backgroundInterval);
+  }, [fetchCallLogs, fetchDeviceCallLogs]);
 
-    // Cleanup interval on unmount
-    return () => {
-      clearInterval(backgroundInterval);
-    };
-  }, []);
+  const memoizedCallLogs = useMemo(() => {
+    return callLogs.sort((a, b) => {
+      const aTime = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+      const bTime = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+      return bTime - aTime;
+    });
+  }, [callLogs]);
 
   return (
     <AppGradient>
       <BDMMainLayout showDrawer showBottomTabs={true} showBackButton={false}>
         <View style={styles.container}>
-            {/* Welcome Section */}
-            <View style={styles.welcomeSection}>
-              <Text style={styles.welcomeText}>
-              {isFirstTimeUser ? 'Welcome,👋👋' : 'Hi,👋'}
-              </Text>
+  {isLoading ? (
+          <ActivityIndicator size="large" color="#FF8447" />
+        ) : meetingDetails && meetingDetails.length > 0 ? (
+<View style={styles.meetingSection}>
+<View style={{ height: 40 }}>
+  <FlatList
+    ref={flatListRef}
+    data={meetingDetails}
+    keyExtractor={(item) => item.meetingId}
+    pagingEnabled={true}
+    snapToAlignment="start"
+    snapToInterval={80}
+    decelerationRate="fast"
+    showsVerticalScrollIndicator={false}
+    getItemLayout={(_, index) => ({
+      length: 40,
+      offset: 40 * index,
+      index,
+    })}
+    renderItem={({ item }) => {
+      const meetingTime = new Date(item.meetingDate.seconds * 1000);
+      const currentTime = new Date();
+      const timeDiff = meetingTime.getTime() - currentTime.getTime();
+      const hoursLeft = Math.floor(timeDiff / (1000 * 60 * 60));
+
+      return (
+        <View style={styles.meetingPill}>
+          <View style={styles.meetingLeft}>
+            <MaterialIcons name="person" size={18} color="#6B7280" />
+            <Text style={styles.meetingTitle}>
+              {item.individuals[0]?.name || "N/A"} -
+            </Text>
+            <Text style={styles.meetingTime}>
+  {meetingTime.toLocaleDateString()}
+</Text>
+
+          </View>
+          <Text style={styles.meetingCountdown}>
+            In {hoursLeft} hour{hoursLeft !== 1 ? "s" : ""}
+          </Text>
+        </View>
+      );
+    }}
+  />
+</View>
+
+
+
+</View>
+
+
+        ) : (
+          <Text style={styles.noMeetingsText}>No upcoming meetings found.</Text>
+        )}
+
+
+
+          <View style={styles.welcomeSection}>
+            <Text style={styles.welcomeText}>{isFirstTimeUser ? "Welcome,👋👋" : "Hi,👋"}</Text>
             {isLoading ? (
               <ActivityIndicator size="small" color="#FF8447" />
             ) : (
-              <Text style={styles.nameText}>
-                {userName || 'User'}
-              </Text>
+              <Text style={styles.nameText}>{userName || "User"}</Text>
             )}
-              {/* Progress Section */}
-              <View style={styles.progressSection}>
+            <View style={styles.progressSection}>
               {weeklyAchievement.isLoading ? (
-                <ActivityIndicator size="small" color="#FF8447" style={{marginVertical: 10}} />
+                <ActivityIndicator size="small" color="#FF8447" style={{ marginVertical: 10 }} />
               ) : (
                 <>
-                <ProgressBar 
-                    progress={weeklyAchievement.percentageAchieved / 100} 
-                  color="#FF8447" 
-                  style={styles.progressBar} 
-                />
-                <Text style={styles.progressText}>
-                    Great job! You've completed <Text style={styles.progressHighlight}>{weeklyAchievement.percentageAchieved.toFixed(1)}%</Text> of your weekly target
-                </Text>
-                  <TouchableOpacity 
-                    onPress={() => navigation.navigate('BDMTarget')}
+                  <ProgressBar
+                    progress={weeklyAchievement.percentageAchieved / 100}
+                    color="#FF8447"
+                    style={styles.progressBar}
+                  />
+                  <Text style={styles.progressText}>
+                    Great job! You've completed{" "}
+                    <Text style={styles.progressHighlight}>{weeklyAchievement.percentageAchieved.toFixed(1)}%</Text>{" "}
+                    of your weekly target
+                  </Text>
+                  <TouchableOpacity
+                    onPress={() => navigation.navigate("BDMTarget")}
                     style={styles.viewTargetButton}
                   >
                     <Text style={styles.viewTargetText}>View Target Details</Text>
@@ -1378,67 +1249,51 @@ const BDMHomeScreen = () => {
                   </TouchableOpacity>
                 </>
               )}
-              </View>
             </View>
+          </View>
 
-          {/* Call Logs Section */}
           <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Meeting History</Text>
-            <TouchableOpacity 
-              onPress={handleRefresh}
-              style={styles.refreshButton}
-            >
+            <Text style={styles.sectionTitle}>Calls & Meeting History</Text>
+            <TouchableOpacity onPress={handleRefresh} style={styles.refreshButton}>
               <MaterialIcons name="refresh" size={24} color="#FF8447" />
             </TouchableOpacity>
           </View>
-          
+
           {isLoadingSimLogs ? (
             <View style={styles.loadingContainer}>
               <ActivityIndicator size="large" color="#FF8447" />
             </View>
           ) : (
             <FlatList
-              data={callLogs.sort((a, b) => {
-                const aTime = a.timestamp ? new Date(a.timestamp).getTime() : 0;
-                const bTime = b.timestamp ? new Date(b.timestamp).getTime() : 0;
-                return bTime - aTime;
-              })}
-              keyExtractor={item => `${new Date(item.timestamp).toISOString()}-${item.phoneNumber}`}
+              data={memoizedCallLogs}
+              keyExtractor={(item) => `${new Date(item.timestamp).toISOString()}-${item.phoneNumber}`}
               renderItem={renderCallCard}
               onScroll={handleScroll}
               onScrollEndDrag={handleScrollEnd}
               onMomentumScrollEnd={handleScrollEnd}
-              // refreshControl={
-              //   <RefreshControl 
-              //     refreshing={refreshing} 
-              //     onRefresh={handleRefresh} 
-              //     colors={['#FF8447']}
-              //     tintColor="#FF8447"
-              //     progressBackgroundColor="#FFF5E6"
-              //   />
-              // }
+              initialNumToRender={10}
+              maxToRenderPerBatch={10}
+              windowSize={5}
             />
-        )}
-      </View>
- {/* Floating Dialer Button */}
-        <Animated.View style={[
-          styles.dialerFAB,
-          { opacity: dialerOpacity }
-        ]}>
-          <TouchableOpacity
-            onPress={openDialer}
-          >
+          )}
+        </View>
+
+        <Animated.View style={[styles.dialerFAB, { opacity: dialerOpacity }]}>
+          <TouchableOpacity onPress={openDialer}>
             <MaterialIcons name="dialpad" size={30} color="#FFF" />
           </TouchableOpacity>
         </Animated.View>
 
-        {/* Dialer Modal */}
         <Dialer
           visible={isDialerVisible}
           onClose={() => setDialerVisible(false)}
           onCallPress={handleCall}
-          contacts={Object.values(contacts)}
-          isLoading={isLoadingContacts}
+          contacts={Object.values(contacts).map(contact => ({
+            ...contact,
+            phoneNumber: contact.phoneNumbers?.[0]?.number || '',
+            favorite: false
+          }))}
+          isLoading={false}
         />
 
         <TelecallerAddContactModal
@@ -1451,7 +1306,7 @@ const BDMHomeScreen = () => {
             fetchCallLogs();
           }}
         />
-    </BDMMainLayout>
+      </BDMMainLayout>
     </AppGradient>
   );
 };
@@ -1461,12 +1316,79 @@ const styles = StyleSheet.create({
     flex: 1,
     padding: 16,
   },
+   meetingSection: { // This is missing in your original code
+    paddingBottom: 10,
+  },
+  meetingCard: {
+    backgroundColor: '#f1f1f1',
+    padding: 15,
+    marginBottom: 10,
+    borderRadius: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+  meetingIcon: {
+    backgroundColor: "#FFE28A",
+    borderRadius: 20,
+    width: 32,
+    height: 32,
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 10,
+  },
+  // New style to align the elements in a row
+  meetingInfoRow: {
+    flexDirection: 'row', // Display in a horizontal row
+    justifyContent: 'space-between', // Space out the items
+    alignItems: 'center', // Vertically align the items to the center
+  },
+
+  // Participant name text style
+  participantText: {
+    fontSize: 16,
+    color: '#333',
+    fontWeight: 'bold',
+    flex: 1, // Allow it to take up available space in the row
+  },
+
+  // Meeting details (date) style
+  meetingDetails: {
+    fontSize: 14,
+    color: '#555',
+    marginVertical: 5,
+    flex: 1, // Allow it to take up available space in the row
+  },
+
+  // Time left container
+  timeLeftContainer: {
+    marginTop: 10,
+  },
+
+  // Time left text style
+  timeLeftText: {
+    padding: 5,
+    color: 'white',
+    fontWeight: 'bold',
+    borderRadius: 5,
+    textAlign: 'center',
+    fontSize: 12,
+    flex: 1, // Allow it to take up available space in the row
+  },
+
+  noMeetingsText: {
+    fontSize: 16,
+    color: '#888',
+    textAlign: 'center',
+  },
   welcomeSection: {
     marginBottom: 24,
-    backgroundColor: 'white',
+    backgroundColor: "white",
     padding: 16,
     borderRadius: 16,
-    shadowColor: '#000',
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05,
     shadowRadius: 4,
@@ -1474,13 +1396,13 @@ const styles = StyleSheet.create({
   },
   welcomeText: {
     fontSize: 22,
-    fontFamily: 'LexendDeca_400Regular',
-    color: '#333',
+    fontFamily: "LexendDeca_400Regular",
+    color: "#333",
   },
   nameText: {
     fontSize: 24,
-    fontFamily: 'LexendDeca_600SemiBold',
-    color: '#222',
+    fontFamily: "LexendDeca_600SemiBold",
+    color: "#222",
     marginTop: 4,
   },
   progressSection: {
@@ -1489,96 +1411,96 @@ const styles = StyleSheet.create({
   progressBar: {
     height: 8,
     borderRadius: 4,
-    backgroundColor: '#E5E7EB',
+    backgroundColor: "#E5E7EB",
   },
   progressText: {
     marginTop: 8,
     fontSize: 14,
-    fontFamily: 'LexendDeca_400Regular',
-    color: '#666',
+    fontFamily: "LexendDeca_400Regular",
+    color: "#666",
   },
   progressHighlight: {
-    color: '#FF8447',
-    fontFamily: 'LexendDeca_600SemiBold',
+    color: "#FF8447",
+    fontFamily: "LexendDeca_600SemiBold",
   },
   sectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
     marginBottom: 16,
   },
   sectionTitle: {
     fontSize: 18,
-    fontFamily: 'LexendDeca_600SemiBold',
-    color: '#333',
+    fontFamily: "LexendDeca_600SemiBold",
+    color: "#333",
   },
   refreshButton: {
     padding: 8,
   },
   dialerFAB: {
-    position: 'absolute',
+    position: "absolute",
     right: 20,
     bottom: 90,
-    backgroundColor: '#4CAF50',
+    backgroundColor: "#4CAF50",
     width: 60,
     height: 60,
     borderRadius: 30,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
     elevation: 8,
-    shadowColor: '#000',
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 5,
     zIndex: 1000,
   },
   dateHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
     marginBottom: 12,
     marginTop: 8,
     paddingHorizontal: 4,
   },
   dateText: {
     fontSize: 14,
-    fontFamily: 'LexendDeca_500Medium',
-    color: '#666',
+    fontFamily: "LexendDeca_500Medium",
+    color: "#666",
   },
   durationContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
   },
   durationIcon: {
     marginRight: 4,
   },
   durationText: {
     fontSize: 14,
-    fontFamily: 'LexendDeca_400Regular',
-    color: '#666',
+    fontFamily: "LexendDeca_400Regular",
+    color: "#666",
   },
   callCard: {
-    backgroundColor: 'white',
+    backgroundColor: "white",
     borderRadius: 12,
     padding: 12,
     marginBottom: 12,
     elevation: 2,
-    shadowColor: '#000',
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
   },
   callInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
   },
   avatarContainer: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: '#FFF5E6',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: "#FFF5E6",
+    justifyContent: "center",
+    alignItems: "center",
     marginRight: 12,
   },
   callDetails: {
@@ -1586,109 +1508,128 @@ const styles = StyleSheet.create({
   },
   callName: {
     fontSize: 16,
-    fontFamily: 'LexendDeca_500Medium',
-    color: '#333',
+    fontFamily: "LexendDeca_500Medium",
+    color: "#333",
   },
   callTime: {
     fontSize: 14,
-    fontFamily: 'LexendDeca_400Regular',
-    color: '#666',
+    fontFamily: "LexendDeca_400Regular",
+    color: "#666",
     marginTop: 2,
   },
   actionContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
+    flexDirection: "row",
+    justifyContent: "space-around",
     borderTopWidth: 1,
-    borderTopColor: '#E5E7EB',
+    borderTopColor: "#E5E7EB",
     marginTop: 12,
     paddingTop: 12,
   },
   actionButton: {
-    alignItems: 'center',
+    alignItems: "center",
     flex: 1,
   },
   actionText: {
     fontSize: 12,
-    fontFamily: 'LexendDeca_400Regular',
-    color: '#666',
+    fontFamily: "LexendDeca_400Regular",
+    color: "#666",
     marginTop: 4,
   },
   timeContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
   },
   callIcon: {
     marginRight: 4,
   },
   nameContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
   },
   monthlyCallCount: {
     fontSize: 12,
-    fontFamily: 'LexendDeca_400Regular',
-    color: '#666',
+    fontFamily: "LexendDeca_400Regular",
+    color: "#666",
     marginLeft: 8,
-    backgroundColor: '#F3F4F6',
+    backgroundColor: "#F3F4F6",
     paddingHorizontal: 8,
     paddingVertical: 2,
     borderRadius: 12,
   },
+
   loadingContainer: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
   },
   emptyContainer: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
     paddingHorizontal: 24,
   },
   emptyTitle: {
     fontSize: 20,
-    fontFamily: 'LexendDeca_600SemiBold',
-    color: '#333',
+    fontFamily: "LexendDeca_600SemiBold",
+    color: "#333",
     marginTop: 16,
     marginBottom: 8,
   },
   emptyMessage: {
     fontSize: 16,
-    fontFamily: 'LexendDeca_400Regular',
-    color: '#666',
-    textAlign: 'center',
+    fontFamily: "LexendDeca_400Regular",
+    color: "#666",
+    textAlign: "center",
     lineHeight: 22,
   },
   viewTargetButton: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'flex-start',
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "flex-start",
     paddingVertical: 12,
   },
   viewTargetText: {
     marginRight: 8,
     fontSize: 14,
-    fontFamily: 'LexendDeca_400Regular',
-    color: '#FF8447',
+    fontFamily: "LexendDeca_400Regular",
+    color: "#FF8447",
   },
-  skeletonContainer: {
-    padding: 20,
-  },
-  skeletonTitle: {
-    marginBottom: 20,
-    borderRadius: 4,
-  },
-  skeletonInput: {
-    marginBottom: 16,
-    borderRadius: 8,
-  },
-  skeletonTextArea: {
-    marginBottom: 24,
-    borderRadius: 8,
-  },
-  skeletonButton: {
-    borderRadius: 8,
-  },
+
+meetingLeft: {
+  flexDirection: 'row',
+  alignItems: 'center',
+},
+
+meetingTitle: {
+  marginLeft: 6,
+  fontSize: 14,
+  fontWeight: '500',
+  color: '#374151',
+},
+
+meetingTime: {
+  fontSize: 14,
+  marginLeft: 4,
+  color: '#374151',
+},
+
+meetingCountdown: {
+  fontSize: 14,
+  fontWeight: '700',
+  color: '#DC2626',
+},
+meetingPill: {
+  height: 40,
+  backgroundColor: "#E6F4F1",
+  borderRadius: 30,
+  paddingVertical: 6,
+  paddingHorizontal: 14,
+  flexDirection: "row",
+  alignItems: "center",
+  justifyContent: "space-between",
+  marginHorizontal: 16,
+},
+
 });
 
-export default BDMHomeScreen;
+export default React.memo(BDMHomeScreen);

@@ -40,6 +40,7 @@ const PRODUCT_LIST = [
   { label: "Bike Insurance", value: "bike_insurance" },
   { label: "Car Insurance", value: "car_insurance" },
   { label: "Term Insurance", value: "term_insurance" },
+  { label: "Mutual Funds", value: "mutual_funds" },
   { label: "Saving Plans", value: "saving_plan" },
   { label: "Travel Insurance", value: "travel_insurance" },
   { label: "Group Mediclaim", value: "group_mediclaim" },

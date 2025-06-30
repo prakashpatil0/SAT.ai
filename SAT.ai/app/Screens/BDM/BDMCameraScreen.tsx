@@ -1,17 +1,19 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Platform, Image, Alert } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Platform, Image, Alert, ActivityIndicator } from 'react-native';
 import { Camera, CameraView } from 'expo-camera';
 import * as Location from 'expo-location';
 import { MaterialIcons } from '@expo/vector-icons';
-import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
+import { useNavigation, useRoute, RouteProp, useFocusEffect } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
-import { format } from 'date-fns';
+import { format, addHours } from 'date-fns';
+import { getFirestore, doc, getDoc, setDoc, serverTimestamp, Timestamp } from 'firebase/firestore';
 
 type RootStackParamList = {
   BDMAttendanceScreen: {
     photo?: { uri: string };
     location?: { coords: { latitude: number; longitude: number } };
-    dateTime?: Date;
+    locationName?: string | null; 
+    dateTime?: string;
     isPunchIn?: boolean;
   };
   BDMCameraScreen: {
@@ -22,83 +24,305 @@ type RootStackParamList = {
 type BDMCameraScreenRouteProp = RouteProp<RootStackParamList, 'BDMCameraScreen'>;
 type BDMCameraScreenNavigationProp = StackNavigationProp<RootStackParamList, 'BDMCameraScreen'>;
 
+const getISTTime = () => {
+  const now = new Date();
+  return addHours(now, 5.5); // Add 5 hours and 30 minutes for IST
+};
+
+const getNetworkTime = async (): Promise<Date | null> => {
+  // List of reliable time servers
+  const timeServers = [
+    'https://timeapi.io/api/Time/current/zone?timeZone=Asia/Kolkata',
+    'https://api.timezonedb.com/v2.1/get-time-zone?key=YOUR_API_KEY&format=json&by=zone&zone=Asia/Kolkata'
+  ];
+
+  for (const server of timeServers) {
+    try {
+      const response = await fetch(server);
+      if (!response.ok) continue;
+      
+      const data = await response.json();
+      // Different APIs return time in different formats
+      if (data.datetime) {
+        return new Date(data.datetime);
+      } else if (data.dateTime) {
+        return new Date(data.dateTime);
+      } else if (data.formatted) {
+        return new Date(data.formatted);
+      }
+    } catch (error) {
+      continue;
+    }
+  }
+  return null;
+};
+
 const BDMCameraScreen = () => {
   const [location, setLocation] = useState<Location.LocationObject | null>(null);
   const [currentTime, setCurrentTime] = useState(new Date());
+  const [capturedTime, setCapturedTime] = useState<Date | null>(null);
   const [hasPermission, setHasPermission] = useState(false);
-  const [cameraType, setCameraType] = useState<number>(0); // 0 is front, 1 is back
+  const [cameraType, setCameraType] = useState<number>(0);
   const [photo, setPhoto] = useState<{ uri: string } | null>(null);
   const [locationAddress, setLocationAddress] = useState<string | null>(null);
   const [flash, setFlash] = useState<boolean>(false);
+  const [isTimeValid, setIsTimeValid] = useState(true);
+  const [timeValidationMessage, setTimeValidationMessage] = useState('');
+  const [isLocationLoading, setIsLocationLoading] = useState(true);
+  const [isConfirming, setIsConfirming] = useState(false);
+  const [lastTimeValidation, setLastTimeValidation] = useState<Date | null>(null);
+  const [isValidatingTime, setIsValidatingTime] = useState(false);
+  const locationTimeoutRef = useRef<NodeJS.Timeout>();
+
   const cameraRef = useRef<any>(null);
   const navigation = useNavigation<BDMCameraScreenNavigationProp>();
   const route = useRoute<BDMCameraScreenRouteProp>();
-  const { type: punchType } = route.params;
+  const { type } = route.params;
 
-  // Reset photo when component mounts or punchType changes
-  useEffect(() => {
-    setPhoto(null);
-  }, [punchType]);
+  const fetchLocation = async (useHighAccuracy = false) => {
+    try {
+      const options: Location.LocationOptions = {
+        accuracy: useHighAccuracy ? Location.Accuracy.Highest : Location.Accuracy.Balanced,
+        timeInterval: 5000,
+        distanceInterval: 10,
+      };
+
+      const location = await Location.getCurrentPositionAsync(options);
+      setLocation(location);
+      
+      // Get address from coordinates
+      const geocode = await Location.reverseGeocodeAsync({
+        latitude: location.coords.latitude,
+        longitude: location.coords.longitude
+      });
+      
+      if (geocode.length > 0) {
+        const address = geocode[0];
+        const addressString = [
+          address.name,
+          address.street,
+          address.district,
+          address.city,
+          address.region,
+          address.postalCode,
+          address.country
+        ]
+          .filter(Boolean)
+          .join(', ');
+        
+        setLocationAddress(addressString);
+      }
+      
+      setIsLocationLoading(false);
+    } catch (error) {
+      // If low accuracy fails, try high accuracy
+      if (!useHighAccuracy) {
+        await fetchLocation(true);
+      } else {
+        setIsLocationLoading(false);
+      }
+    }
+  };
 
   useEffect(() => {
+    let isMounted = true;
+    
+    const startLocationFetch = async () => {
+      if (isMounted) {
+        setIsLocationLoading(true);
+        await fetchLocation();
+      }
+    };
+
+    startLocationFetch();
+
+    locationTimeoutRef.current = setTimeout(() => {
+      if (isMounted && isLocationLoading) {
+        fetchLocation(true);
+      }
+    }, 5000);
+
+    return () => {
+      isMounted = false;
+      if (locationTimeoutRef.current) {
+        clearTimeout(locationTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+    
     (async () => {
       const { status: cameraStatus } = await Camera.requestCameraPermissionsAsync();
       const { status: locationStatus } = await Location.requestForegroundPermissionsAsync();
       
+      if (!isMounted) return;
+      
       setHasPermission(cameraStatus === 'granted' && locationStatus === 'granted');
       
-      if (locationStatus === 'granted') {
-        try {
-          const location = await Location.getCurrentPositionAsync({
-            accuracy: Location.Accuracy.Highest
-          });
-          setLocation(location);
-          
-          // Get the address from coordinates
-          const geocode = await Location.reverseGeocodeAsync({
-            latitude: location.coords.latitude,
-            longitude: location.coords.longitude
-          });
-          
-          if (geocode.length > 0) {
-            const address = geocode[0];
-            const addressString = [
-              address.name,
-              address.street,
-              address.district,
-              address.city,
-              address.region,
-              address.postalCode,
-              address.country
-            ]
-              .filter(Boolean)
-              .join(', ');
-            
-            setLocationAddress(addressString);
-          }
-        } catch (error) {
-          console.error('Error getting location:', error);
-        }
+      // Initial time validation
+      const isTimeValid = await validateDeviceTime();
+      if (!isTimeValid && isMounted) {
+        Alert.alert(
+          'Time Sync Required',
+          timeValidationMessage,
+          [
+            {
+              text: 'Retry',
+              onPress: async () => {
+                const isValid = await validateDeviceTime();
+                if (isValid && isMounted) {
+                  setIsTimeValid(true);
+                  setTimeValidationMessage('');
+                }
+              }
+            },
+            {
+              text: 'Cancel',
+              onPress: () => navigation.goBack(),
+              style: 'cancel'
+            }
+          ]
+        );
       }
     })();
     
-    // Update the time every second
     const timer = setInterval(() => {
-      setCurrentTime(new Date());
+      if (isMounted) {
+        setCurrentTime(getISTTime());
+      }
     }, 1000);
+
+    // Background time validation every 5 seconds for faster response
+    const timeValidationTimer = setInterval(async () => {
+      if (isMounted) {
+        const isValid = await validateDeviceTime();
+        if (isMounted) {
+          setIsTimeValid(isValid);
+          setLastTimeValidation(new Date());
+        }
+      }
+    }, 5000);
+
+    // Pre-validate time when camera becomes active (every 2 seconds)
+    const preValidationTimer = setInterval(async () => {
+      if (isMounted && !isValidatingTime) {
+        const isValid = await validateDeviceTime();
+        if (isMounted) {
+          setIsTimeValid(isValid);
+          setLastTimeValidation(new Date());
+        }
+      }
+    }, 2000);
     
-    return () => clearInterval(timer);
+    return () => {
+      isMounted = false;
+      clearInterval(timer);
+      clearInterval(timeValidationTimer);
+      clearInterval(preValidationTimer);
+      setPhoto(null);
+      setIsConfirming(false);
+    };
   }, []);
 
+  useEffect(() => {
+    return () => {
+      setPhoto(null);
+      setIsConfirming(false);
+    };
+  }, []);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      setPhoto(null);
+      setIsConfirming(false);
+    }, [])
+  );
+
+  const validateDeviceTime = async () => {
+    try {
+      // Use a faster, simpler validation approach
+      const db = getFirestore();
+      const timeCheckRef = doc(db, '_timeCheck', 'serverTime');
+      
+      // Get current server time
+      const serverTime = await getDoc(timeCheckRef);
+      const serverTimestamp = serverTime.data()?.timestamp;
+      
+      // Update server time
+      await setDoc(timeCheckRef, {
+        timestamp: Timestamp.now()
+      }, { merge: true });
+
+      if (!serverTimestamp) {
+        return false;
+      }
+
+      const deviceTime = new Date();
+      const serverTimeDate = serverTimestamp.toDate();
+      
+      const timeDiff = Math.abs(deviceTime.getTime() - serverTimeDate.getTime());
+      const isValid = timeDiff <= 5 * 60 * 1000; // 5 minutes tolerance
+      
+      if (!isValid) {
+        const diffMinutes = Math.round(timeDiff / (60 * 1000));
+        setTimeValidationMessage(
+          `Device time differs from server time by ${diffMinutes} minutes. ` +
+          'Please sync your device time with network time to continue.'
+        );
+        setIsTimeValid(false);
+        return false;
+      }
+      
+      setTimeValidationMessage('');
+      setIsTimeValid(true);
+      return true;
+    } catch (error) {
+      console.error('Time validation error:', error);
+      setTimeValidationMessage('Unable to validate time. Please check your internet connection and try again.');
+      setIsTimeValid(false);
+      return false;
+    }
+  };
+
   const takePicture = async () => {
+    // Use pre-validated state - validation happens in background every 2 seconds
+    if (!isTimeValid) {
+      Alert.alert(
+        'Time Sync Required',
+        timeValidationMessage,
+        [
+          {
+            text: 'Retry',
+            onPress: async () => {
+              setIsValidatingTime(true);
+              const isValid = await validateDeviceTime();
+              setIsValidatingTime(false);
+              if (isValid) {
+                setIsTimeValid(true);
+                setTimeValidationMessage('');
+                setLastTimeValidation(new Date());
+              }
+            }
+          },
+          {
+            text: 'Cancel',
+            style: 'cancel'
+          }
+        ]
+      );
+      return;
+    }
+
     if (cameraRef.current && location) {
       try {
+        // Take photo instantly when time is valid (pre-validated)
         const photo = await cameraRef.current.takePictureAsync();
-        console.log("Photo taken:", photo);
         setPhoto(photo);
-        // Don't navigate immediately, let user confirm the photo
+        // Use actual current time for saving, not IST time
+        setCapturedTime(new Date());
       } catch (error) {
-        console.error('Error taking picture:', error);
         Alert.alert('Error', 'Failed to take picture. Please try again.');
       }
     }
@@ -108,13 +332,49 @@ const BDMCameraScreen = () => {
     setCameraType(cameraType === 0 ? 1 : 0);
   };
 
+  const handleConfirmPhoto = async () => {
+    if (isConfirming) return;
+
+    if (location && photo) {
+      try {
+        setIsConfirming(true);
+        
+        await new Promise(resolve => setTimeout(resolve, 100));
+        
+        // Use actual current time for saving, not IST time
+        const actualTime = capturedTime || new Date();
+        const capturedTimeString = actualTime.toISOString();
+        
+        navigation.navigate('BDMAttendance' as never, {
+          photo: { uri: photo.uri },
+          location: {
+            coords: {
+              latitude: location.coords.latitude,
+              longitude: location.coords.longitude
+            }
+          },
+          dateTime: capturedTimeString,
+          locationName: locationAddress,
+          isPunchIn: type === 'in',
+        });
+        
+        setPhoto(null);
+      } catch (error) {
+        Alert.alert('Error', 'Failed to navigate to attendance screen. Please try again.');
+      } finally {
+        setIsConfirming(false);
+      }
+    } else {
+      Alert.alert('Error', 'Location or photo not available. Please try again.');
+    }
+  };
+
   const renderPhotoPreview = () => {
     return (
       <View style={styles.previewContainer}>
         {photo && <Image source={{ uri: photo.uri }} style={styles.preview} />}
         <View style={styles.previewOverlay}>
           <View style={styles.previewAddress}>
-            <MaterialIcons name="location-on" size={20} color="#FF8447" />
             <Text style={styles.previewAddressText}>
               {locationAddress || 'Location captured'}
             </Text>
@@ -122,9 +382,15 @@ const BDMCameraScreen = () => {
           <View style={styles.previewDate}>
             <MaterialIcons name="event" size={20} color="#FF8447" />
             <Text style={styles.previewDateText}>
-              {format(currentTime, 'dd MMM yyyy, h:mm a')}
+              {format(capturedTime || new Date(), 'dd MMM yyyy, hh:mm:ss a')}
             </Text>
           </View>
+          {!isTimeValid && (
+            <View style={styles.timeWarningContainer}>
+              <MaterialIcons name="warning" size={20} color="#FF5252" />
+              <Text style={styles.timeWarningText}>{timeValidationMessage}</Text>
+            </View>
+          )}
         </View>
         <View style={styles.previewButtons}>
           <TouchableOpacity 
@@ -135,38 +401,48 @@ const BDMCameraScreen = () => {
             <Text style={[styles.previewButtonText, { color: '#FF5252' }]}>Retake</Text>
           </TouchableOpacity>
           <TouchableOpacity 
-            style={[styles.previewButton, styles.confirmButton]}
-            onPress={async () => {
-              if (location && photo) {
-                try {
-                  // Navigate to BDMAttendanceScreen with the required data
-                  navigation.navigate('BDMAttendance'as never, {
-                    photo: { uri: photo.uri },
-                    location: {
-                      coords: {
-                        latitude: location.coords.latitude,
-                        longitude: location.coords.longitude
-                      }
-                    },
-                    dateTime: currentTime,
-                    isPunchIn: punchType === 'in'
-                  });
-                } catch (error) {
-                  console.error('Navigation error:', error);
-                  Alert.alert('Error', 'Failed to navigate to attendance screen. Please try again.');
-                }
-              } else {
-                Alert.alert('Error', 'Location or photo not available. Please try again.');
-              }
-            }}
+            style={[
+              styles.previewButton, 
+              styles.confirmButton,
+              (!isTimeValid || isConfirming) && styles.disabledButton
+            ]}
+            onPress={handleConfirmPhoto}
+            disabled={!isTimeValid || isConfirming}
           >
-            <MaterialIcons name="check" size={24} color="#4CAF50" />
-            <Text style={[styles.previewButtonText, { color: '#4CAF50' }]}>Confirm</Text>
+            {isConfirming ? (
+              <View style={styles.loadingContainer}>
+                <ActivityIndicator size="small" color="#4CAF50" />
+                <Text style={[styles.previewButtonText, { color: '#999' }]}>
+                  Processing...
+                </Text>
+              </View>
+            ) : (
+              <>
+                <MaterialIcons name="check" size={24} color={isTimeValid && !isConfirming ? "#4CAF50" : "#999"} />
+                <Text style={[
+                  styles.previewButtonText, 
+                  { color: isTimeValid && !isConfirming ? "#4CAF50" : "#999" }
+                ]}>
+                  Confirm
+                </Text>
+              </>
+            )}
           </TouchableOpacity>
         </View>
       </View>
     );
   };
+
+  const renderLocationInfo = () => (
+    <View style={styles.locationContainer}>
+      <MaterialIcons name="location-on" size={24} color="#FF8447" />
+      <Text style={styles.locationText}>
+        {isLocationLoading 
+          ? 'Getting location...' 
+          : locationAddress || 'Location not available'}
+      </Text>
+    </View>
+  );
 
   if (!hasPermission) {
     return (
@@ -208,11 +484,6 @@ const BDMCameraScreen = () => {
               style={styles.flashButton}
               onPress={() => {
                 setFlash(!flash);
-                // The actual flash functionality would need to be implemented through cameraRef manually
-                if (cameraRef.current) {
-                  // This is a placeholder - actual implementation would depend on the camera API
-                  console.log('Flash toggled:', !flash);
-                }
               }}
             >
               <MaterialIcons 
@@ -222,12 +493,7 @@ const BDMCameraScreen = () => {
               />
             </TouchableOpacity>
 
-            <View style={styles.locationContainer}>
-              <MaterialIcons name="location-on" size={24} color="#FF8447" />
-              <Text style={styles.locationText}>
-                {locationAddress || 'Getting location...'}
-              </Text>
-            </View>
+            {renderLocationInfo()}
 
             <View style={styles.dateTimeContainer}>
               <MaterialIcons name="event" size={24} color="#FF8447" />
@@ -239,18 +505,30 @@ const BDMCameraScreen = () => {
             <View style={styles.timeContainer}>
               <MaterialIcons name="access-time" size={24} color="#FF8447" />
               <Text style={styles.dateTimeText}>
-                {format(currentTime, 'h:mm:ss a')}
+                {format(currentTime, 'hh:mm:ss a')} IST
               </Text>
             </View>
 
+            {!isTimeValid && (
+              <View style={styles.timeWarningBanner}>
+                <MaterialIcons name="warning" size={24} color="#FFF" />
+                <Text style={styles.timeWarningBannerText}>{timeValidationMessage}</Text>
+              </View>
+            )}
+
             <View style={styles.buttonContainer}>
               <TouchableOpacity
-                style={[styles.captureButton, location ? {} : styles.disabledButton]}
+                style={[
+                  styles.captureButton, 
+                  (!location || !isTimeValid || isValidatingTime) && styles.disabledButton
+                ]}
                 onPress={takePicture}
-                disabled={!location}
+                disabled={!location || !isTimeValid || isValidatingTime}
               >
                 <Text style={styles.captureText}>
-                  {punchType === 'in' ? 'Punch In' : 'Punch Out'}
+                  {isValidatingTime 
+                    ? 'Validating Time...' 
+                    : type === 'in' ? 'Punch In' : 'Punch Out'}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -360,7 +638,8 @@ const styles = StyleSheet.create({
     borderRadius: 30,
   },
   disabledButton: {
-    backgroundColor: '#aaa',
+    backgroundColor: '#CCCCCC',
+    opacity: 0.7,
   },
   captureText: {
     color: 'white',
@@ -453,6 +732,44 @@ const styles = StyleSheet.create({
   retakeButton: {
     backgroundColor: 'rgba(255,255,255,0.9)',
   },
+  timeWarningContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 82, 82, 0.9)',
+    padding: 8,
+    borderRadius: 8,
+    marginTop: 8,
+  },
+  timeWarningText: {
+    color: 'white',
+    fontSize: 12,
+    fontFamily: 'LexendDeca_400Regular',
+    marginLeft: 8,
+    flex: 1,
+  },
+  timeWarningBanner: {
+    position: 'absolute',
+    top: 100,
+    left: 20,
+    right: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 82, 82, 0.9)',
+    padding: 12,
+    borderRadius: 8,
+  },
+  timeWarningBannerText: {
+    color: 'white',
+    fontSize: 14,
+    fontFamily: 'LexendDeca_400Regular',
+    marginLeft: 8,
+    flex: 1,
+  },
+  loadingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 });
 
-export default BDMCameraScreen; 
+export default BDMCameraScreen;

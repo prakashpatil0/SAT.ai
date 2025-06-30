@@ -21,6 +21,8 @@ import AppGradient from '@/app/components/AppGradient';
 import { auth, db } from '@/firebaseConfig';
 import { collection, query, where, getDocs, orderBy, Timestamp, doc, deleteDoc, updateDoc } from 'firebase/firestore';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useFocusEffect } from '@react-navigation/native';
+import { useCallback } from 'react';
 
 // Add storage key constant
 const MEETING_LOGS_STORAGE_KEY = 'bdm_meeting_logs';
@@ -45,7 +47,7 @@ interface Meeting {
   notes: string;
   status: 'planned' | 'completed' | 'cancelled';
   createdAt: Date | Timestamp;
-  meetingDateTime: Date | Timestamp;
+  meetingStartDateTime: Date | Timestamp;
   syncStatus?: 'synced' | 'pending';
 }
 
@@ -73,7 +75,12 @@ const BDMMeetingReports = () => {
   const [isDeleting, setIsDeleting] = useState(false);
   
   const navigation = useNavigation();
-
+// Inside component:
+useFocusEffect(
+  useCallback(() => {
+    fetchMeetings(); // refetch data every time screen is focused
+  }, [])
+);
   useEffect(() => {
     fetchMeetings();
   }, []);
@@ -101,11 +108,11 @@ const BDMMeetingReports = () => {
           const localLogs = JSON.parse(localLogsStr);
           const localMeetings = localLogs.map((log: any) => ({
             id: log.id,
-            date: log.meetingDateTime ? 
-              format(new Date(log.meetingDateTime), 'dd MMM yyyy') : 
+            date: log.meetingStartDateTime ? 
+              format(new Date(log.meetingStartDateTime), 'dd MMM yyyy') : 
               'Date not set',
-            time: log.meetingDateTime ? 
-              format(new Date(log.meetingDateTime), 'hh:mm a') : 
+            time: log.meetingStartDateTime ? 
+              format(new Date(log.meetingStartDateTime), 'hh:mm a') : 
               'Time not set',
             locationUrl: log.locationUrl,
             companyName: log.companyName,
@@ -115,7 +122,7 @@ const BDMMeetingReports = () => {
             notes: log.notes,
             status: log.status,
             createdAt: new Date(log.createdAt),
-            meetingDateTime: new Date(log.meetingDateTime),
+            meetingStartDateTime: new Date(log.meetingStartDateTime),
             syncStatus: log.syncStatus
           }));
           allMeetings = [...allMeetings, ...localMeetings];
@@ -130,7 +137,7 @@ const BDMMeetingReports = () => {
         const q = query(
           meetingsRef, 
           where('userId', '==', userId),
-          orderBy('meetingDateTime', 'desc')
+          orderBy('meetingStartDateTime', 'desc')
         );
         
         const querySnapshot = await getDocs(q);
@@ -141,11 +148,11 @@ const BDMMeetingReports = () => {
           firebaseMeetings.push({
             id: doc.id,
             ...meetingData,
-            date: meetingData.meetingDateTime ? 
-              format(toDate(meetingData.meetingDateTime), 'dd MMM yyyy') : 
+            date: meetingData.meetingStartDateTime ? 
+              format(toDate(meetingData.meetingStartDateTime), 'dd MMM yyyy') : 
               'Date not set',
-            time: meetingData.meetingDateTime ? 
-              format(toDate(meetingData.meetingDateTime), 'hh:mm a') : 
+            time: meetingData.meetingStartDateTime ? 
+              format(toDate(meetingData.meetingStartDateTime), 'hh:mm a') : 
               'Time not set',
             syncStatus: 'synced'
           });
@@ -158,8 +165,8 @@ const BDMMeetingReports = () => {
 
       // Sort all meetings by date and time
       allMeetings.sort((a, b) => {
-        const dateA = toDate(a.meetingDateTime);
-        const dateB = toDate(b.meetingDateTime);
+        const dateA = toDate(a.meetingStartDateTime);
+        const dateB = toDate(b.meetingStartDateTime);
         return dateB.getTime() - dateA.getTime();
       });
       
@@ -193,8 +200,8 @@ const BDMMeetingReports = () => {
         break;
       case 'today':
         filtered = meetings.filter(meeting => {
-          if (!meeting.meetingDateTime) return false;
-          const meetingDate = toDate(meeting.meetingDateTime);
+          if (!meeting.meetingStartDateTime) return false;
+          const meetingDate = toDate(meeting.meetingStartDateTime);
           return meetingDate.getDate() === today.getDate() &&
                  meetingDate.getMonth() === today.getMonth() &&
                  meetingDate.getFullYear() === today.getFullYear();
@@ -202,15 +209,15 @@ const BDMMeetingReports = () => {
         break;
       case 'upcoming':
         filtered = meetings.filter(meeting => {
-          if (!meeting.meetingDateTime) return false;
-          const meetingDate = toDate(meeting.meetingDateTime);
+          if (!meeting.meetingStartDateTime) return false;
+          const meetingDate = toDate(meeting.meetingStartDateTime);
           return meetingDate > now;
         });
         break;
       case 'past':
         filtered = meetings.filter(meeting => {
-          if (!meeting.meetingDateTime) return false;
-          const meetingDate = toDate(meeting.meetingDateTime);
+          if (!meeting.meetingStartDateTime) return false;
+          const meetingDate = toDate(meeting.meetingStartDateTime);
           return meetingDate < now;
         });
         break;
@@ -460,7 +467,7 @@ const BDMMeetingReports = () => {
   const renderMeetingDetails = () => {
     if (!selectedMeeting) return null;
 
-    const meetingDate = toDate(selectedMeeting.meetingDateTime);
+    const meetingDate = toDate(selectedMeeting.meetingStartDateTime);
     const formattedDate = format(meetingDate, 'dd MMMM yyyy');
     const formattedTime = format(meetingDate, 'hh:mm a');
 

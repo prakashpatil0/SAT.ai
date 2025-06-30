@@ -12,8 +12,8 @@ import {
   ActivityIndicator,
   Dimensions,
   TouchableWithoutFeedback,
+  Modal,
 } from "react-native";
-import DateTimePicker from "@react-native-community/datetimepicker";
 import { MaterialIcons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import * as ImagePicker from "expo-image-picker";
@@ -32,13 +32,8 @@ import WaveSkeleton from "@/app/components/WaveSkeleton";
 const { width } = Dimensions.get("window");
 
 type ProfileImage =
-  | {
-      uri: string;
-    }
-  | {
-      uri?: undefined;
-      default: number;
-    };
+  | { uri: string }
+  | { uri?: undefined; default: number };
 
 interface User {
   id: string;
@@ -48,13 +43,6 @@ interface User {
   phoneNumber: string;
   dateOfBirth: Date;
   profileImageUrl: string | null;
-}
-
-interface DateTimePickerEvent {
-  type: string;
-  nativeEvent: {
-    timestamp: number;
-  };
 }
 
 const ProfileSkeleton = () => {
@@ -113,30 +101,12 @@ const ProfileSkeleton = () => {
 };
 
 const ProfileScreen = () => {
-  // Updated Month Navigation Logic with year carry-over
-  const handlePrevMonth = (p0: (prev: any) => number) => {
-    setCalendarMonth((prevMonth) => {
-      const newMonth = prevMonth === 0 ? 11 : prevMonth - 1;
-      if (prevMonth === 0) setCalendarYear((prevYear) => prevYear - 1);
-      return newMonth;
-    });
-  };
-
-  const handleNextMonth = (p0: (prev: any) => any) => {
-    setCalendarMonth((prevMonth) => {
-      const newMonth = prevMonth === 11 ? 0 : prevMonth + 1;
-      if (prevMonth === 11) setCalendarYear((prevYear) => prevYear + 1);
-      return newMonth;
-    });
-  };
-
   const navigation = useNavigation();
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
-  const { profileImage: contextProfileImage, updateProfileImage } =
-    useProfile();
-  const [role, setRole] = useState<"BDM" | "Telecaller">("BDM"); // Default to BDM, will fetch from Firestore
+  const { profileImage: contextProfileImage, updateProfileImage } = useProfile();
+  const [role, setRole] = useState<"BDM" | "Telecaller">("BDM");
   const [formData, setFormData] = useState<User>({
     id: "",
     name: "",
@@ -146,20 +116,30 @@ const ProfileScreen = () => {
     dateOfBirth: new Date(),
     profileImageUrl: "",
   });
-  const [showDatePicker, setShowDatePicker] = useState(false);
   const [profileImage, setProfileImage] = useState<ProfileImage>({ uri: "" });
-  const [errors, setErrors] = useState({
-    name: "",
-    phoneNumber: "",
-  });
-  const [touched, setTouched] = useState({
-    name: false,
-    phoneNumber: false,
-  });
+  const [errors, setErrors] = useState({ name: "", phoneNumber: "" });
+  const [touched, setTouched] = useState({ name: false, phoneNumber: false });
+  const scrollRef = useRef<ScrollView>(null);
+  const [calendarVisible, setCalendarVisible] = useState(false);
+  const today = new Date();
+  const [selectedDate, setSelectedDate] = useState(formData.dateOfBirth);
+  const [calendarMonth, setCalendarMonth] = useState(today.getMonth());
+  const [calendarYear, setCalendarYear] = useState(today.getFullYear());
+  const [yearPickerVisible, setYearPickerVisible] = useState(false);
+  const [photoModalVisible, setPhotoModalVisible] = useState(false);
+  const [tempPhotoUri, setTempPhotoUri] = useState<string | null>(null);
 
   // Animation refs
   const scaleAnim = useRef(new Animated.Value(1)).current;
   const scrollY = useRef(new Animated.Value(0)).current;
+  const modalScale = useRef(new Animated.Value(0)).current;
+
+  // Profile cache
+  const profileCache = useRef<{ data: User | null; timestamp: number }>({
+    data: null,
+    timestamp: 0,
+  });
+  const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
 
   // Calculated animation values
   const headerHeight = scrollY.interpolate({
@@ -173,64 +153,40 @@ const ProfileScreen = () => {
     outputRange: [1, 0.8],
     extrapolate: "clamp",
   });
-// Declare FIRST
-const scrollRef = useRef<ScrollView>(null); 
-const [calendarVisible, setCalendarVisible] = useState(false);
 
-// Then useEffect
-useEffect(() => {
-  if (calendarVisible) {
-    setTimeout(() => {
-      scrollRef.current?.scrollToEnd({ animated: true });
-    }, 300);
-  }
-}, [calendarVisible]);
+  useEffect(() => {
+    if (calendarVisible) {
+      setTimeout(() => {
+        scrollRef.current?.scrollToEnd({ animated: true });
+      }, 300);
+    }
+  }, [calendarVisible]);
 
-  // Fetch user profile and role
   useEffect(() => {
     fetchUserProfile();
   }, []);
-useEffect(() => {
-  if (calendarVisible) {
-    setTimeout(() => {
-      scrollRef.current?.scrollToEnd({ animated: true });
-    }, 300);
-  }
-}, [calendarVisible]);
-  // State hooks:
-  // const [calendarVisible, setCalendarVisible] = useState(false);
-  const today = new Date();
-  const [selectedDate, setSelectedDate] = useState(formData.dateOfBirth);
-  const [calendarMonth, setCalendarMonth] = useState(today.getMonth());
-  const [calendarYear, setCalendarYear] = useState(today.getFullYear());
-  const [yearPickerVisible, setYearPickerVisible] = useState(false);
 
-  // Helper function:
-  const getCalendarMatrix = (year: number, month: number) => {
-    const matrix = [];
-    const firstDay = new Date(year, month, 1).getDay();
-    const totalDays = new Date(year, month + 1, 0).getDate();
-    let day = 1;
-    for (let i = 0; i < 6; i++) {
-      const row = [];
-      for (let j = 0; j < 7; j++) {
-        if ((i === 0 && j < firstDay) || day > totalDays) {
-          row.push(null);
-        } else {
-          row.push(day++);
-        }
-      }
-      matrix.push(row);
-    }
-    return matrix;
-  };
-
-  // Update profile image when context changes
   useEffect(() => {
     if (contextProfileImage) {
       setProfileImage({ uri: contextProfileImage });
     }
   }, [contextProfileImage]);
+
+  useEffect(() => {
+    if (photoModalVisible) {
+      Animated.spring(modalScale, {
+        toValue: 1,
+        friction: 8,
+        useNativeDriver: true,
+      }).start();
+    } else {
+      Animated.timing(modalScale, {
+        toValue: 0,
+        duration: 200,
+        useNativeDriver: true,
+      }).start();
+    }
+  }, [photoModalVisible]);
 
   const fetchUserProfile = async () => {
     try {
@@ -238,14 +194,30 @@ useEffect(() => {
       const userId = auth.currentUser?.uid;
       if (!userId) return;
 
+      // Check cache
+      const now = Date.now();
+      if (
+        profileCache.current.data &&
+        now - profileCache.current.timestamp < CACHE_DURATION
+      ) {
+        const data = profileCache.current.data!;
+        setRole(
+          data.designation?.toLowerCase() === "bdm" ? "BDM" : "Telecaller"
+        );
+        setFormData(data);
+        setProfileImage(
+          data.profileImageUrl ? { uri: data.profileImageUrl } : { uri: "" }
+        );
+        setIsLoading(false);
+        return;
+      }
+
       const userDoc = await getDoc(doc(db, "users", userId));
       if (userDoc.exists()) {
         const data = userDoc.data();
         const userRole =
           data.designation?.toLowerCase() === "bdm" ? "BDM" : "Telecaller";
-
-        setRole(userRole);
-        setFormData({
+        const userData: User = {
           id: userId,
           name: data.name || "",
           designation: data.designation || userRole,
@@ -253,7 +225,12 @@ useEffect(() => {
           phoneNumber: data.phoneNumber || "",
           dateOfBirth: data.dateOfBirth?.toDate() || new Date(),
           profileImageUrl: data.profileImageUrl || "",
-        });
+        };
+
+        setRole(userRole);
+        setFormData(userData);
+        profileCache.current = { data: userData, timestamp: now };
+
         if (data.profileImageUrl) {
           try {
             const response = await fetch(data.profileImageUrl);
@@ -261,17 +238,16 @@ useEffect(() => {
               setProfileImage({ uri: data.profileImageUrl });
               updateProfileImage?.(data.profileImageUrl);
             } else {
-              loadDefaultImage(userRole);
+              await loadDefaultImage(userRole);
             }
-          } catch (error) {
-            loadDefaultImage(userRole);
+          } catch {
+            await loadDefaultImage(userRole);
           }
         } else {
-          loadDefaultImage(userRole);
+          await loadDefaultImage(userRole);
         }
       }
-    } catch (error) {
-      console.error("Error fetching profile:", error);
+    } catch {
       Alert.alert("Error", "Failed to load profile data");
     } finally {
       setTimeout(() => setIsLoading(false), 1000);
@@ -285,8 +261,7 @@ useEffect(() => {
       const defaultImageRef = ref(storage, defaultImagePath);
       const url = await getDownloadURL(defaultImageRef);
       setProfileImage({ uri: url });
-    } catch (error) {
-      console.error("Error loading default profile image:", error);
+    } catch {
       setProfileImage({ uri: "" });
     }
   };
@@ -304,9 +279,8 @@ useEffect(() => {
       );
       const uploadResult = await uploadBytes(storageRef, blob);
       return await getDownloadURL(uploadResult.ref);
-    } catch (error) {
-      console.error("Upload error:", error);
-      throw error;
+    } catch {
+      throw new Error("Upload failed");
     }
   };
 
@@ -382,14 +356,17 @@ useEffect(() => {
       };
 
       await setDoc(userRef, updateData, { merge: true });
+      profileCache.current = {
+        data: { ...formData, profileImageUrl },
+        timestamp: Date.now(),
+      };
       if (profileImageUrl && updateProfileImage) {
         updateProfileImage(profileImageUrl);
       }
 
       setIsEditing(false);
       Alert.alert("Success", "Profile updated successfully");
-    } catch (error) {
-      console.error("Save changes error:", error);
+    } catch {
       Alert.alert(
         "Error",
         "Failed to update profile. Please check your connection and try again."
@@ -399,19 +376,56 @@ useEffect(() => {
     }
   };
 
-  const handleShowDatePicker = () => {
-    setShowDatePicker(true);
+  const handleOpenCamera = async () => {
+    const { status } = await Camera.requestCameraPermissionsAsync();
+    if (status !== "granted") {
+      Alert.alert(
+        "Permission Denied",
+        "You need to allow access to the camera."
+      );
+      return;
+    }
+
+    let result = await ImagePicker.launchCameraAsync({
+      allowsEditing: false,
+      quality: 0.7,
+    });
+
+    if (!result.canceled && result.assets.length > 0) {
+      setTempPhotoUri(result.assets[0].uri);
+      setPhotoModalVisible(true);
+    }
   };
 
-  const handleDateChange = (
-    event: DateTimePickerEvent,
-    selectedDate?: Date
-  ) => {
-    setShowDatePicker(Platform.OS === "android" ? false : showDatePicker);
-    if (selectedDate) {
-      setFormData((prev) => ({ ...prev, dateOfBirth: selectedDate }));
+  const handleSavePhoto = () => {
+    if (tempPhotoUri) {
+      setProfileImage({ uri: tempPhotoUri });
+      Animated.sequence([
+        Animated.timing(scaleAnim, {
+          toValue: 1.1,
+          duration: 200,
+          useNativeDriver: true,
+        }),
+        Animated.timing(scaleAnim, {
+          toValue: 1,
+          duration: 200,
+          useNativeDriver: true,
+        }),
+      ]).start();
     }
-    if (Platform.OS === "ios") setShowDatePicker(false);
+    setPhotoModalVisible(false);
+    setTempPhotoUri(null);
+  };
+
+  const handleRetakePhoto = async () => {
+    setPhotoModalVisible(false);
+    setTempPhotoUri(null);
+    await handleOpenCamera();
+  };
+
+  const handleCancelPhoto = () => {
+    setPhotoModalVisible(false);
+    setTempPhotoUri(null);
   };
 
   const openImagePicker = () => {
@@ -433,43 +447,9 @@ useEffect(() => {
     }
 
     let result = await ImagePicker.launchImageLibraryAsync({
-      allowsEditing: true,
-      aspect: [4, 4],
-      quality: 1,
+      allowsEditing: false,
+      quality: 0.7,
       selectionLimit: 1,
-    });
-
-    if (!result.canceled && result.assets.length > 0) {
-      setProfileImage({ uri: result.assets[0].uri });
-      Animated.sequence([
-        Animated.timing(scaleAnim, {
-          toValue: 1.1,
-          duration: 200,
-          useNativeDriver: true,
-        }),
-        Animated.timing(scaleAnim, {
-          toValue: 1,
-          duration: 200,
-          useNativeDriver: true,
-        }),
-      ]).start();
-    }
-  };
-
-  const handleOpenCamera = async () => {
-    const { status } = await Camera.requestCameraPermissionsAsync();
-    if (status !== "granted") {
-      Alert.alert(
-        "Permission Denied",
-        "You need to allow access to the camera."
-      );
-      return;
-    }
-
-    let result = await ImagePicker.launchCameraAsync({
-      allowsEditing: true,
-      aspect: [4, 4],
-      quality: 1,
     });
 
     if (!result.canceled && result.assets.length > 0) {
@@ -496,6 +476,41 @@ useEffect(() => {
       day: "numeric",
     };
     return date.toLocaleDateString(undefined, options);
+  };
+
+  const handlePrevMonth = () => {
+    setCalendarMonth((prev) => {
+      const newMonth = prev === 0 ? 11 : prev - 1;
+      if (prev === 0) setCalendarYear((prevYear) => prevYear - 1);
+      return newMonth;
+    });
+  };
+
+  const handleNextMonth = () => {
+    setCalendarMonth((prev) => {
+      const newMonth = prev === 11 ? 0 : prev + 1;
+      if (prev === 11) setCalendarYear((prevYear) => prevYear + 1);
+      return newMonth;
+    });
+  };
+
+  const getCalendarMatrix = (year: number, month: number) => {
+    const matrix = [];
+    const firstDay = new Date(year, month, 1).getDay();
+    const totalDays = new Date(year, month + 1, 0).getDate();
+    let day = 1;
+    for (let i = 0; i < 6; i++) {
+      const row = [];
+      for (let j = 0; j < 7; j++) {
+        if ((i === 0 && j < firstDay) || day > totalDays) {
+          row.push(null);
+        } else {
+          row.push(day++);
+        }
+      }
+      matrix.push(row);
+    }
+    return matrix;
   };
 
   const Layout = role === "BDM" ? BDMMainLayout : TelecallerMainLayout;
@@ -531,19 +546,19 @@ useEffect(() => {
           ) : null
         }
       >
-     <Animated.ScrollView
-  ref={scrollRef} // attach scroll ref
-contentContainerStyle={[
-  styles.scrollContainer,
-  { paddingBottom: 100, minHeight: Dimensions.get("window").height + 100 },
-]}
-  showsVerticalScrollIndicator={false}
-  scrollEventThrottle={16}
-  onScroll={Animated.event(
-    [{ nativeEvent: { contentOffset: { y: scrollY } } }],
-    { useNativeDriver: false }
-  )}
->
+        <Animated.ScrollView
+          ref={scrollRef}
+          contentContainerStyle={[
+            styles.scrollContainer,
+            { paddingBottom: 100, minHeight: Dimensions.get("window").height + 100 },
+          ]}
+          showsVerticalScrollIndicator={false}
+          scrollEventThrottle={16}
+          onScroll={Animated.event(
+            [{ nativeEvent: { contentOffset: { y: scrollY } } }],
+            { useNativeDriver: false }
+          )}
+        >
           {/* Profile Header */}
           <Animated.View
             style={[
@@ -624,13 +639,12 @@ contentContainerStyle={[
                       leftIcon="account"
                     />
                     <FormInput
-  label="Designation"
-  value={formData.designation}
-  onChangeText={() => {}}
-  leftIcon="briefcase"
-  disabled={true}
-/>
-
+                      label="Designation"
+                      value={formData.designation}
+                      onChangeText={() => {}}
+                      leftIcon="briefcase"
+                      disabled={true}
+                    />
                     <FormInput
                       label="Email"
                       value={formData.email}
@@ -646,15 +660,11 @@ contentContainerStyle={[
                       value={formData.phoneNumber}
                       onChangeText={validatePhoneNumber}
                       onBlur={() => handleBlur("phoneNumber")}
-                      error={
-                        touched.phoneNumber ? errors.phoneNumber : undefined
-                      }
+                      error={touched.phoneNumber ? errors.phoneNumber : undefined}
                       keyboardType="phone-pad"
                       leftIcon="phone"
                       autoComplete="tel"
                     />
-
-                    {/* Calendar Trigger */}
                     <Text style={styles.datePickerLabel}>Date of Birth</Text>
                     <TouchableOpacity
                       onPress={() => setCalendarVisible(!calendarVisible)}
@@ -677,43 +687,24 @@ contentContainerStyle={[
                       </View>
                     </TouchableOpacity>
 
-                    {/* Custom Calendar */}
                     {calendarVisible && (
                       <View style={styles.calendarWrapper}>
                         <View style={styles.calendarHeader}>
-                          <TouchableOpacity
-                            onPress={() =>
-                              handlePrevMonth((prev) =>
-                                prev === 0 ? 11 : prev - 1
-                              )
-                            }
-                          >
+                          <TouchableOpacity onPress={handlePrevMonth}>
                             <Text style={styles.arrow}>◀</Text>
                           </TouchableOpacity>
-
                           <TouchableOpacity
-                            onPress={() =>
-                              setYearPickerVisible(!yearPickerVisible)
-                            }
+                            onPress={() => setYearPickerVisible(!yearPickerVisible)}
                           >
                             <Text style={styles.monthYear}>
-                              {new Date(
-                                calendarYear,
-                                calendarMonth
-                              ).toLocaleString("default", {
-                                month: "long",
-                              })}{" "}
+                              {new Date(calendarYear, calendarMonth).toLocaleString(
+                                "default",
+                                { month: "long" }
+                              )}{" "}
                               {calendarYear}
                             </Text>
                           </TouchableOpacity>
-
-                          <TouchableOpacity
-                            onPress={() =>
-                              handleNextMonth((prev) =>
-                                prev === 11 ? 0 : prev + 1
-                              )
-                            }
-                          >
+                          <TouchableOpacity onPress={handleNextMonth}>
                             <Text style={styles.arrow}>▶</Text>
                           </TouchableOpacity>
                         </View>
@@ -728,9 +719,7 @@ contentContainerStyle={[
                                     key={year}
                                     onPress={() => setCalendarYear(year)}
                                   >
-                                    <Text style={styles.pickerItem}>
-                                      {year}
-                                    </Text>
+                                    <Text style={styles.pickerItem}>{year}</Text>
                                   </TouchableOpacity>
                                 );
                               })}
@@ -741,16 +730,14 @@ contentContainerStyle={[
                                   <TouchableOpacity
                                     key={month}
                                     onPress={() => {
-                                      setCalendarMonth(month); // ❗ Here 'month' is likely 1-based instead of 0-based
+                                      setCalendarMonth(month);
                                       setYearPickerVisible(false);
                                     }}
                                   >
                                     <Text style={styles.pickerItem}>
                                       {new Date(0, month).toLocaleString(
                                         "default",
-                                        {
-                                          month: "short",
-                                        }
+                                        { month: "short" }
                                       )}
                                     </Text>
                                   </TouchableOpacity>
@@ -761,19 +748,13 @@ contentContainerStyle={[
                         )}
 
                         <View style={styles.daysRow}>
-                          {[
-                            "Sun",
-                            "Mon",
-                            "Tue",
-                            "Wed",
-                            "Thu",
-                            "Fri",
-                            "Sat",
-                          ].map((day, i) => (
-                            <Text key={i} style={styles.dayText}>
-                              {day}
-                            </Text>
-                          ))}
+                          {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map(
+                            (day, i) => (
+                              <Text key={i} style={styles.dayText}>
+                                {day}
+                              </Text>
+                            )
+                          )}
                         </View>
 
                         {getCalendarMatrix(calendarYear, calendarMonth).map(
@@ -789,8 +770,7 @@ contentContainerStyle={[
                                       calendarYear,
                                       calendarMonth,
                                       date
-                                    ).toDateString() ===
-                                      selectedDate.toDateString()
+                                    ).toDateString() === selectedDate.toDateString()
                                       ? styles.selectedDate
                                       : null,
                                   ]}
@@ -800,7 +780,6 @@ contentContainerStyle={[
                                       calendarMonth,
                                       date ?? 1
                                     );
-
                                     setSelectedDate(chosenDate);
                                     setFormData((prev) => ({
                                       ...prev,
@@ -908,15 +887,78 @@ contentContainerStyle={[
             <View style={styles.spacer} />
           </View>
         </Animated.ScrollView>
+
+        {/* Custom Photo Options Modal */}
+        <Modal
+          visible={photoModalVisible}
+          transparent
+          animationType="none"
+          onRequestClose={handleCancelPhoto}
+        >
+          <TouchableWithoutFeedback onPress={handleCancelPhoto}>
+            <View style={modalStyles.modalOverlay}>
+              <TouchableWithoutFeedback>
+                <Animated.View
+                  style={[
+                    modalStyles.modalContainer,
+                    { transform: [{ scale: modalScale }] },
+                  ]}
+                >
+                  <Text style={modalStyles.modalTitle}>Photo Taken!</Text>
+                  <Text style={modalStyles.modalSubtitle}>
+                    What would you like to do with this photo?
+                  </Text>
+                  <View style={modalStyles.buttonContainer}>
+                    <TouchableOpacity
+                      style={modalStyles.button}
+                      onPress={handleSavePhoto}
+                      activeOpacity={0.8}
+                    >
+                      <LinearGradient
+                        colors={["#FF8447", "#FF6D24"]}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 1 }}
+                        style={modalStyles.buttonGradient}
+                      >
+                        <Text style={modalStyles.buttonText}>Save Photo</Text>
+                      </LinearGradient>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={modalStyles.button}
+                      onPress={handleRetakePhoto}
+                      activeOpacity={0.8}
+                    >
+                      <LinearGradient
+                        colors={["#4B9CFA", "#2B7FFF"]}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 1 }}
+                        style={modalStyles.buttonGradient}
+                      >
+                        <Text style={modalStyles.buttonText}>Retake</Text>
+                      </LinearGradient>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={modalStyles.cancelButton}
+                      onPress={handleCancelPhoto}
+                      activeOpacity={0.8}
+                    >
+                      <Text style={modalStyles.cancelButtonText}>Cancel</Text>
+                    </TouchableOpacity>
+                  </View>
+                </Animated.View>
+              </TouchableWithoutFeedback>
+            </View>
+          </TouchableWithoutFeedback>
+        </Modal>
       </Layout>
     </AppGradient>
   );
 };
 
 const styles = StyleSheet.create({
-   scrollContainer: {
+  scrollContainer: {
     flexGrow: 1,
-    paddingBottom: 200, // ✅ ensures calendar has room to scroll into view
+    paddingBottom: 200,
   },
   headerContainer: {
     width: "100%",
@@ -925,25 +967,23 @@ const styles = StyleSheet.create({
   headerGradient: {
     flex: 1,
     alignItems: "center",
-    justifyContent: "center",
-    paddingTop: 20,
+    paddingTop: 24,
   },
-datePickerLabel: {
-  fontSize: 12,
-  color: "#000000",  // ✅ Black color
-  fontFamily: "LexendDeca_400Regular",
-},
-
+  datePickerLabel: {
+    fontSize: 12,
+    color: "#000",
+    fontFamily: "LexendDeca_400",
+  },
   profileImageContainer: {
     width: 120,
     height: 120,
     borderRadius: 60,
-    backgroundColor: "white",
+    backgroundColor: "#fff",
     padding: 3,
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
+    shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.2,
-    shadowRadius: 5,
+    shadowRadius: 8,
     elevation: 5,
     position: "relative",
   },
@@ -963,19 +1003,19 @@ datePickerLabel: {
     justifyContent: "center",
     alignItems: "center",
     borderWidth: 2,
-    borderColor: "white",
+    borderColor: "#fff",
   },
   profileName: {
     fontSize: 24,
     fontFamily: "LexendDeca_600SemiBold",
-    color: "white",
+    color: "#fff",
     marginTop: 16,
   },
   profileRole: {
     fontSize: 16,
     fontFamily: "LexendDeca_400Regular",
-    color: "white",
-    marginTop: 4,
+    color: "#fff",
+    marginTop: 8,
   },
   contentContainer: {
     flex: 1,
@@ -983,72 +1023,64 @@ datePickerLabel: {
     paddingTop: 16,
   },
   section: {
-    backgroundColor: "white",
+    backgroundColor: "#fff",
     borderRadius: 16,
-    marginBottom: 16,
+    marginBottom: 24,
     overflow: "hidden",
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
+    shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 2,
+    shadowRadius: 6,
+    elevation: 3,
     borderWidth: 1,
     borderColor: "#E5E7EB",
   },
   sectionHeader: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 16,
+    padding: 16,
     borderBottomWidth: 1,
     borderBottomColor: "#f0f0f0",
-    backgroundColor: "#FFF5E6",
+    backgroundColor: "#FFF5F5",
   },
   sectionTitle: {
     fontSize: 18,
     fontFamily: "LexendDeca_500Medium",
-    color: "#FF8447",
-    marginLeft: 10,
+    color: "#FF6D24",
+    marginLeft: 8,
   },
   formContainer: {
     padding: 16,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: "#fff",
   },
- 
-  dateIcon: {
-    marginRight: 12,
-    color: "#FF8447",
-  },
- 
-
   saveButton: {
     height: 56,
     borderRadius: 12,
     overflow: "hidden",
     marginVertical: 16,
-    elevation: 4,
-    shadowColor: "#FF8447",
-    shadowOffset: { width: 0, height: 3 },
+    marginHorizontal: 16,
+    elevation: 6,
+    shadowColor: "#FF6D24",
+    shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
-    shadowRadius: 5,
+    shadowRadius: 8,
   },
   saveGradient: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "#FF8447",
   },
   saveButtonText: {
-    color: "#FFFFFF",
+    color: "#fff",
     fontSize: 18,
     fontFamily: "LexendDeca_600SemiBold",
   },
   spacer: {
-    height: 40,
+    height: 80,
   },
   editButton: {
     padding: 8,
-    backgroundColor: "#FFF5E6",
+    backgroundColor: "#FFF5F5",
     borderRadius: 8,
   },
   skeletonContainer: {
@@ -1089,49 +1121,55 @@ datePickerLabel: {
     color: "#333",
   },
   calendarWrapper: {
-    marginTop: 10,
+    marginTop: 12,
     borderWidth: 1,
     borderColor: "#ddd",
-    borderRadius: 8,
+    borderRadius: 12,
     backgroundColor: "#fff",
-    padding: 10,
-    elevation: 2,
+    padding: 12,
+    elevation: 3,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
   },
   calendarHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 10,
+    marginBottom: 12,
   },
   monthYear: {
-    fontWeight: "bold",
     fontSize: 16,
+    fontFamily: "LexendDeca_600SemiBold",
     color: "#333",
   },
   arrow: {
     fontSize: 20,
     color: "#FF6D24",
+    paddingHorizontal: 8,
   },
   daysRow: {
     flexDirection: "row",
     justifyContent: "space-between",
-    marginBottom: 5,
+    marginBottom: 8,
   },
   dayText: {
-    width: 32,
+    width: 40,
     textAlign: "center",
-    fontWeight: "bold",
+    fontSize: 14,
+    fontFamily: "LexendDeca_500Medium",
     color: "#555",
   },
   weekRow: {
     flexDirection: "row",
     justifyContent: "space-between",
-    marginBottom: 5,
+    marginBottom: 8,
   },
   dateCell: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     justifyContent: "center",
     alignItems: "center",
   },
@@ -1139,40 +1177,32 @@ datePickerLabel: {
     backgroundColor: "#FF6D24",
   },
   dateText: {
+    fontSize: 14,
+    fontFamily: "LexendDeca_400Regular",
     color: "#333",
   },
-  calendarButton: {
-    padding: 10,
-    backgroundColor: "#FF6D24",
-    borderRadius: 8,
-    alignItems: "center",
-  },
-  calendarButtonText: {
-    color: "#fff",
-    fontWeight: "bold",
-  },
-
   pickerContainer: {
     backgroundColor: "#f9f9f9",
-    padding: 8,
+    padding: 12,
     borderRadius: 8,
-    marginBottom: 10,
-    borderColor: "#ccc",
+    marginBottom: 12,
     borderWidth: 1,
+    borderColor: "#ddd",
   },
   yearScroll: {
-    maxHeight: 120,
+    maxHeight: 100,
     borderBottomWidth: 1,
     borderColor: "#ddd",
-    marginBottom: 5,
+    marginBottom: 8,
   },
   monthScroll: {
-    paddingVertical: 6,
+    paddingVertical: 8,
   },
   pickerItem: {
-    paddingVertical: 6,
-    paddingHorizontal: 12,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
     fontSize: 14,
+    fontFamily: "LexendDeca_400Regular",
     color: "#333",
     textAlign: "center",
   },
@@ -1182,7 +1212,8 @@ datePickerLabel: {
     borderColor: "#ddd",
     borderWidth: 1,
     borderRadius: 8,
-    marginTop: 10,
+    marginTop: 8,
+    backgroundColor: "#fff",
   },
   datePickerContent: {
     flexDirection: "row",
@@ -1190,10 +1221,81 @@ datePickerLabel: {
     justifyContent: "space-between",
   },
   datePickerValue: {
-    marginLeft: 10,
+    marginLeft: 12,
     fontSize: 14,
+    fontFamily: "LexendDeca_400Regular",
     color: "#333",
     flex: 1,
+  },
+});
+
+const modalStyles = StyleSheet.create({
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  modalContainer: {
+    width: width * 0.85,
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    padding: 24,
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 10,
+  },
+  modalTitle: {
+    fontSize: 22,
+    fontFamily: "LexendDeca_600SemiBold",
+    color: "#FF6D24",
+    marginBottom: 8,
+  },
+  modalSubtitle: {
+    fontSize: 16,
+    fontFamily: "LexendDeca_400Regular",
+    color: "#666",
+    textAlign: "center",
+    marginBottom: 24,
+  },
+  buttonContainer: {
+    width: "100%",
+    gap: 12,
+  },
+  button: {
+    borderRadius: 12,
+    overflow: "hidden",
+    elevation: 4,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+  },
+  buttonGradient: {
+    paddingVertical: 14,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  buttonText: {
+    fontSize: 16,
+    fontFamily: "LexendDeca_500Medium",
+    color: "#fff",
+  },
+  cancelButton: {
+    paddingVertical: 14,
+    backgroundColor: "#f0f0f0",
+    borderRadius: 12,
+    justifyContent: "center",
+    alignItems: "center",
+    elevation: 2,
+  },
+  cancelButtonText: {
+    fontSize: 16,
+    fontFamily: "LexendDeca_500Medium",
+    color: "#333",
   },
 });
 

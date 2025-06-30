@@ -1,68 +1,99 @@
 import React, { useState, useEffect, useRef } from "react";
-import { View, Text, Image, StyleSheet, ScrollView, ActivityIndicator, Animated, Alert, TouchableOpacity, Platform } from "react-native";
+import {
+  View,
+  Text,
+  Image,
+  StyleSheet,
+  ScrollView,
+  ActivityIndicator,
+  Animated,
+  Alert,
+  TouchableOpacity,
+  Platform,
+} from "react-native";
 import { Avatar } from "react-native-paper";
 import { MaterialIcons, Ionicons } from "@expo/vector-icons";
 import TelecallerMainLayout from "@/app/components/TelecallerMainLayout";
 import AppGradient from "@/app/components/AppGradient";
 import { FontAwesome5 } from "@expo/vector-icons";
-import { getLeaderboardData } from "@/app/services/targetService";
-import { auth, storage } from '@/firebaseConfig';
-import { ref, getDownloadURL } from 'firebase/storage';
-import { useProfile } from '@/app/context/ProfileContext';
-import { db } from '@/firebaseConfig';
-import { collection, query, where, getDocs, orderBy, getDoc, doc, limit } from 'firebase/firestore';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { auth, storage } from "@/firebaseConfig";
+import { ref, getDownloadURL } from "firebase/storage";
+import { useProfile } from "@/app/context/ProfileContext";
+import { db } from "@/firebaseConfig";
+import {
+  collection,
+  query,
+  getDocs,
+  orderBy,
+  getDoc,
+  doc,
+  limit,
+  where,
+} from "firebase/firestore";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import debounce from "lodash.debounce";
 
-// Define the LeaderboardUser type
 type LeaderboardUser = {
   userId: string;
   name: string;
   profileImage: string | null;
   percentageAchieved: number;
+  averageAchievement?: number;
+  totalAchievement?: number;
+  count?: number;
   rank: number;
   isPlaceholder?: boolean;
   isNotRanked?: boolean;
 };
 
-// Placeholder data to maintain leaderboard structure when no real data is available
-const placeholderData: LeaderboardUser[] = Array(10).fill(null).map((_, index) => ({
-  userId: `placeholder-${index}`,
-  name: "Add your data",
-  profileImage: null,
-  percentageAchieved: 0,
-  rank: index + 1,
-  isPlaceholder: true
-}));
+const placeholderData: LeaderboardUser[] = Array(10)
+  .fill(null)
+  .map((_, index) => ({
+    userId: `placeholder-${index}`,
+    name: "Add your data",
+    profileImage: null,
+    percentageAchieved: 0,
+    rank: index + 1,
+    isPlaceholder: true,
+  }));
 
 const LeaderBoard = () => {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [leaderboardData, setLeaderboardData] = useState<LeaderboardUser[]>([]);
   const [userNameMap, setUserNameMap] = useState<Record<string, string>>({});
-  const [defaultProfileImage, setDefaultProfileImage] = useState<string | null>(null);
+  const [defaultProfileImage, setDefaultProfileImage] = useState<string | null>(
+    null
+  );
   const [imageLoading, setImageLoading] = useState(true);
-  
-  // Animation values
+  const [isBackgroundFetching, setIsBackgroundFetching] = useState(false);
+
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const scaleAnim = useRef(new Animated.Value(0.9)).current;
-  
-  // Current user ID and profile
+
   const currentUserId = auth.currentUser?.uid;
   const { userProfile, refreshProfile } = useProfile();
 
-  // Cache key for leaderboard data
-  const CACHE_KEY = 'telecaller_leaderboard_cache';
+  const CACHE_KEY = "telecaller_leaderboard_cache";
   const CACHE_EXPIRY = 5 * 60 * 1000; // 5 minutes
+  const DEFAULT_IMAGE_CACHE_KEY = "default_profile_image";
 
   useEffect(() => {
-    refreshProfile();
-    loadDefaultProfileImage();
-    loadCachedLeaderboardData();
-    fetchAllUserNames();
+    const initialize = async () => {
+      await Promise.all([refreshProfile(), loadDefaultProfileImage()]);
+      await loadCachedLeaderboardData();
+      // Start background fetch after initial load
+      debouncedBackgroundFetch();
+    };
+    initialize();
+
+    // Cleanup debounce on unmount
+    return () => {
+      debouncedBackgroundFetch.cancel();
+    };
   }, []);
-  
+
   useEffect(() => {
-    // Start animation when data is loaded
     if (!loading) {
       Animated.parallel([
         Animated.timing(fadeAnim, {
@@ -74,20 +105,26 @@ const LeaderBoard = () => {
           toValue: 1,
           friction: 8,
           useNativeDriver: true,
-        })
+        }),
       ]).start();
     }
   }, [loading]);
 
   const loadDefaultProfileImage = async () => {
     try {
-      console.log('Loading default profile image from Firebase Storage');
-      const imageRef = ref(storage, 'assets/person.png');
+      const cachedImage = await AsyncStorage.getItem(DEFAULT_IMAGE_CACHE_KEY);
+      if (cachedImage) {
+        setDefaultProfileImage(cachedImage);
+        setImageLoading(false);
+        return;
+      }
+
+      const imageRef = ref(storage, "assets/person.png");
       const url = await getDownloadURL(imageRef);
-      console.log('Successfully loaded default profile image URL:', url);
       setDefaultProfileImage(url);
-    } catch (error) {
-      console.error('Error loading default profile image:', error);
+      await AsyncStorage.setItem(DEFAULT_IMAGE_CACHE_KEY, url);
+    } catch {
+      setDefaultProfileImage(null);
     } finally {
       setImageLoading(false);
     }
@@ -99,16 +136,18 @@ const LeaderBoard = () => {
       if (cachedData) {
         const { data, timestamp } = JSON.parse(cachedData);
         const now = Date.now();
-        
-        if (now - timestamp < CACHE_EXPIRY) {
-          setLeaderboardData(data);
-          setLoading(false);
-          return;
+
+        setLeaderboardData(data);
+        setLoading(false);
+        fetchUserNames(data); // Fetch names for cached users
+        if (now - timestamp >= CACHE_EXPIRY) {
+          // Trigger background fetch if cache is stale
+          debouncedBackgroundFetch();
         }
+        return;
       }
       fetchLeaderboardData();
-    } catch (error) {
-      console.error('Error loading cached data:', error);
+    } catch {
       fetchLeaderboardData();
     }
   };
@@ -117,113 +156,131 @@ const LeaderBoard = () => {
     try {
       const cacheData = {
         data,
-        timestamp: Date.now()
+        timestamp: Date.now(),
       };
       await AsyncStorage.setItem(CACHE_KEY, JSON.stringify(cacheData));
-    } catch (error) {
-      console.error('Error saving to cache:', error);
-    }
+    } catch {}
   };
 
-  // Fetch all user names from Firebase to have a complete mapping
-  const fetchAllUserNames = async () => {
+  const fetchUserNames = async (users: LeaderboardUser[]) => {
     try {
-      const usersRef = collection(db, 'users');
+      const userIds = users
+        .filter((user) => !user.isPlaceholder)
+        .map((user) => user.userId);
+      if (!userIds.length) return;
+
+      const usersRef = collection(db, "users");
       const snapshot = await getDocs(usersRef);
-      
+
       const nameMap: Record<string, string> = {};
-      
-      snapshot.forEach(doc => {
+      snapshot.forEach((doc) => {
         const data = doc.data();
         const userId = data.uid;
-        if (userId) {
-          // Try different name fields
-          const name = data.name || 
-            (data.firstName && data.lastName ? `${data.firstName} ${data.lastName}` : null) ||
-            data.displayName || 
-            data.email || 
-            'Unknown User';
-          
+        if (userId && userIds.includes(userId)) {
+          const name =
+            data.name ||
+            (data.firstName && data.lastName
+              ? `${data.firstName} ${data.lastName}`
+              : null) ||
+            data.displayName ||
+            data.email ||
+            "Unknown User";
           nameMap[userId] = name;
         }
       });
-      
-      setUserNameMap(nameMap);
-    } catch (error) {
-      console.error('Error fetching user names:', error);
-    }
+
+      setUserNameMap((prev) => ({ ...prev, ...nameMap }));
+    } catch {}
   };
 
   const fetchLeaderboardData = async (showRefreshing = false) => {
     try {
       if (showRefreshing) setRefreshing(true);
-      else setLoading(true);
+      else if (!loading) setIsBackgroundFetching(true);
 
-      // Get all telecaller achievements
-      const achievementsRef = collection(db, 'telecaller_achievements');
+      // Get current month start and end dates
+      const now = new Date();
+      const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+      const currentMonthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+
+      const achievementsRef = collection(db, "telecaller_achievements");
       const achievementsQuery = query(
         achievementsRef,
-        orderBy('percentageAchieved', 'desc'),
-        limit(10) // Limit to top 10 users
+        where("createdAt", ">=", currentMonthStart),
+        where("createdAt", "<=", currentMonthEnd),
+        orderBy("percentageAchieved", "desc"),
+        limit(50) // Fetch more to ensure we get top 10 after processing
       );
 
       const achievementsSnapshot = await getDocs(achievementsQuery);
-      
-      // Group achievements by user and get their highest achievement
-      const userAchievements: Record<string, {
-        highestPercentage: number;
-        latestDate: Date;
-      }> = {};
 
-      achievementsSnapshot.forEach(doc => {
+      const userAchievements: Record<
+        string,
+        { highestPercentage: number; latestDate: Date; totalAchievement: number; count: number }
+      > = {};
+
+      achievementsSnapshot.forEach((doc) => {
         const data = doc.data();
         const userId = data.userId;
         const percentage = data.percentageAchieved;
         const date = data.createdAt.toDate();
 
-        if (!userAchievements[userId] || 
-            percentage > userAchievements[userId].highestPercentage ||
-            (percentage === userAchievements[userId].highestPercentage && 
-             date > userAchievements[userId].latestDate)) {
+        if (!userAchievements[userId]) {
           userAchievements[userId] = {
             highestPercentage: percentage,
-            latestDate: date
+            latestDate: date,
+            totalAchievement: percentage,
+            count: 1
           };
+        } else {
+          userAchievements[userId].totalAchievement += percentage;
+          userAchievements[userId].count += 1;
+          if (percentage > userAchievements[userId].highestPercentage) {
+            userAchievements[userId].highestPercentage = percentage;
+            userAchievements[userId].latestDate = date;
+          }
         }
       });
 
-      // Convert to array and sort by highest percentage
       const sortedUsers = Object.entries(userAchievements)
         .map(([userId, data]) => ({
           userId,
-          percentageAchieved: data.highestPercentage,
-          latestDate: data.latestDate
+          percentageAchieved: data.highestPercentage, // Use highest percentage for ranking
+          averageAchievement: data.totalAchievement / data.count, // Calculate average
+          latestDate: data.latestDate,
+          totalAchievement: data.totalAchievement,
+          count: data.count
         }))
         .sort((a, b) => b.percentageAchieved - a.percentageAchieved)
-        .slice(0, 10); // Ensure we only take top 10
+        .slice(0, 10);
 
-      // Fetch user details for all users
       const leaderboardData = await Promise.all(
-        sortedUsers.map(async (user) => {
+        sortedUsers.map(async (user, index) => {
           try {
-            // Try to get user from users collection
             const userDoc = await getDoc(doc(db, "users", user.userId));
-            let userName = "Unknown User";
+            let userName = userNameMap[user.userId] || "Unknown User";
             let profileImage = null;
 
             if (userDoc.exists()) {
               const userData = userDoc.data();
-              // Try different name fields
-              userName = userData.name || 
-                        (userData.firstName && userData.lastName ? `${userData.firstName} ${userData.lastName}` : null) ||
-                        userData.displayName || 
-                        userData.email || 
-                        "Unknown User";
+              userName =
+                userData.name ||
+                (userData.firstName && userData.lastName
+                  ? `${userData.firstName} ${userData.lastName}`
+                  : null) ||
+                userData.displayName ||
+                userData.email ||
+                "Unknown User";
 
-              // Try different profile image fields
-              const imageFields = ["profileImageUrl", "profileImage", "photoURL", "avatar", "picture"];
+              const imageFields = [
+                "profileImageUrl",
+                "profileImage",
+                "photoURL",
+                "avatar",
+                "picture",
+              ];
               for (const field of imageFields) {
-                if (userData[field] && typeof userData[field] === 'string') {
+                if (userData[field] && typeof userData[field] === "string") {
                   profileImage = String(userData[field]);
                   break;
                 }
@@ -235,108 +292,119 @@ const LeaderBoard = () => {
               name: userName,
               profileImage: profileImage || defaultProfileImage,
               percentageAchieved: user.percentageAchieved,
-              rank: sortedUsers.indexOf(user) + 1
+              averageAchievement: user.averageAchievement,
+              totalAchievement: user.totalAchievement,
+              count: user.count,
+              rank: index + 1,
             };
-          } catch (error) {
-            console.error(`Error fetching user details for ${user.userId}:`, error);
+          } catch {
             return {
               userId: user.userId,
-              name: "Unknown User",
+              name: userNameMap[user.userId] || "Unknown User",
               profileImage: defaultProfileImage,
               percentageAchieved: user.percentageAchieved,
-              rank: sortedUsers.indexOf(user) + 1
+              averageAchievement: user.averageAchievement,
+              totalAchievement: user.totalAchievement,
+              count: user.count,
+              rank: index + 1,
             };
           }
         })
       );
 
-      // Fill remaining positions with placeholder data if needed
+      // If we have less than 10 users, add placeholders
       const topUsers = leaderboardData.slice(0, 10);
       const remainingPlaceholders = placeholderData
         .slice(topUsers.length)
         .map((placeholder, index) => ({
           ...placeholder,
-          rank: topUsers.length + index + 1
+          rank: topUsers.length + index + 1,
         }));
 
       const finalData = [...topUsers, ...remainingPlaceholders].slice(0, 10);
       setLeaderboardData(finalData);
       saveLeaderboardToCache(finalData);
-
+      fetchUserNames(finalData);
     } catch (error) {
       console.error('Error fetching leaderboard data:', error);
-      Alert.alert(
-        "Error",
-        "Could not load leaderboard data. Please try again later.",
-        [{ text: "OK" }]
-      );
+      if (showRefreshing) {
+        Alert.alert(
+          "Error",
+          "Could not refresh leaderboard data. Showing cached data.",
+          [{ text: "OK" }]
+        );
+      }
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      if (showRefreshing) setRefreshing(false);
+      setIsBackgroundFetching(false);
+      if (loading) setLoading(false);
     }
   };
-  
 
-  // Helper function to get a profile image (either from user data or fallback)
-  const getProfileImage = (user: LeaderboardUser | { profileImage: string | null, rank: number, isPlaceholder?: boolean }) => {
-    // For placeholder entries, use the default profile image
+  const debouncedBackgroundFetch = debounce(() => {
+    fetchLeaderboardData(false);
+  }, 1000);
+
+  const getProfileImage = (
+    user: LeaderboardUser | { profileImage: string | null; rank: number; isPlaceholder?: boolean }
+  ) => {
     if (user.isPlaceholder) {
       return defaultProfileImage ? { uri: defaultProfileImage } : undefined;
     }
-    
-    // If this is the current user, try to get image from userProfile
-    if ('userId' in user && isCurrentUser(user.userId) && userProfile?.profileImageUrl) {
+
+    if (
+      "userId" in user &&
+      isCurrentUser(user.userId) &&
+      userProfile?.profileImageUrl
+    ) {
       return { uri: String(userProfile.profileImageUrl) };
     }
-    
-    // Use the user's profile image if available and valid
-    if (user.profileImage && typeof user.profileImage === 'string') {
+
+    if (user.profileImage && typeof user.profileImage === "string") {
       return { uri: String(user.profileImage) };
     }
-    
-    // Default fallback image from Firebase Storage
+
     return defaultProfileImage ? { uri: defaultProfileImage } : undefined;
   };
-  
-  // Helper function specifically for Avatar.Image component
-  const getAvatarImageSource = (user: LeaderboardUser | { profileImage: string | null, rank: number, isPlaceholder?: boolean }) => {
+
+  const getAvatarImageSource = (
+    user: LeaderboardUser | { profileImage: string | null; rank: number; isPlaceholder?: boolean }
+  ) => {
     const imageSource = getProfileImage(user);
-    return imageSource || { uri: 'https://via.placeholder.com/40' }; // Fallback to a placeholder image
+    return imageSource || { uri: "../assets/girl.png" };
   };
-  
-  // Check if this entry is the current user
+
   const isCurrentUser = (userId: string) => {
     return currentUserId === userId;
   };
 
-  // Format percentage for display
   const formatPercentage = (percentage: number) => {
     if (percentage === 0) return "0%";
     return `${percentage.toFixed(1)}%`;
   };
 
- // Get top 3 for podium (positions 1,2,3)
-const topThree = leaderboardData.slice(0, 3);
-
-// Get remaining users for list (positions 4 to 10)
-const remainingUsers = leaderboardData.slice(3, 10);
-
-  
-  // Find current user in leaderboard
-  const currentUserRanking = leaderboardData.find(user => user.userId === currentUserId);
+  const topThree = leaderboardData.slice(0, 3);
+  const currentUserRanking = leaderboardData.find(
+    (user) => user.userId === currentUserId
+  );
 
   const handleRefresh = () => {
     fetchLeaderboardData(true);
-    fetchAllUserNames();
   };
 
   if (loading) {
     return (
       <AppGradient>
-        <TelecallerMainLayout showDrawer showBottomTabs={true} showBackButton title="Leaderboard">
-          <View style={[styles.content, { justifyContent: 'center', alignItems: 'center' }]}>
+        <TelecallerMainLayout
+          showDrawer
+          showBottomTabs={true}
+          showBackButton
+          title="Leaderboard"
+        >
+          <View
+            style={[styles.content, { justifyContent: "center", alignItems: "center" }]}
+          >
             <ActivityIndicator size="large" color="#FF8447" />
-            <Text style={styles.loadingText}>Loading leaderboard data...</Text>
           </View>
         </TelecallerMainLayout>
       </AppGradient>
@@ -345,66 +413,84 @@ const remainingUsers = leaderboardData.slice(3, 10);
 
   return (
     <AppGradient>
-      <TelecallerMainLayout 
-        showDrawer 
-        showBottomTabs={true} 
-        showBackButton 
+      <TelecallerMainLayout
+        showDrawer
+        showBottomTabs={true}
+        showBackButton
         title="Leaderboard"
-        rightIcon={
-          refreshing ? 
-          <ActivityIndicator size="small" color="#333" /> : 
-          <TouchableOpacity onPress={handleRefresh}>
-            <Ionicons name="refresh" size={24} color="#333" />
-          </TouchableOpacity>
+        rightComponent={
+          refreshing || isBackgroundFetching ? (
+            <ActivityIndicator size="small" color="#333" />
+          ) : (
+            <TouchableOpacity onPress={handleRefresh}>
+              <Ionicons name="refresh" size={24} color="#333" />
+            </TouchableOpacity>
+          )
         }
       >
-        <ScrollView 
-          style={styles.container}
-          contentContainerStyle={styles.scrollContent}
-        >
-          <Animated.View 
-            style={[
-              styles.content, 
-              { opacity: fadeAnim, transform: [{ scale: scaleAnim }] }
-            ]}
+        <ScrollView style={styles.container} contentContainerStyle={styles.scrollContent}>
+          <Animated.View
+            style={[styles.content, { opacity: fadeAnim, transform: [{ scale: scaleAnim }] }]}
           >
-            {/* Current User Ranking Banner */}
             {currentUserRanking && !currentUserRanking.isPlaceholder && (
               <View style={styles.currentUserBanner}>
-                <Text style={styles.currentUserText}>
-                  Your Position: {currentUserRanking.isNotRanked ? (
-                    <Text style={styles.notRankedText}>Not Ranked Yet</Text>
-                  ) : (
-                    <Text style={styles.currentUserRank}>#{currentUserRanking.rank}</Text>
+                <View style={styles.currentUserInfo}>
+                  <View style={styles.currentUserRow}>
+                    <Text style={styles.currentUserText}>
+                      Your Position:{" "}
+                      {currentUserRanking.isNotRanked ? (
+                        <Text style={styles.notRankedText}>Not Ranked Yet</Text>
+                      ) : (
+                        <Text style={styles.currentUserRank}>#{currentUserRanking.rank}</Text>
+                      )}
+                    </Text>
+                  </View>
+                  <View style={styles.currentUserRow}>
+                    <Text style={styles.currentUserScore}>
+                      Highest Achievement:{" "}
+                      {currentUserRanking.isNotRanked ? (
+                        <Text style={styles.notRankedText}>No Data</Text>
+                      ) : (
+                        <Text style={styles.currentUserScoreValue}>
+                          {formatPercentage(currentUserRanking.percentageAchieved)}
+                        </Text>
+                      )}
+                    </Text>
+                  </View>
+                  {currentUserRanking.averageAchievement && (
+                    <View style={styles.currentUserRow}>
+                      <Text style={styles.currentUserAverage}>
+                        Average:{" "}
+                        <Text style={styles.currentUserScoreValue}>
+                          {formatPercentage(currentUserRanking.averageAchievement)}
+                        </Text>
+                        {" "}({currentUserRanking.count} entries)
+                      </Text>
+                    </View>
                   )}
-                </Text>
-                <Text style={styles.currentUserScore}>
-                  Achievement: {currentUserRanking.isNotRanked ? (
-                    <Text style={styles.notRankedText}>No Data</Text>
-                  ) : (
-                    <Text style={styles.currentUserScoreValue}>{formatPercentage(currentUserRanking.percentageAchieved)}</Text>
-                  )}
-                </Text>
+                </View>
               </View>
             )}
-            
-            {/* Top Three Section */}
+
             <View style={styles.topThreeContainer}>
-              {/* Second Place */}
               <View style={styles.secondPlaceWrapper}>
                 <View style={styles.imageContainer}>
                   {imageLoading ? (
-                    <View style={[styles.topThreeImage, { justifyContent: 'center', alignItems: 'center' }]}>
+                    <View
+                      style={[styles.topThreeImage, { justifyContent: "center", alignItems: "center" }]}
+                    >
                       <MaterialIcons name="person" size={24} color="#999" />
                     </View>
                   ) : (
-                    <Image 
-                      source={getAvatarImageSource(topThree[1] || { profileImage: null, rank: 2, isPlaceholder: true })} 
+                    <Image
+                      source={getAvatarImageSource(
+                        topThree[1] || { profileImage: null, rank: 2, isPlaceholder: true }
+                      )}
                       style={[
-                        styles.topThreeImage, 
+                        styles.topThreeImage,
                         topThree[1]?.isPlaceholder && styles.placeholderImage,
-                        isCurrentUser(topThree[1]?.userId) && styles.currentUserImage
-                      ]} 
+                        isCurrentUser(topThree[1]?.userId) && styles.currentUserImage,
+                      ]}
                     />
                   )}
                   {isCurrentUser(topThree[1]?.userId) && (
@@ -414,41 +500,52 @@ const remainingUsers = leaderboardData.slice(3, 10);
                   )}
                 </View>
                 <View style={[styles.podium, styles.secondPodium]}>
-                  <Text style={[
-                    styles.topThreeName, 
-                    topThree[1]?.isPlaceholder && styles.placeholderText,
-                    isCurrentUser(topThree[1]?.userId) && styles.currentUserText
-                  ]}>
-                    {topThree[1]?.name || 'Waiting\nfor data'}
+                  <Text
+                    style={[
+                      styles.topThreeName,
+                      topThree[1]?.isPlaceholder && styles.placeholderText,
+                      isCurrentUser(topThree[1]?.userId) && styles.currentUserText,
+                    ]}
+                  >
+                    {topThree[1]?.name || "Waiting\nfor data"}
                   </Text>
                   <Text style={[styles.rank, styles.secondRank]}>2</Text>
-                  <Text style={[
-                    styles.percentage, 
-                    topThree[1]?.isPlaceholder && styles.placeholderText,
-                    isCurrentUser(topThree[1]?.userId) && styles.currentUserScore
-                  ]}>
+                  <Text
+                    style={[
+                      styles.percentage,
+                      topThree[1]?.isPlaceholder && styles.placeholderText,
+                      isCurrentUser(topThree[1]?.userId) && styles.currentUserScore,
+                    ]}
+                  >
                     {topThree[1] ? formatPercentage(topThree[1].percentageAchieved) : "0%"}
                   </Text>
                 </View>
               </View>
 
-              {/* First Place */}
               <View style={styles.firstPlaceWrapper}>
                 <FontAwesome5 name="crown" size={40} color="#FFD700" style={styles.crown} />
                 <View style={styles.imageContainer}>
                   {imageLoading ? (
-                    <View style={[styles.topThreeImage, styles.firstImage, { justifyContent: 'center', alignItems: 'center' }]}>
+                    <View
+                      style={[
+                        styles.topThreeImage,
+                        styles.firstImage,
+                        { justifyContent: "center", alignItems: "center" },
+                      ]}
+                    >
                       <MaterialIcons name="person" size={24} color="#999" />
                     </View>
                   ) : (
-                    <Image 
-                      source={getAvatarImageSource(topThree[0] || { profileImage: null, rank: 1, isPlaceholder: true })} 
+                    <Image
+                      source={getAvatarImageSource(
+                        topThree[0] || { profileImage: null, rank: 1, isPlaceholder: true }
+                      )}
                       style={[
-                        styles.topThreeImage, 
-                        styles.firstImage, 
+                        styles.topThreeImage,
+                        styles.firstImage,
                         topThree[0]?.isPlaceholder && styles.placeholderImage,
-                        isCurrentUser(topThree[0]?.userId) && styles.currentUserImage
-                      ]} 
+                        isCurrentUser(topThree[0]?.userId) && styles.currentUserImage,
+                      ]}
                     />
                   )}
                   {isCurrentUser(topThree[0]?.userId) && (
@@ -458,41 +555,48 @@ const remainingUsers = leaderboardData.slice(3, 10);
                   )}
                 </View>
                 <View style={[styles.podium, styles.firstPodium]}>
-                  <Text style={[
-                    styles.topThreeName, 
-                    styles.firstName, 
-                    topThree[0]?.isPlaceholder && styles.placeholderText,
-                    isCurrentUser(topThree[0]?.userId) && styles.currentUserText
-                  ]}>
-                    {topThree[0]?.name || 'Waiting\nfor data'}
+                  <Text
+                    style={[
+                      styles.topThreeName,
+                      styles.firstName,
+                      topThree[0]?.isPlaceholder && styles.placeholderText,
+                      isCurrentUser(topThree[0]?.userId) && styles.currentUserText,
+                    ]}
+                  >
+                    {topThree[0]?.name || "Waiting\nfor data"}
                   </Text>
                   <Text style={[styles.rank, styles.firstRank]}>1</Text>
-                  <Text style={[
-                    styles.percentage, 
-                    styles.firstPercentage, 
-                    topThree[0]?.isPlaceholder && styles.placeholderText,
-                    isCurrentUser(topThree[0]?.userId) && styles.currentUserScore
-                  ]}>
+                  <Text
+                    style={[
+                      styles.percentage,
+                      styles.firstPercentage,
+                      topThree[0]?.isPlaceholder && styles.placeholderText,
+                      isCurrentUser(topThree[0]?.userId) && styles.currentUserScore,
+                    ]}
+                  >
                     {topThree[0] ? formatPercentage(topThree[0].percentageAchieved) : "0%"}
                   </Text>
                 </View>
               </View>
 
-              {/* Third Place */}
               <View style={styles.thirdPlaceWrapper}>
                 <View style={styles.imageContainer}>
                   {imageLoading ? (
-                    <View style={[styles.topThreeImage, { justifyContent: 'center', alignItems: 'center' }]}>
+                    <View
+                      style={[styles.topThreeImage, { justifyContent: "center", alignItems: "center" }]}
+                    >
                       <MaterialIcons name="person" size={24} color="#999" />
                     </View>
                   ) : (
-                    <Image 
-                      source={getAvatarImageSource(topThree[2] || { profileImage: null, rank: 3, isPlaceholder: true })} 
+                    <Image
+                      source={getAvatarImageSource(
+                        topThree[2] || { profileImage: null, rank: 3, isPlaceholder: true }
+                      )}
                       style={[
-                        styles.topThreeImage, 
+                        styles.topThreeImage,
                         topThree[2]?.isPlaceholder && styles.placeholderImage,
-                        isCurrentUser(topThree[2]?.userId) && styles.currentUserImage
-                      ]} 
+                        isCurrentUser(topThree[2]?.userId) && styles.currentUserImage,
+                      ]}
                     />
                   )}
                   {isCurrentUser(topThree[2]?.userId) && (
@@ -502,39 +606,51 @@ const remainingUsers = leaderboardData.slice(3, 10);
                   )}
                 </View>
                 <View style={[styles.podium, styles.thirdPodium]}>
-                  <Text style={[
-                    styles.topThreeName, 
-                    topThree[2]?.isPlaceholder && styles.placeholderText,
-                    isCurrentUser(topThree[2]?.userId) && styles.currentUserText
-                  ]}>
-                    {topThree[2]?.name || 'Waiting\nfor data'}
+                  <Text
+                    style={[
+                      styles.topThreeName,
+                      topThree[2]?.isPlaceholder && styles.placeholderText,
+                      isCurrentUser(topThree[2]?.userId) && styles.currentUserText,
+                    ]}
+                  >
+                    {topThree[2]?.name || "Waiting\nfor data"}
                   </Text>
                   <Text style={[styles.rank, styles.thirdRank]}>3</Text>
-                  <Text style={[
-                    styles.percentage, 
-                    topThree[2]?.isPlaceholder && styles.placeholderText,
-                    isCurrentUser(topThree[2]?.userId) && styles.currentUserScore
-                  ]}>
+                  <Text
+                    style={[
+                      styles.percentage,
+                      topThree[2]?.isPlaceholder && styles.placeholderText,
+                      isCurrentUser(topThree[2]?.userId) && styles.currentUserScore,
+                    ]}
+                  >
                     {topThree[2] ? formatPercentage(topThree[2].percentageAchieved) : "0%"}
                   </Text>
                 </View>
               </View>
             </View>
 
-            {/* List Section - Show all remaining users */}
             <View style={styles.listContainer}>
               {leaderboardData.slice(3).map((user) => (
-                <View key={user.userId} style={[
-                  styles.listItem,
-                  isCurrentUser(user.userId) && styles.currentUserItem
-                ]}>
-                  <Text style={[
-                    styles.listRank,
-                    isCurrentUser(user.userId) && styles.currentUserText
-                  ]}>{user.rank}</Text>
+                <View
+                  key={user.userId}
+                  style={[
+                    styles.listItem,
+                    isCurrentUser(user.userId) && styles.currentUserItem,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.listRank,
+                      isCurrentUser(user.userId) && styles.currentUserText,
+                    ]}
+                  >
+                    {user.rank}
+                  </Text>
                   <View style={styles.avatarContainer}>
                     {imageLoading ? (
-                      <View style={[styles.listAvatar, { justifyContent: 'center', alignItems: 'center' }]}>
+                      <View
+                        style={[styles.listAvatar, { justifyContent: "center", alignItems: "center" }]}
+                      >
                         <MaterialIcons name="person" size={20} color="#999" />
                       </View>
                     ) : (
@@ -542,9 +658,9 @@ const remainingUsers = leaderboardData.slice(3, 10);
                         size={40}
                         source={getAvatarImageSource(user)}
                         style={[
-                          styles.listAvatar, 
+                          styles.listAvatar,
                           user.isPlaceholder && styles.placeholderAvatar,
-                          isCurrentUser(user.userId) && styles.currentUserAvatar
+                          isCurrentUser(user.userId) && styles.currentUserAvatar,
                         ]}
                       />
                     )}
@@ -554,26 +670,36 @@ const remainingUsers = leaderboardData.slice(3, 10);
                       </View>
                     )}
                   </View>
-                  <Text style={[
-                    styles.listName, 
-                    user.isPlaceholder && styles.placeholderText,
-                    isCurrentUser(user.userId) && styles.currentUserText
-                  ]}>{user.name}</Text>
+                  <Text
+                    style={[
+                      styles.listName,
+                      user.isPlaceholder && styles.placeholderText,
+                      isCurrentUser(user.userId) && styles.currentUserText,
+                    ]}
+                  >
+                    {user.name}
+                  </Text>
                   <View style={styles.percentageContainer}>
-                    <Text style={[
-                      styles.listPercentage, 
-                      user.isPlaceholder && styles.placeholderPercentage,
-                      isCurrentUser(user.userId) && styles.currentUserScoreValue
-                    ]}>
+                    <Text
+                      style={[
+                        styles.listPercentage,
+                        user.isPlaceholder && styles.placeholderPercentage,
+                        isCurrentUser(user.userId) && styles.currentUserScoreValue,
+                      ]}
+                    >
                       {formatPercentage(user.percentageAchieved)}
                     </Text>
-                    <View style={[
-                      styles.percentageBar,
-                      {
-                        width: `${Math.min(user.percentageAchieved, 100)}%`,
-                        backgroundColor: isCurrentUser(user.userId) ? '#FF8447' : '#DDD'
-                      }
-                    ]} />
+                    <View
+                      style={[
+                        styles.percentageBar,
+                        {
+                          width: `${Math.min(user.percentageAchieved, 100)}%`,
+                          backgroundColor: isCurrentUser(user.userId)
+                            ? "#FF8447"
+                            : "#DDD",
+                        },
+                      ]}
+                    />
                   </View>
                 </View>
               ))}
@@ -590,7 +716,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    paddingBottom: 120, // Extra padding to account for bottom tabs
+    paddingBottom: 120,
   },
   content: {
     flex: 1,
@@ -721,7 +847,7 @@ const styles = StyleSheet.create({
     paddingTop: 25,
     flex: 1,
     elevation: 5,
-    minHeight: 300, // Ensure minimum height for visual structure
+    minHeight: 300,
   },
   listItem: {
     flexDirection: "row",
@@ -759,12 +885,12 @@ const styles = StyleSheet.create({
   },
   percentageContainer: {
     width: 80,
-    alignItems: 'flex-end',
-    justifyContent: 'center',
+    alignItems: "flex-end",
+    justifyContent: "center",
   },
   percentageBar: {
     height: 4,
-    backgroundColor: '#DDD',
+    backgroundColor: "#DDD",
     borderRadius: 2,
     marginTop: 4,
     minWidth: 5,
@@ -773,22 +899,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontFamily: "LexendDeca_600SemiBold",
     color: "#FF8447",
-  },
-  loadingText: {
-    marginTop: 16,
-    fontSize: 16,
-    fontFamily: 'LexendDeca_500Medium',
-    color: '#666',
-  },
-  noDataMessage: {
-    fontSize: 14,
-    fontFamily: "LexendDeca_500Medium",
-    color: "#666",
-    textAlign: "center",
-    marginTop: 20,
-    padding: 20,
-    backgroundColor: "#FFF8F0",
-    borderRadius: 10,
   },
   placeholderText: {
     color: "#AAAAAA",
@@ -872,7 +982,37 @@ const styles = StyleSheet.create({
   currentUserRank: {
     color: "#FF8447",
     fontFamily: "LexendDeca_700Bold",
-  }
+  },
+  monthHeader: {
+    padding: 15,
+    backgroundColor: "#FFF8F0",
+    borderBottomWidth: 1,
+    borderBottomColor: "#F0F0F0",
+  },
+  monthHeaderTitle: {
+    fontSize: 18,
+    fontFamily: "LexendDeca_700Bold",
+    color: "#333",
+  },
+  monthHeaderSubtitle: {
+    fontSize: 14,
+    fontFamily: "LexendDeca_500Medium",
+    color: "#666",
+  },
+  currentUserInfo: {
+    flex: 1,
+  },
+  currentUserRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 4,
+  },
+  currentUserAverage: {
+    fontSize: 12,
+    fontFamily: "LexendDeca_500Medium",
+    color: "#666",
+  },
 });
 
 export default LeaderBoard;

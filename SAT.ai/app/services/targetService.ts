@@ -50,17 +50,30 @@ interface FirebaseTargetData {
   year: number;
 }
 
+// Cache for target data to avoid redundant Firebase calls
+const targetCache: { [key: string]: { data: TargetData; timestamp: number } } = {};
+const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes in milliseconds
+
 // Get weekly, monthly, quarterly targets from Firebase
 export const getTargets = async (): Promise<TargetData> => {
   try {
     if (!auth.currentUser) {
-      return TARGET_VALUES; // Fallback to default values if no user
+      return TARGET_VALUES;
+    }
+
+    const userId = auth.currentUser.uid;
+    const cacheKey = userId;
+    const now = Date.now();
+
+    // Check cache
+    if (targetCache[cacheKey] && now - targetCache[cacheKey].timestamp < CACHE_DURATION) {
+      return targetCache[cacheKey].data;
     }
 
     const targetDataRef = collection(db, 'telecaller_target_data');
     
-    // First try to get user data from users collection to get employeeId
-    const userDoc = await getDoc(doc(db, "users", auth.currentUser.uid));
+    // Fetch user data to get employeeId
+    const userDoc = await getDoc(doc(db, 'users', userId));
     let employeeId = null;
     let userEmail = auth.currentUser.email;
 
@@ -71,55 +84,31 @@ export const getTargets = async (): Promise<TargetData> => {
     }
 
     // Create query based on available identifiers
-    let q;
-    if (employeeId) {
-      // Query by employeeId if available
-      q = query(
-        targetDataRef,
-        where('employeeId', '==', employeeId),
-        orderBy('createdAt', 'desc'),
-        limit(1)
-      );
-    } else {
-      // Fallback to email if employeeId is not available
-      q = query(
-        targetDataRef,
-        where('emailId', '==', userEmail),
-        orderBy('createdAt', 'desc'),
-        limit(1)
-      );
-    }
+    let q = employeeId
+      ? query(targetDataRef, where('employeeId', '==', employeeId), orderBy('createdAt', 'desc'), limit(1))
+      : query(targetDataRef, where('emailId', '==', userEmail), orderBy('createdAt', 'desc'), limit(1));
 
     const querySnapshot = await getDocs(q);
     
     if (querySnapshot.empty) {
-      console.log('No target data found, using default values');
       return TARGET_VALUES;
     }
 
     const targetDoc = querySnapshot.docs[0].data() as FirebaseTargetData;
     
-    // Log the found target data for debugging
-    console.log('Found target data:', {
-      employeeId: targetDoc.employeeId,
-      emailId: targetDoc.emailId,
-      targets: {
-        positiveLeads: targetDoc.positiveLeads,
-        numMeetings: targetDoc.numMeetings,
-        meetingDuration: targetDoc.meetingDuration,
-        closingAmount: targetDoc.closingAmount
-      }
-    });
-    
-    return {
+    const targetData = {
       positiveLeads: targetDoc.positiveLeads || TARGET_VALUES.positiveLeads,
       numCalls: targetDoc.numMeetings || TARGET_VALUES.numCalls,
       callDuration: parseInt(targetDoc.meetingDuration) || TARGET_VALUES.callDuration,
       closingAmount: targetDoc.closingAmount || TARGET_VALUES.closingAmount
     };
+
+    // Cache the result
+    targetCache[cacheKey] = { data: targetData, timestamp: now };
+
+    return targetData;
   } catch (error) {
-    console.error('Error fetching target data:', error);
-    return TARGET_VALUES; // Fallback to default values on error
+    return TARGET_VALUES;
   }
 };
 
@@ -127,7 +116,7 @@ export const getTargets = async (): Promise<TargetData> => {
 export const getCurrentWeekAchievements = async (userId: string): Promise<AchievementData> => {
   try {
     const now = new Date();
-    const weekStart = startOfWeek(now, { weekStartsOn: 1 }); // Monday
+    const weekStart = startOfWeek(now, { weekStartsOn: 1 });
     const weekEnd = endOfWeek(now, { weekStartsOn: 1 });
     
     const reportsRef = collection(db, 'dailyReports');
@@ -150,7 +139,6 @@ export const getCurrentWeekAchievements = async (userId: string): Promise<Achiev
       totalPositiveLeads += data.positiveLeads || 0;
       totalNumMeetings += data.numMeetings || 0;
       
-      // Parse meeting duration (assuming format like '1 hr 20 mins')
       const durationStr = data.meetingDuration || '';
       const hrMatch = durationStr.match(/(\d+)\s*hrs?/i);
       const minMatch = durationStr.match(/(\d+)\s*mins?/i);
@@ -159,12 +147,9 @@ export const getCurrentWeekAchievements = async (userId: string): Promise<Achiev
       const mins = minMatch ? parseInt(minMatch[1]) : 0;
       
       totalMeetingDuration += hours + (mins / 60);
-      
-      // Add closing amounts
       totalClosingAmount += data.totalClosingAmount || 0;
     });
     
-    // Get targets from Firebase
     const targets = await getTargets();
 
     const progressPercentages = [
@@ -174,7 +159,6 @@ export const getCurrentWeekAchievements = async (userId: string): Promise<Achiev
       (totalClosingAmount / targets.closingAmount) * 100
     ];
 
-    // Calculate average percentage, ensuring it doesn't exceed 100%
     const averagePercentage = Math.min(
       Math.round(progressPercentages.reduce((a, b) => a + b, 0) / progressPercentages.length),
       100
@@ -189,7 +173,6 @@ export const getCurrentWeekAchievements = async (userId: string): Promise<Achiev
       isLoading: false
     };
   } catch (error) {
-    console.error('Error getting current week achievements:', error);
     return {
       totalPositiveLeads: 0,
       totalNumMeetings: 0,
@@ -254,80 +237,84 @@ export const getPreviousWeekAchievement = async (userId: string): Promise<number
     
     return parseFloat(percentageAchieved.toFixed(1));
   } catch (error) {
-    console.error('Error fetching previous week achievement:', error);
     return 0;
   }
 };
 
+// Cache for report data to avoid redundant queries
+const reportCache: { [key: string]: { data: ReportPeriod; timestamp: number } } = {};
+
 // Get weekly report data
 export const getWeeklyReportData = async (userId: string): Promise<ReportPeriod> => {
   try {
-    const now = new Date();
+    const cacheKey = `weekly_${userId}`;
+    const now = Date.now();
+
+    if (reportCache[cacheKey] && now - reportCache[cacheKey].timestamp < CACHE_DURATION) {
+      return reportCache[cacheKey].data;
+    }
+
+    const currentDate = new Date();
     const labels: string[] = [];
     const data: number[] = [];
     
-    // Get data for the last 5 weeks
     for (let i = 4; i >= 0; i--) {
-      try {
-        const weekStart = startOfWeek(new Date(now.getFullYear(), now.getMonth(), now.getDate() - (i * 7)), { weekStartsOn: 1 });
-        const weekEnd = endOfWeek(new Date(now.getFullYear(), now.getMonth(), now.getDate() - (i * 7)), { weekStartsOn: 1 });
+      const weekStart = startOfWeek(new Date(currentDate.getFullYear(), currentDate.getMonth(), currentDate.getDate() - (i * 7)), { weekStartsOn: 1 });
+      const weekEnd = endOfWeek(new Date(currentDate.getFullYear(), currentDate.getMonth(), currentDate.getDate() - (i * 7)), { weekStartsOn: 1 });
+      
+      labels.push(`Week ${5-i}`);
+      
+      const reportsRef = collection(db, 'dailyReports');
+      const q = query(
+        reportsRef,
+        where('userId', '==', userId),
+        where('date', '>=', Timestamp.fromDate(weekStart)),
+        where('date', '<=', Timestamp.fromDate(weekEnd))
+      );
+      
+      const querySnapshot = await getDocs(q);
+      
+      let totalPositiveLeads = 0;
+      let totalNumMeetings = 0;
+      let totalMeetingDuration = 0;
+      let totalClosingAmount = 0;
+      
+      querySnapshot.forEach((doc) => {
+        const docData = doc.data();
+        totalPositiveLeads += docData.positiveLeads || 0;
+        totalNumMeetings += docData.numMeetings || 0;
         
-        labels.push(`Week ${5-i}`);
+        const durationStr = docData.meetingDuration || '';
+        const hourMatch = durationStr.match(/(\d+)\s*hr/);
+        const minMatch = durationStr.match(/(\d+)\s*min/);
         
-        const reportsRef = collection(db, 'dailyReports');
-        const q = query(
-          reportsRef,
-          where('userId', '==', userId),
-          where('date', '>=', Timestamp.fromDate(weekStart)),
-          where('date', '<=', Timestamp.fromDate(weekEnd))
-        );
+        const hours = hourMatch ? parseInt(hourMatch[1]) : 0;
+        const mins = minMatch ? parseInt(minMatch[1]) : 0;
         
-        const querySnapshot = await getDocs(q);
-        
-        let totalPositiveLeads = 0;
-        let totalNumMeetings = 0;
-        let totalMeetingDuration = 0;
-        let totalClosingAmount = 0;
-        
-        querySnapshot.forEach((doc) => {
-          const docData = doc.data();
-          totalPositiveLeads += docData.positiveLeads || 0;
-          totalNumMeetings += docData.numMeetings || 0;
-          
-          const durationStr = docData.meetingDuration || '';
-          const hourMatch = durationStr.match(/(\d+)\s*hr/);
-          const minMatch = durationStr.match(/(\d+)\s*min/);
-          
-          const hours = hourMatch ? parseInt(hourMatch[1]) : 0;
-          const mins = minMatch ? parseInt(minMatch[1]) : 0;
-          
-          totalMeetingDuration += hours + (mins / 60);
-          totalClosingAmount += docData.totalClosingAmount || 0;
-        });
-        
-        const targets = await getTargets();
-        const positiveLeadsPercentage = (totalPositiveLeads / targets.positiveLeads) * 100;
-        const numCallsPercentage = (totalNumMeetings / targets.numCalls) * 100;
-        const durationPercentage = (totalMeetingDuration / targets.callDuration) * 100;
-        const closingPercentage = (totalClosingAmount / targets.closingAmount) * 100;
-        
-        const percentageAchieved = (
-          positiveLeadsPercentage + 
-          numCallsPercentage + 
-          durationPercentage + 
-          closingPercentage
-        ) / 4;
-        
-        data.push(Math.min(parseFloat(percentageAchieved.toFixed(1)), 100));
-      } catch (weekError) {
-        console.error(`Error fetching data for week ${5-i}:`, weekError);
-        data.push(0); // Push 0 for this week if there's an error
-      }
+        totalMeetingDuration += hours + (mins / 60);
+        totalClosingAmount += docData.totalClosingAmount || 0;
+      });
+      
+      const targets = await getTargets();
+      const positiveLeadsPercentage = (totalPositiveLeads / targets.positiveLeads) * 100;
+      const numCallsPercentage = (totalNumMeetings / targets.numCalls) * 100;
+      const durationPercentage = (totalMeetingDuration / targets.callDuration) * 100;
+      const closingPercentage = (totalClosingAmount / targets.closingAmount) * 100;
+      
+      const percentageAchieved = (
+        positiveLeadsPercentage + 
+        numCallsPercentage + 
+        durationPercentage + 
+        closingPercentage
+      ) / 4;
+      
+      data.push(Math.min(parseFloat(percentageAchieved.toFixed(1)), 100));
     }
     
-    return { labels, data };
+    const reportData = { labels, data };
+    reportCache[cacheKey] = { data: reportData, timestamp: now };
+    return reportData;
   } catch (error) {
-    console.error('Error fetching weekly report data:', error);
     return { labels: ['Week 1', 'Week 2', 'Week 3', 'Week 4', 'Week 5'], data: [0, 0, 0, 0, 0] };
   }
 };
@@ -335,80 +322,81 @@ export const getWeeklyReportData = async (userId: string): Promise<ReportPeriod>
 // Get quarterly report data
 export const getQuarterlyReportData = async (userId: string): Promise<ReportPeriod> => {
   try {
-    const now = new Date();
+    const cacheKey = `quarterly_${userId}`;
+    const now = Date.now();
+
+    if (reportCache[cacheKey] && now - reportCache[cacheKey].timestamp < CACHE_DURATION) {
+      return reportCache[cacheKey].data;
+    }
+
+    const currentDate = new Date();
     const labels: string[] = [];
     const data: number[] = [];
     
-    // Get data for the last 3 months
     for (let i = 2; i >= 0; i--) {
-      try {
-        const monthStart = startOfMonth(subMonths(now, i));
-        const monthEnd = endOfMonth(subMonths(now, i));
+      const monthStart = startOfMonth(subMonths(currentDate, i));
+      const monthEnd = endOfMonth(subMonths(currentDate, i));
+      
+      labels.push(format(monthStart, 'MMM'));
+      
+      const reportsRef = collection(db, 'dailyReports');
+      const q = query(
+        reportsRef,
+        where('userId', '==', userId),
+        where('date', '>=', Timestamp.fromDate(monthStart)),
+        where('date', '<=', Timestamp.fromDate(monthEnd))
+      );
+      
+      const querySnapshot = await getDocs(q);
+      
+      let totalPositiveLeads = 0;
+      let totalNumMeetings = 0;
+      let totalMeetingDuration = 0;
+      let totalClosingAmount = 0;
+      
+      querySnapshot.forEach((doc) => {
+        const docData = doc.data();
+        totalPositiveLeads += docData.positiveLeads || 0;
+        totalNumMeetings += docData.numMeetings || 0;
         
-        labels.push(format(monthStart, 'MMM'));
+        const durationStr = docData.meetingDuration || '';
+        const hourMatch = durationStr.match(/(\d+)\s*hr/);
+        const minMatch = durationStr.match(/(\d+)\s*min/);
         
-        const reportsRef = collection(db, 'dailyReports');
-        const q = query(
-          reportsRef,
-          where('userId', '==', userId),
-          where('date', '>=', Timestamp.fromDate(monthStart)),
-          where('date', '<=', Timestamp.fromDate(monthEnd))
-        );
+        const hours = hourMatch ? parseInt(hourMatch[1]) : 0;
+        const mins = minMatch ? parseInt(minMatch[1]) : 0;
         
-        const querySnapshot = await getDocs(q);
-        
-        let totalPositiveLeads = 0;
-        let totalNumMeetings = 0;
-        let totalMeetingDuration = 0;
-        let totalClosingAmount = 0;
-        
-        querySnapshot.forEach((doc) => {
-          const docData = doc.data();
-          totalPositiveLeads += docData.positiveLeads || 0;
-          totalNumMeetings += docData.numMeetings || 0;
-          
-          const durationStr = docData.meetingDuration || '';
-          const hourMatch = durationStr.match(/(\d+)\s*hr/);
-          const minMatch = durationStr.match(/(\d+)\s*min/);
-          
-          const hours = hourMatch ? parseInt(hourMatch[1]) : 0;
-          const mins = minMatch ? parseInt(minMatch[1]) : 0;
-          
-          totalMeetingDuration += hours + (mins / 60);
-          totalClosingAmount += docData.totalClosingAmount || 0;
-        });
-        
-        // Monthly targets (4x weekly targets)
-        const weeklyTargets = await getTargets();
-        const monthlyTargets = {
-          positiveLeads: weeklyTargets.positiveLeads * 4,
-          numCalls: weeklyTargets.numCalls * 4,
-          callDuration: weeklyTargets.callDuration * 4,
-          closingAmount: weeklyTargets.closingAmount * 4
-        };
-        
-        const positiveLeadsPercentage = (totalPositiveLeads / monthlyTargets.positiveLeads) * 100;
-        const numCallsPercentage = (totalNumMeetings / monthlyTargets.numCalls) * 100;
-        const durationPercentage = (totalMeetingDuration / monthlyTargets.callDuration) * 100;
-        const closingPercentage = (totalClosingAmount / monthlyTargets.closingAmount) * 100;
-        
-        const percentageAchieved = (
-          positiveLeadsPercentage + 
-          numCallsPercentage + 
-          durationPercentage + 
-          closingPercentage
-        ) / 4;
-        
-        data.push(Math.min(parseFloat(percentageAchieved.toFixed(1)), 100));
-      } catch (monthError) {
-        console.error(`Error fetching data for month ${format(subMonths(now, i), 'MMM')}:`, monthError);
-        data.push(0); // Push 0 for this month if there's an error
-      }
+        totalMeetingDuration += hours + (mins / 60);
+        totalClosingAmount += docData.totalClosingAmount || 0;
+      });
+      
+      const weeklyTargets = await getTargets();
+      const monthlyTargets = {
+        positiveLeads: weeklyTargets.positiveLeads * 4,
+        numCalls: weeklyTargets.numCalls * 4,
+        callDuration: weeklyTargets.callDuration * 4,
+        closingAmount: weeklyTargets.closingAmount * 4
+      };
+      
+      const positiveLeadsPercentage = (totalPositiveLeads / monthlyTargets.positiveLeads) * 100;
+      const numCallsPercentage = (totalNumMeetings / monthlyTargets.numCalls) * 100;
+      const durationPercentage = (totalMeetingDuration / monthlyTargets.callDuration) * 100;
+      const closingPercentage = (totalClosingAmount / monthlyTargets.closingAmount) * 100;
+      
+      const percentageAchieved = (
+        positiveLeadsPercentage + 
+        numCallsPercentage + 
+        durationPercentage + 
+        closingPercentage
+      ) / 4;
+      
+      data.push(Math.min(parseFloat(percentageAchieved.toFixed(1)), 100));
     }
     
-    return { labels, data };
+    const reportData = { labels, data };
+    reportCache[cacheKey] = { data: reportData, timestamp: now };
+    return reportData;
   } catch (error) {
-    console.error('Error fetching quarterly report data:', error);
     return { labels: ['Jan', 'Feb', 'Mar'], data: [0, 0, 0] };
   }
 };
@@ -416,80 +404,81 @@ export const getQuarterlyReportData = async (userId: string): Promise<ReportPeri
 // Get half yearly report data
 export const getHalfYearlyReportData = async (userId: string): Promise<ReportPeriod> => {
   try {
-    const now = new Date();
+    const cacheKey = `halfYearly_${userId}`;
+    const now = Date.now();
+
+    if (reportCache[cacheKey] && now - reportCache[cacheKey].timestamp < CACHE_DURATION) {
+      return reportCache[cacheKey].data;
+    }
+
+    const currentDate = new Date();
     const labels: string[] = [];
     const data: number[] = [];
     
-    // Get data for the last 6 months
     for (let i = 5; i >= 0; i--) {
-      try {
-        const monthStart = startOfMonth(subMonths(now, i));
-        const monthEnd = endOfMonth(subMonths(now, i));
+      const monthStart = startOfMonth(subMonths(currentDate, i));
+      const monthEnd = endOfMonth(subMonths(currentDate, i));
+      
+      labels.push(format(monthStart, 'MMM'));
+      
+      const reportsRef = collection(db, 'dailyReports');
+      const q = query(
+        reportsRef,
+        where('userId', '==', userId),
+        where('date', '>=', Timestamp.fromDate(monthStart)),
+        where('date', '<=', Timestamp.fromDate(monthEnd))
+      );
+      
+      const querySnapshot = await getDocs(q);
+      
+      let totalPositiveLeads = 0;
+      let totalNumMeetings = 0;
+      let totalMeetingDuration = 0;
+      let totalClosingAmount = 0;
+      
+      querySnapshot.forEach((doc) => {
+        const docData = doc.data();
+        totalPositiveLeads += docData.positiveLeads || 0;
+        totalNumMeetings += docData.numMeetings || 0;
         
-        labels.push(format(monthStart, 'MMM'));
+        const durationStr = docData.meetingDuration || '';
+        const hourMatch = durationStr.match(/(\d+)\s*hr/);
+        const minMatch = durationStr.match(/(\d+)\s*min/);
         
-        const reportsRef = collection(db, 'dailyReports');
-        const q = query(
-          reportsRef,
-          where('userId', '==', userId),
-          where('date', '>=', Timestamp.fromDate(monthStart)),
-          where('date', '<=', Timestamp.fromDate(monthEnd))
-        );
+        const hours = hourMatch ? parseInt(hourMatch[1]) : 0;
+        const mins = minMatch ? parseInt(minMatch[1]) : 0;
         
-        const querySnapshot = await getDocs(q);
-        
-        let totalPositiveLeads = 0;
-        let totalNumMeetings = 0;
-        let totalMeetingDuration = 0;
-        let totalClosingAmount = 0;
-        
-        querySnapshot.forEach((doc) => {
-          const docData = doc.data();
-          totalPositiveLeads += docData.positiveLeads || 0;
-          totalNumMeetings += docData.numMeetings || 0;
-          
-          const durationStr = docData.meetingDuration || '';
-          const hourMatch = durationStr.match(/(\d+)\s*hr/);
-          const minMatch = durationStr.match(/(\d+)\s*min/);
-          
-          const hours = hourMatch ? parseInt(hourMatch[1]) : 0;
-          const mins = minMatch ? parseInt(minMatch[1]) : 0;
-          
-          totalMeetingDuration += hours + (mins / 60);
-          totalClosingAmount += docData.totalClosingAmount || 0;
-        });
-        
-        // Monthly targets (4x weekly targets)
-        const weeklyTargets = await getTargets();
-        const monthlyTargets = {
-          positiveLeads: weeklyTargets.positiveLeads * 4,
-          numCalls: weeklyTargets.numCalls * 4,
-          callDuration: weeklyTargets.callDuration * 4,
-          closingAmount: weeklyTargets.closingAmount * 4
-        };
-        
-        const positiveLeadsPercentage = (totalPositiveLeads / monthlyTargets.positiveLeads) * 100;
-        const numCallsPercentage = (totalNumMeetings / monthlyTargets.numCalls) * 100;
-        const durationPercentage = (totalMeetingDuration / monthlyTargets.callDuration) * 100;
-        const closingPercentage = (totalClosingAmount / monthlyTargets.closingAmount) * 100;
-        
-        const percentageAchieved = (
-          positiveLeadsPercentage + 
-          numCallsPercentage + 
-          durationPercentage + 
-          closingPercentage
-        ) / 4;
-        
-        data.push(Math.min(parseFloat(percentageAchieved.toFixed(1)), 100));
-      } catch (monthError) {
-        console.error(`Error fetching data for month ${format(subMonths(now, i), 'MMM')}:`, monthError);
-        data.push(0); // Push 0 for this month if there's an error
-      }
+        totalMeetingDuration += hours + (mins / 60);
+        totalClosingAmount += docData.totalClosingAmount || 0;
+      });
+      
+      const weeklyTargets = await getTargets();
+      const monthlyTargets = {
+        positiveLeads: weeklyTargets.positiveLeads * 4,
+        numCalls: weeklyTargets.numCalls * 4,
+        callDuration: weeklyTargets.callDuration * 4,
+        closingAmount: weeklyTargets.closingAmount * 4
+      };
+      
+      const positiveLeadsPercentage = (totalPositiveLeads / monthlyTargets.positiveLeads) * 100;
+      const numCallsPercentage = (totalNumMeetings / monthlyTargets.numCalls) * 100;
+      const durationPercentage = (totalMeetingDuration / monthlyTargets.callDuration) * 100;
+      const closingPercentage = (totalClosingAmount / monthlyTargets.closingAmount) * 100;
+      
+      const percentageAchieved = (
+        positiveLeadsPercentage + 
+        numCallsPercentage + 
+        durationPercentage + 
+        closingPercentage
+      ) / 4;
+      
+      data.push(Math.min(parseFloat(percentageAchieved.toFixed(1)), 100));
     }
     
-    return { labels, data };
+    const reportData = { labels, data };
+    reportCache[cacheKey] = { data: reportData, timestamp: now };
+    return reportData;
   } catch (error) {
-    console.error('Error fetching half yearly report data:', error);
     return { 
       labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'], 
       data: [0, 0, 0, 0, 0, 0] 
@@ -500,8 +489,6 @@ export const getHalfYearlyReportData = async (userId: string): Promise<ReportPer
 // Get all-time highest achievement percentage
 export const getHighestAchievement = async (userId: string): Promise<number> => {
   try {
-    // Instead of using orderBy which requires an index, we'll fetch all reports
-    // and calculate the highest achievement locally
     const reportsRef = collection(db, 'dailyReports');
     const q = query(
       reportsRef,
@@ -514,7 +501,6 @@ export const getHighestAchievement = async (userId: string): Promise<number> => 
       return 0;
     }
     
-    // Find the highest percentage achieved
     let highestPercentage = 0;
     querySnapshot.forEach((doc) => {
       const data = doc.data();
@@ -525,7 +511,6 @@ export const getHighestAchievement = async (userId: string): Promise<number> => 
     
     return highestPercentage;
   } catch (error) {
-    console.error('Error fetching highest achievement:', error);
     return 0;
   }
 };
@@ -558,26 +543,28 @@ export const getAverageAchievement = async (userId: string): Promise<number> => 
     
     return count > 0 ? parseFloat((totalPercentage / count).toFixed(1)) : 0;
   } catch (error) {
-    console.error('Error fetching average achievement:', error);
     return 0;
   }
 };
 
+// Cache for leaderboard data
+const leaderboardCache: { data: any[]; timestamp: number } = { data: [], timestamp: 0 };
+
 // Function to fetch leaderboard data
 export const getLeaderboardData = async (limit = 10) => {
   try {
-    console.log("Fetching leaderboard data...");
-    
-    // Get all daily reports
-    const reportsRef = collection(db, "dailyReports");
+    const now = Date.now();
+    if (leaderboardCache.data.length && now - leaderboardCache.timestamp < CACHE_DURATION) {
+      return leaderboardCache.data.slice(0, limit);
+    }
+
+    const reportsRef = collection(db, 'dailyReports');
     const reportsSnap = await getDocs(reportsRef);
     
     if (reportsSnap.empty) {
-      console.log("No daily reports found");
       return [];
     }
     
-    // Group reports by userId and calculate average percentage
     const userAchievements: Record<string, { totalPercentage: number, reportCount: number, latestDate: Date }> = {};
     
     reportsSnap.forEach((doc) => {
@@ -598,15 +585,12 @@ export const getLeaderboardData = async (limit = 10) => {
       } else {
         userAchievements[userId].totalPercentage += percentage;
         userAchievements[userId].reportCount += 1;
-        
-        // Track the latest report date for tiebreaking
         if (reportDate > userAchievements[userId].latestDate) {
           userAchievements[userId].latestDate = reportDate;
         }
       }
     });
     
-    // Calculate average for each user and create sorted array
     const usersArray = Object.keys(userAchievements).map((userId) => {
       const { totalPercentage, reportCount, latestDate } = userAchievements[userId];
       const avgPercentage = totalPercentage / reportCount;
@@ -618,43 +602,33 @@ export const getLeaderboardData = async (limit = 10) => {
       };
     });
     
-    // Sort by percentage (descending) and then by latest report date (most recent first)
     usersArray.sort((a, b) => {
       if (b.percentageAchieved !== a.percentageAchieved) {
         return b.percentageAchieved - a.percentageAchieved;
       }
-      // If percentages are equal, sort by most recent report
       return b.latestReportDate.getTime() - a.latestReportDate.getTime();
     });
     
-    // Get top users based on limit
     const topUsers = usersArray.slice(0, limit);
     
-    // Now fetch user details for these top users
     const leaderboardData = await Promise.all(
       topUsers.map(async (user) => {
         try {
-          // First try to get user data from users collection
           let userData = null;
-          let userName = "Unknown User";
+          let userName = 'Unknown User';
           let profileImage = null;
           
-          // Try to get user from users collection
-          const userDoc = await getDoc(doc(db, "users", user.userId));
+          const userDoc = await getDoc(doc(db, 'users', user.userId));
           
           if (userDoc.exists()) {
             userData = userDoc.data();
-            
-            // Try different name fields
             userName = userData.name || 
                       (userData.firstName && userData.lastName ? `${userData.firstName} ${userData.lastName}` : null) ||
                       userData.displayName || 
                       userData.email || 
-                      "Unknown User";
+                      'Unknown User';
             
-            // Try different profile image fields
-            const imageFields = ["profileImageUrl", "profileImage", "photoURL", "avatar", "picture"];
-            
+            const imageFields = ['profileImageUrl', 'profileImage', 'photoURL', 'avatar', 'picture'];
             for (const field of imageFields) {
               if (userData[field]) {
                 profileImage = userData[field];
@@ -663,26 +637,19 @@ export const getLeaderboardData = async (limit = 10) => {
             }
           } 
           
-          // If user not found in users collection or missing data, try auth collection
-          if (!userData || !userName || userName === "Unknown User") {
-            const authDoc = await getDoc(doc(db, "auth", user.userId));
-            
+          if (!userData || !userName || userName === 'Unknown User') {
+            const authDoc = await getDoc(doc(db, 'auth', user.userId));
             if (authDoc.exists()) {
               const authProfile = authDoc.data();
-              
-              // Try auth fields for name
-              if (userName === "Unknown User") {
+              if (userName === 'Unknown User') {
                 userName = authProfile.name || 
                           authProfile.displayName || 
                           (authProfile.firstName && authProfile.lastName ? `${authProfile.firstName} ${authProfile.lastName}` : null) ||
                           authProfile.email || 
-                          "Unknown User";
+                          'Unknown User';
               }
-              
-              // Try auth fields for profile image
               if (!profileImage) {
-                const authImageFields = ["profileImageUrl", "profileImage", "photoURL", "avatar", "picture"];
-                
+                const authImageFields = ['profileImageUrl', 'profileImage', 'photoURL', 'avatar', 'picture'];
                 for (const field of authImageFields) {
                   if (authProfile[field]) {
                     profileImage = authProfile[field];
@@ -693,8 +660,6 @@ export const getLeaderboardData = async (limit = 10) => {
             }
           }
           
-          console.log(`Resolved user ${user.userId} to name: ${userName}`);
-          
           return {
             userId: user.userId,
             name: userName,
@@ -702,11 +667,9 @@ export const getLeaderboardData = async (limit = 10) => {
             percentageAchieved: user.percentageAchieved
           };
         } catch (error) {
-          console.error(`Error fetching user details for ${user.userId}:`, error);
-          // Return a default entry in case of an error
           return {
             userId: user.userId,
-            name: "Unknown User",
+            name: 'Unknown User',
             profileImage: null,
             percentageAchieved: user.percentageAchieved
           };
@@ -714,9 +677,10 @@ export const getLeaderboardData = async (limit = 10) => {
       })
     );
     
+    leaderboardCache.data = leaderboardData;
+    leaderboardCache.timestamp = now;
     return leaderboardData;
   } catch (error) {
-    console.error("Error getting leaderboard data:", error);
     return [];
   }
 };
@@ -733,4 +697,4 @@ const targetService = {
   getLeaderboardData
 };
 
-export default targetService; 
+export default targetService;

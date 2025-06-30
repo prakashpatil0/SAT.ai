@@ -6,11 +6,10 @@ import { MaterialIcons } from '@expo/vector-icons';
 import TelecallerMainLayout from "@/app/components/TelecallerMainLayout";
 import { LinearGradient } from 'expo-linear-gradient';
 import AppGradient from "@/app/components/AppGradient";
-import { auth } from '@/firebaseConfig';
-import targetService, { getTargets, getCurrentWeekAchievements, getPreviousWeekAchievement } from "@/app/services/targetService";
-import { differenceInDays, endOfWeek, startOfWeek, startOfDay, endOfDay, startOfMonth, endOfMonth } from 'date-fns';
+import { auth, db } from '@/firebaseConfig';
+import { getTargets, getCurrentWeekAchievements, getPreviousWeekAchievement } from "@/app/services/targetService";
+import { differenceInDays, endOfWeek, startOfWeek, startOfDay, endOfDay, startOfMonth, endOfMonth, getWeek, getMonth, getYear } from 'date-fns';
 import { collection, query, where, orderBy, limit, getDocs, Timestamp, addDoc, updateDoc, onSnapshot, doc } from 'firebase/firestore';
-import { db } from '@/firebaseConfig';
 import * as Notifications from 'expo-notifications';
 
 // Configure notifications
@@ -26,7 +25,7 @@ Notifications.setNotificationHandler({
 const TARGET_VALUES = {
   positiveLeads: 50,
   numCalls: 300,
-  callDuration: 20, // hours
+  callDuration: 2,
   closingAmount: 50000
 };
 
@@ -39,12 +38,14 @@ interface FirebaseTargetData {
   employeeId: string;
   employeeName: string;
   meetingDuration: string;
-  month: number;
-  monthName: string;
+  month?: number;
+  monthName?: string;
   numMeetings: number;
   positiveLeads: number;
-  updatedAt: Timestamp;
-  year: number;
+  updatedAt: Timestamp | string;
+  year?: number;
+  fromDate?: Timestamp;
+  toDate?: Timestamp;
 }
 
 // Define types for achievements and targets
@@ -71,7 +72,7 @@ interface DailyReport {
   userId: string;
 }
 
-// Move the formatDuration function outside of fetchData so it can be used in the render method
+// Move the formatDuration function outside of fetchData
 const formatDuration = (totalHours: number) => {
   const totalSeconds = Math.round(totalHours * 3600);
   const hours = Math.floor(totalSeconds / 3600);
@@ -106,6 +107,7 @@ const WeeklyTargetScreen = () => {
   });
   const [daysRemaining, setDaysRemaining] = useState(0);
   const [waveAnimation] = useState(new Animated.Value(0));
+  const [userName, setUserName] = useState<string>('');
 
   const fetchData = async (showLoading = true) => {
     if (!auth.currentUser) {
@@ -122,10 +124,10 @@ const WeeklyTargetScreen = () => {
       
       // Calculate current week range (Monday to Saturday)
       const today = new Date();
-      const weekEnd = endOfWeek(today, { weekStartsOn: 1 }); // Monday
-      const weekStart = startOfWeek(today, { weekStartsOn: 1 }); // Monday
+      const weekEnd = endOfWeek(today, { weekStartsOn: 1 });
+      const weekStart = startOfWeek(today, { weekStartsOn: 1 });
       const saturday = new Date(weekEnd);
-      saturday.setDate(saturday.getDate() - 1); // Adjust to Saturday
+      saturday.setDate(saturday.getDate() - 1);
 
       // Calculate month range
       const monthStart = startOfMonth(today);
@@ -134,6 +136,14 @@ const WeeklyTargetScreen = () => {
       // Calculate days remaining until Saturday
       const daysLeft = differenceInDays(saturday, today);
       setDaysRemaining(daysLeft);
+
+      // Fetch user data to get userName
+      const userDoc = doc(db, 'users', auth.currentUser.uid);
+      const userSnapshot = await getDocs(query(collection(db, 'users'), where('uid', '==', auth.currentUser.uid)));
+      if (!userSnapshot.empty) {
+        const userData = userSnapshot.docs[0].data();
+        setUserName(userData.displayName || userData.email || 'Unknown User');
+      }
 
       // Fetch targets from Firebase
       const weeklyTargets = await getTargets();
@@ -166,7 +176,7 @@ const WeeklyTargetScreen = () => {
         getDocs(monthlyReportsQuery)
       ]);
       
-      // Initialize totals for both weekly and monthly data
+      // Initialize totals
       let weeklyTotalCalls = 0;
       let weeklyTotalDuration = 0;
       let weeklyTotalPositiveLeads = 0;
@@ -181,14 +191,12 @@ const WeeklyTargetScreen = () => {
       weeklySnapshot.docs.forEach(doc => {
         const report = doc.data() as DailyReport;
         weeklyTotalCalls += report.numMeetings || 0;
-        
         const durationParts = report.meetingDuration.split(':');
         const hours = parseInt(durationParts[0], 10);
         const minutes = parseInt(durationParts[1], 10);
         const seconds = parseInt(durationParts[2], 10);
         const totalHours = hours + (minutes / 60) + (seconds / 3600);
         weeklyTotalDuration += totalHours;
-
         weeklyTotalPositiveLeads += report.positiveLeads || 0;
         weeklyTotalClosingAmount += report.totalClosingAmount || 0;
       });
@@ -197,19 +205,17 @@ const WeeklyTargetScreen = () => {
       monthlySnapshot.docs.forEach(doc => {
         const report = doc.data() as DailyReport;
         monthlyTotalCalls += report.numMeetings || 0;
-        
         const durationParts = report.meetingDuration.split(':');
         const hours = parseInt(durationParts[0], 10);
         const minutes = parseInt(durationParts[1], 10);
         const seconds = parseInt(durationParts[2], 10);
         const totalHours = hours + (minutes / 60) + (seconds / 3600);
         monthlyTotalDuration += totalHours;
-
         monthlyTotalPositiveLeads += report.positiveLeads || 0;
         monthlyTotalClosingAmount += report.totalClosingAmount || 0;
       });
 
-      // Calculate weekly achievement percentage
+      // Calculate percentages
       const weeklyAchievementPercentage = calculatePercentage(
         {
           numCalls: weeklyTotalCalls,
@@ -220,7 +226,6 @@ const WeeklyTargetScreen = () => {
         weeklyTargets
       );
 
-      // Calculate monthly achievement percentage
       const monthlyAchievementPercentage = calculatePercentage(
         {
           numCalls: monthlyTotalCalls,
@@ -231,7 +236,7 @@ const WeeklyTargetScreen = () => {
         weeklyTargets
       );
 
-      // Update achievements state with weekly metrics
+      // Update achievements state
       setAchievements({
         numCalls: weeklyTotalCalls,
         callDuration: weeklyTotalDuration,
@@ -240,9 +245,17 @@ const WeeklyTargetScreen = () => {
         percentageAchieved: Math.round(weeklyAchievementPercentage * 10) / 10
       });
 
+      // Calculate date-related fields
+      const currentDate = new Date();
+      const date = currentDate.toISOString().split('T')[0]; // YYYY-MM-DD
+      const month = getMonth(currentDate) + 1; // 1-12
+      const week = getWeek(currentDate, { weekStartsOn: 1 }); // ISO week
+      const year = getYear(currentDate);
+
       // Store weekly achievement in Firebase
       const weeklyAchievementData = {
         userId: auth.currentUser.uid,
+        userName: userName,
         weekStart: Timestamp.fromDate(weekStart),
         weekEnd: Timestamp.fromDate(weekEnd),
         numCalls: weeklyTotalCalls,
@@ -250,13 +263,18 @@ const WeeklyTargetScreen = () => {
         positiveLeads: weeklyTotalPositiveLeads,
         closingAmount: weeklyTotalClosingAmount,
         percentageAchieved: Math.round(weeklyAchievementPercentage * 10) / 10,
-        createdAt: Timestamp.fromDate(new Date()),
-        updatedAt: Timestamp.fromDate(new Date())
+        createdAt: Timestamp.fromDate(currentDate),
+        updatedAt: Timestamp.fromDate(currentDate),
+        date: date,
+        month: month,
+        week: week,
+        year: year
       };
 
       // Store monthly achievement in Firebase
       const monthlyAchievementData = {
         userId: auth.currentUser.uid,
+        userName: userName,
         monthStart: Timestamp.fromDate(monthStart),
         monthEnd: Timestamp.fromDate(monthEnd),
         numCalls: monthlyTotalCalls,
@@ -264,11 +282,15 @@ const WeeklyTargetScreen = () => {
         positiveLeads: monthlyTotalPositiveLeads,
         closingAmount: monthlyTotalClosingAmount,
         percentageAchieved: Math.round(monthlyAchievementPercentage * 10) / 10,
-        createdAt: Timestamp.fromDate(new Date()),
-        updatedAt: Timestamp.fromDate(new Date())
+        createdAt: Timestamp.fromDate(currentDate),
+        updatedAt: Timestamp.fromDate(currentDate),
+        date: date,
+        month: month,
+        week: week,
+        year: year
       };
 
-      // Check if weekly achievement record exists
+      // Check and update weekly achievement
       const weeklyAchievementQuery = query(
         collection(db, 'telecaller_achievements'),
         where('userId', '==', auth.currentUser.uid),
@@ -276,7 +298,7 @@ const WeeklyTargetScreen = () => {
         where('weekEnd', '==', Timestamp.fromDate(weekEnd))
       );
 
-      // Check if monthly achievement record exists
+      // Check and update monthly achievement
       const monthlyAchievementQuery = query(
         collection(db, 'telecaller_monthly_achievements'),
         where('userId', '==', auth.currentUser.uid),
@@ -289,7 +311,7 @@ const WeeklyTargetScreen = () => {
         getDocs(monthlyAchievementQuery)
       ]);
       
-      // Update or create weekly achievement record
+      // Update or create weekly achievement
       if (weeklyAchievementSnapshot.empty) {
         await addDoc(collection(db, 'telecaller_achievements'), weeklyAchievementData);
       } else {
@@ -300,7 +322,7 @@ const WeeklyTargetScreen = () => {
         });
       }
 
-      // Update or create monthly achievement record
+      // Update or create monthly achievement
       if (monthlyAchievementSnapshot.empty) {
         await addDoc(collection(db, 'telecaller_monthly_achievements'), monthlyAchievementData);
       } else {
@@ -311,10 +333,10 @@ const WeeklyTargetScreen = () => {
         });
       }
 
-      // Fetch previous week's data for comparison
+      // Fetch previous week's data
       const prevWeekEnd = new Date(weekStart);
-      prevWeekEnd.setDate(prevWeekEnd.getDate() - 1); // Last Saturday
-      const prevWeekStart = startOfWeek(prevWeekEnd, { weekStartsOn: 1 }); // Previous Monday
+      prevWeekEnd.setDate(prevWeekEnd.getDate() - 1);
+      const prevWeekStart = startOfWeek(prevWeekEnd, { weekStartsOn: 1 });
 
       const prevWeekQuery = query(
         reportsRef,
@@ -335,14 +357,12 @@ const WeeklyTargetScreen = () => {
       prevWeekSnapshot.docs.forEach(doc => {
         const report = doc.data() as DailyReport;
         prevTotalCalls += report.numMeetings || 0;
-        
         const durationParts = report.meetingDuration.split(':');
         const hours = parseInt(durationParts[0], 10);
         const minutes = parseInt(durationParts[1], 10);
         const seconds = parseInt(durationParts[2], 10);
         const totalHours = hours + (minutes / 60) + (seconds / 3600);
         prevTotalDuration += totalHours;
-
         prevTotalPositiveLeads += report.positiveLeads || 0;
         prevTotalClosingAmount += report.totalClosingAmount || 0;
       });
@@ -360,9 +380,10 @@ const WeeklyTargetScreen = () => {
 
       setPreviousAchievement(Math.round(prevAchievementPercentage * 10) / 10);
 
-      // Store previous week's achievement in Firebase
+      // Store previous week's achievement
       const prevAchievementData = {
         userId: auth.currentUser.uid,
+        userName: userName,
         weekStart: Timestamp.fromDate(prevWeekStart),
         weekEnd: Timestamp.fromDate(prevWeekEnd),
         numCalls: prevTotalCalls,
@@ -371,10 +392,14 @@ const WeeklyTargetScreen = () => {
         closingAmount: prevTotalClosingAmount,
         percentageAchieved: Math.round(prevAchievementPercentage * 10) / 10,
         createdAt: Timestamp.fromDate(new Date()),
-        updatedAt: Timestamp.fromDate(new Date())
+        updatedAt: Timestamp.fromDate(new Date()),
+        date: date,
+        month: month,
+        week: getWeek(prevWeekStart, { weekStartsOn: 1 }),
+        year: year
       };
 
-      // Check if previous week's achievement record exists
+      // Check and store previous week's achievement
       const prevWeekAchievementQuery = query(
         collection(db, 'telecaller_achievements'),
         where('userId', '==', auth.currentUser.uid),
@@ -389,7 +414,6 @@ const WeeklyTargetScreen = () => {
       }
 
     } catch (error) {
-      console.error('Error fetching target data:', error);
       setError(error instanceof Error ? error.message : 'Failed to fetch data');
     } finally {
       if (showLoading) {
@@ -398,23 +422,21 @@ const WeeklyTargetScreen = () => {
     }
   };
 
-  // Add notification setup
+  // Notification setup
   useEffect(() => {
     const setupNotifications = async () => {
       const { status } = await Notifications.requestPermissionsAsync();
       if (status !== 'granted') {
-        console.log('Notification permissions not granted');
+        // Removed console.log
       }
     };
-
     setupNotifications();
   }, []);
 
-  // Add real-time target listener
+  // Real-time target listener
   useEffect(() => {
     if (!auth.currentUser) return;
 
-    // Get user data to get employeeId
     const userDoc = doc(db, "users", auth.currentUser.uid);
     let employeeId: string | null = null;
     let userEmail = auth.currentUser.email;
@@ -424,8 +446,8 @@ const WeeklyTargetScreen = () => {
         const userData = doc.data();
         employeeId = userData.employeeId;
         userEmail = userData.email || userEmail;
+        setUserName(userData.displayName || userData.email || 'Unknown User');
 
-        // Set up target listener based on available identifier
         const targetDataRef = collection(db, 'telecaller_target_data');
         let q;
         
@@ -448,17 +470,17 @@ const WeeklyTargetScreen = () => {
         const unsubscribeTarget = onSnapshot(q, (snapshot) => {
           if (!snapshot.empty) {
             const targetDoc = snapshot.docs[0].data() as FirebaseTargetData;
-            const updateDate = targetDoc.createdAt?.toDate().toLocaleDateString() || 'Unknown date';
+            const updateDate = typeof targetDoc.updatedAt === 'string'
+              ? targetDoc.updatedAt
+              : targetDoc.updatedAt?.toDate().toLocaleDateString() || 'Unknown date';
             const newTargets = {
-            numCalls: targetDoc.numMeetings || TARGET_VALUES.numCalls,
+              numCalls: targetDoc.numMeetings || TARGET_VALUES.numCalls,
               positiveLeads: targetDoc.positiveLeads || TARGET_VALUES.positiveLeads,
               callDuration: parseInt(targetDoc.meetingDuration) || TARGET_VALUES.callDuration,
               closingAmount: targetDoc.closingAmount || TARGET_VALUES.closingAmount
             };
 
-            // Check if targets have changed
             if (JSON.stringify(newTargets) !== JSON.stringify(targets)) {
-              // Show notification
               Notifications.scheduleNotificationAsync({
                 content: {
                   title: 'Target Updated! 🎯',
@@ -468,34 +490,22 @@ const WeeklyTargetScreen = () => {
                 },
                 trigger: null,
               });
-
-              // Update targets state
               setTargets(newTargets);
-              
-              // Refresh achievements with new targets
               fetchData(false);
             }
           }
         });
 
-        return () => {
-          unsubscribeTarget();
-        };
+        return () => unsubscribeTarget();
       }
     });
 
-    return () => {
-      unsubscribeUser();
-    };
+    return () => unsubscribeUser();
   }, []);
 
   useEffect(() => {
     fetchData();
-
-    // Set up interval to update every 10 seconds without loading
     const interval = setInterval(() => fetchData(false), 10000);
-
-    // Cleanup interval on unmount
     return () => clearInterval(interval);
   }, []);
 
@@ -522,14 +532,23 @@ const WeeklyTargetScreen = () => {
     }
   }, [loading]);
 
-  // Helper function to calculate percentage
   const calculatePercentage = (achievements: Achievements, targets: Targets): number => {
-    const numCallsPercentage = (achievements.numCalls / targets.numCalls) * 100;
-    const callDurationPercentage = (achievements.callDuration / targets.callDuration) * 100;
-    const positiveLeadsPercentage = (achievements.positiveLeads / targets.positiveLeads) * 100;
-    const closingAmountPercentage = (achievements.closingAmount / targets.closingAmount) * 100;
+    // Calculate individual scores (capped at 100% each)
+    const callScore = Math.min((achievements.numCalls / targets.numCalls) * 100, 100);
+    const durationScore = Math.min((achievements.callDuration / targets.callDuration) * 100, 100);
+    const leadScore = Math.min((achievements.positiveLeads / targets.positiveLeads) * 100, 100);
+    const closingScore = Math.min((achievements.closingAmount / targets.closingAmount) * 100, 100);
 
-    return (numCallsPercentage + callDurationPercentage + positiveLeadsPercentage + closingAmountPercentage) / 4;
+    // Calculate weighted total score
+    const totalScore = (callScore * 0.25) +
+                      (durationScore * 0.20) +
+                      (leadScore * 0.25) +
+                      (closingScore * 0.30);
+
+    // Cap the final percentage to 100%
+    const achievedPercentage = Math.min(totalScore, 100);
+    
+    return achievedPercentage;
   };
 
   const renderWaveSkeleton = () => {
@@ -543,9 +562,7 @@ const WeeklyTargetScreen = () => {
         <Animated.View 
           style={[
             styles.skeletonWave,
-            {
-              transform: [{ translateY }],
-            }
+            { transform: [{ translateY }] }
           ]} 
         />
         <View style={styles.skeletonContent}>
@@ -566,103 +583,72 @@ const WeeklyTargetScreen = () => {
     );
   };
 
-  if (loading) {
-    return (
-      <AppGradient>
-        <TelecallerMainLayout showDrawer showBackButton={true} title="Weekly Target">
-          {renderWaveSkeleton()}
-        </TelecallerMainLayout>
-      </AppGradient>
-    );
-  }
-
-  if (error) {
-    return (
-      <AppGradient>
-        <TelecallerMainLayout showDrawer showBackButton={true} title="Weekly Target">
-          <View style={styles.errorContainer}>
-            <Text style={styles.errorText}>{error}</Text>
-            <TouchableOpacity 
-              style={styles.retryButton}
-              onPress={() => fetchData(true)}
-            >
-              <Text style={styles.retryButtonText}>Retry</Text>
-            </TouchableOpacity>
-          </View>
-        </TelecallerMainLayout>
-      </AppGradient>
-    );
-  }
 
   return (
     <AppGradient>
-    <TelecallerMainLayout showDrawer showBackButton={true} title="Weekly Target">
-       <View style={styles.container}>
-
-        {/* Achievement Card */}
-        <View style={styles.achievementCard}>
-          <Text style={styles.achievementText}>
-            Last week you achieved <Text style={styles.achievementPercentage}>{previousAchievement}%</Text> of your target!
-          </Text>
-          <TouchableOpacity 
-            style={styles.viewReportButton}
-            onPress={() => navigation.navigate('ViewFullReport' as never)}
-          >
-            <Text style={styles.viewReportText}>
-              View Full Report <MaterialIcons name="arrow-forward" size={18} color="#FF8447" />
+      <TelecallerMainLayout showDrawer showBackButton={true} title="Weekly Target">
+        <View style={styles.container}>
+          <View style={styles.achievementCard}>
+            <Text style={styles.achievementText}>
+              Last week you achieved <Text style={styles.achievementPercentage}>{previousAchievement}%</Text> of your target!
             </Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* This Week Section */}
-        <View style={styles.weeklyCard}>
-          <View style={styles.weeklyHeader}>
-            <Text style={styles.weeklyTitle}>This Week</Text>
-            <Text style={styles.daysLeft}>{daysRemaining} days left until Saturday!</Text>
+            <TouchableOpacity 
+              style={styles.viewReportButton}
+              onPress={() => navigation.navigate('ViewFullReport' as never)}
+            >
+              <Text style={styles.viewReportText}>
+                View Full Report <MaterialIcons name="arrow-forward" size={18} color="#FF8447" />
+              </Text>
+            </TouchableOpacity>
           </View>
 
-          <ProgressBar 
-            progress={achievements.percentageAchieved > 0 ? achievements.percentageAchieved / 100 : 0} 
-            color="#FF8447" 
-            style={styles.progressBar} 
-          />
-          <Text style={styles.progressText}>{achievements.percentageAchieved.toFixed(1)}%</Text>
-
-          <View style={styles.statsTable}>
-            <View style={styles.tableHeader}>
-              <Text style={[styles.tableHeaderText, { flex: 1 }]}></Text>
-              <Text style={[styles.tableHeaderText, { flex: 2, textAlign: 'right' }]}>Achieved</Text>
-              <Text style={[styles.tableHeaderText, { flex: 1, textAlign: 'right' }]}>Target</Text>
+          <View style={styles.weeklyCard}>
+            <View style={styles.weeklyHeader}>
+              <Text style={styles.weeklyTitle}>This Week</Text>
+              <Text style={styles.daysLeft}>{daysRemaining} days left</Text>
             </View>
 
-            <View style={styles.tableRow}>
-              <Text style={[styles.tableCell, { flex: 2 }]}>No. of Calls</Text>
-              <Text style={[styles.tableCell, { flex: 1, textAlign: 'right' }]}>{achievements.numCalls}</Text>
-              <Text style={[styles.targetCell, { flex: 1, textAlign: 'right' }]}>{targets.numCalls}</Text>
-            </View>
+            <ProgressBar 
+              progress={achievements.percentageAchieved > 0 ? achievements.percentageAchieved / 100 : 0} 
+              color="#FF8447" 
+              style={styles.progressBar} 
+            />
+            <Text style={styles.progressText}>{achievements.percentageAchieved.toFixed(1)}%</Text>
 
-            <View style={styles.tableRow}>
-              <Text style={[styles.tableCell, { flex: 2 }]}>Call Duration</Text>
-              <Text style={[styles.tableCell, { flex: 1, textAlign: 'right' }]}>{formatDuration(achievements.callDuration)}</Text>
-              <Text style={[styles.targetCell, { flex: 1, textAlign: 'right' }]}>{formatDuration(targets.callDuration)}</Text>
-            </View>
+            <View style={styles.statsTable}>
+              <View style={styles.tableHeader}>
+                <Text style={[styles.tableHeaderText, { flex: 1 }]}></Text>
+                <Text style={[styles.tableHeaderText, { flex: 2, textAlign: 'right' }]}>Achieved</Text>
+                <Text style={[styles.tableHeaderText, { flex: 1, textAlign: 'right' }]}>Target</Text>
+              </View>
 
-            <View style={styles.tableRow}>
-              <Text style={[styles.tableCell, { flex: 2 }]}>Positive Leads</Text>
-              <Text style={[styles.tableCell, { flex: 1, textAlign: 'right' }]}>{achievements.positiveLeads}</Text>
-              <Text style={[styles.targetCell, { flex: 1, textAlign: 'right' }]}>{targets.positiveLeads}</Text>
-            </View>
+              <View style={styles.tableRow}>
+                <Text style={[styles.tableCell, { flex: 2 }]}>No. of Calls</Text>
+                <Text style={[styles.tableCell, { flex: 1, textAlign: 'right' }]}>{achievements.numCalls}</Text>
+                <Text style={[styles.targetCell, { flex: 1, textAlign: 'right' }]}>{targets.numCalls}</Text>
+              </View>
 
-            <View style={styles.tableRow}>
-              <Text style={[styles.tableCell, { flex: 2 }]}>Closing Amount</Text>
-              <Text style={[styles.tableCell, { flex: 1, textAlign: 'right' }]}>₹{achievements.closingAmount.toLocaleString()}</Text>
-              <Text style={[styles.targetCell, { flex: 1, textAlign: 'right' }]}>{targets.closingAmount.toLocaleString()}</Text>
+              <View style={styles.tableRow}>
+                <Text style={[styles.tableCell, { flex: 2 }]}>Call Duration</Text>
+                <Text style={[styles.tableCell, { flex: 1, textAlign: 'right' }]}>{formatDuration(achievements.callDuration)}</Text>
+                <Text style={[styles.targetCell, { flex: 1, textAlign: 'right' }]}>{formatDuration(targets.callDuration)}</Text>
+              </View>
+
+              <View style={styles.tableRow}>
+                <Text style={[styles.tableCell, { flex: 2 }]}>Positive Leads</Text>
+                <Text style={[styles.tableCell, { flex: 1, textAlign: 'right' }]}>{achievements.positiveLeads}</Text>
+                <Text style={[styles.targetCell, { flex: 1, textAlign: 'right' }]}>{targets.positiveLeads}</Text>
+              </View>
+
+              <View style={styles.tableRow}>
+                <Text style={[styles.tableCell, { flex: 2 }]}>Closing Amount</Text>
+                <Text style={[styles.tableCell, { flex: 1, textAlign: 'right' }]}>₹{achievements.closingAmount.toLocaleString()}</Text>
+                <Text style={[styles.targetCell, { flex: 1, textAlign: 'right' }]}>{targets.closingAmount.toLocaleString()}</Text>
+              </View>
             </View>
           </View>
-
         </View>
-        </View>
-    </TelecallerMainLayout>
+      </TelecallerMainLayout>
     </AppGradient>
   );
 };
@@ -685,7 +671,6 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     alignSelf: 'center',
     alignItems: 'center',
-
   },
   profileImage: {
     width: 40,
@@ -788,7 +773,7 @@ const styles = StyleSheet.create({
   },
   targetCell: {
     fontSize: 14,
-    color: '#FF8447', // Orange color for Target column
+    color: '#FF8447',
     fontWeight: "bold",
   },
   loadingText: {
@@ -797,7 +782,6 @@ const styles = StyleSheet.create({
     fontFamily: 'LexendDeca_500Medium',
     color: '#666',
   },
-  // Skeleton Loading Styles
   skeletonContainer: {
     flex: 1,
     overflow: 'hidden',
@@ -819,6 +803,7 @@ const styles = StyleSheet.create({
     height: 40,
     backgroundColor: 'rgba(255, 255, 255, 0.2)',
     borderRadius: 8,
+    zIndex: 1000,
     marginBottom: 16,
     width: '60%',
     alignSelf: 'center',
@@ -844,6 +829,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 255, 255, 0.3)',
     borderRadius: 4,
     marginBottom: 24,
+    zIndex: 1000,
   },
   skeletonStats: {
     marginTop: 16,

@@ -17,10 +17,11 @@ import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/dat
 import { format } from 'date-fns';
 import { Image } from "expo-image";
 import Ionicons from "react-native-vector-icons/Ionicons";
+import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import BDMMainLayout from '@/app/components/BDMMainLayout';
 import AppGradient from '@/app/components/AppGradient';
 import { auth, db } from '@/firebaseConfig';
-import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, addDoc, serverTimestamp,Timestamp } from 'firebase/firestore';
 import { useNavigation } from '@react-navigation/native';
 import * as Location from 'expo-location';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -34,6 +35,8 @@ interface IndividualDetails {
 interface MeetingFormData {
   date: string;
   rawDate?: Date;
+   locationReachTime: string;
+  rawLocationReachTime?: Date;       
   startTime: string;
   rawStartTime?: Date;
   endTime: string;
@@ -74,10 +77,33 @@ const BDMMeetingLogScreen = () => {
   const [selectedStartTime, setSelectedStartTime] = useState(new Date());
   const [selectedEndTime, setSelectedEndTime] = useState(new Date());
   const [isLocationLoading, setIsLocationLoading] = useState(false);
-  
+  const [showLocationReachTimePicker, setShowLocationReachTimePicker] = useState(false);
+  const [selectedLocationReachTime, setSelectedLocationReachTime] = useState(new Date());
+  const [showScheduleForm, setShowScheduleForm] = useState(false);
+  const [scheduleDate, setScheduleDate] = useState<Date | null>(null);
+  const [scheduleTime, setScheduleTime] = useState<Date | null>(null);
+  const [showScheduleDatePicker, setShowScheduleDatePicker] = useState(false);
+  const [showScheduleTimePicker, setShowScheduleTimePicker] = useState(false);
+  const [location, setLocation] = useState<Location.LocationObject | null>(null);
+  const [mapRegion, setMapRegion] = useState<any>(null);
+
+  const onLocationReachTimeChange = (event: DateTimePickerEvent, time?: Date) => {
+    setShowLocationReachTimePicker(Platform.OS === 'ios');
+    if (time) {
+      setSelectedLocationReachTime(time);
+      setFormData({
+        ...formData,
+        locationReachTime: format(time, 'hh:mm a'),
+        rawLocationReachTime: time,
+      });
+    }
+  };
+
   const [formData, setFormData] = useState<MeetingFormData>({
     date: '',
     rawDate: undefined,
+    locationReachTime: '',
+    rawLocationReachTime: undefined,
     startTime: '',
     rawStartTime: undefined,
     endTime: '',
@@ -116,18 +142,55 @@ const BDMMeetingLogScreen = () => {
       }
 
       // Get current location
-      const location = await Location.getCurrentPositionAsync({
+      const currentLocation = await Location.getCurrentPositionAsync({
         accuracy: Location.Accuracy.High
+      });
+      setLocation(currentLocation);
+      setMapRegion({
+        latitude: currentLocation.coords.latitude,
+        longitude: currentLocation.coords.longitude,
+        latitudeDelta: 0.01,
+        longitudeDelta: 0.01,
       });
 
       // Get address from coordinates
       const [address] = await Location.reverseGeocodeAsync({
-        latitude: location.coords.latitude,
-        longitude: location.coords.longitude
+        latitude: currentLocation.coords.latitude,
+        longitude: currentLocation.coords.longitude
       });
 
-      // Create Google Maps URL
-      const mapsUrl = `https://www.google.com/maps?q=${location.coords.latitude},${location.coords.longitude}`;
+      // Create location name from address components
+      let locationName = '';
+      if (address) {
+        const addressParts = [];
+        
+        if (address.street) addressParts.push(address.street);
+        if (address.district) addressParts.push(address.district);
+        if (address.city) addressParts.push(address.city);
+        if (address.region) addressParts.push(address.region);
+        if (address.postalCode) addressParts.push(address.postalCode);
+        if (address.country) addressParts.push(address.country);
+        
+        locationName = addressParts.join(', ');
+      }
+
+      // Create Google Maps URL with location name
+      let mapsUrl;
+      const lat = currentLocation.coords.latitude;
+      const lon = currentLocation.coords.longitude;
+      const zoom = 20; // High zoom level for a close-up view
+
+      let queryParam = `${lat},${lon}`; // Default to lat,lon for pinning
+
+      if (address && address.name) {
+        // If a specific place name is found, use it for a more descriptive search
+        // This will show the name in the map search results
+        const queryParts = [address.name, address.city, address.country].filter(Boolean);
+        queryParam = encodeURIComponent(queryParts.join(', '));
+      }
+
+      // This format searches for the best query we could build and sets the camera with a high zoom level.
+      mapsUrl = `https://www.google.com/maps/search/?api=1&query=${queryParam}&zoom=${zoom}`;
       
       // Update form with location URL
       setFormData(prev => ({
@@ -141,6 +204,43 @@ const BDMMeetingLogScreen = () => {
     } finally {
       setIsLocationLoading(false);
     }
+  };
+
+  const resetForm = () => {
+    const newMeetingId = generateMeetingId();
+    const now = new Date();
+    setScheduleDate(null);
+    setScheduleTime(null);
+    setSelectedDate(now);
+    setSelectedTime(now);
+    setSelectedStartTime(now);
+    setSelectedEndTime(now);
+    setErrors({});
+    setMeetingType('Individual');
+    setLocation(null);
+    setMapRegion(null);
+    setFormData({
+      date: '',
+      rawDate: undefined,
+      locationReachTime: '',
+      rawLocationReachTime: undefined,
+      startTime: '',
+      rawStartTime: undefined,
+      endTime: '',
+      rawEndTime: undefined,
+      locationUrl: '',
+      companyName: '',
+      individuals: [{
+        name: '',
+        phoneNumber: '',
+        emailId: ''
+      }],
+      meetingType: 'Individual',
+      userId: auth.currentUser?.uid || '',
+      notes: '',
+      status: 'planned',
+      meetingId: newMeetingId
+    });
   };
 
   const validateForm = (): boolean => {
@@ -193,115 +293,106 @@ const BDMMeetingLogScreen = () => {
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleSubmit = async () => {
-    if (!validateForm()) {
-      Alert.alert('All Fields are Required', 'Please fill all the fields correctly');
-      return;
+ const handleSubmit = async () => {
+  if (!validateForm()) {
+    Alert.alert('All Fields are Required', 'Please fill all the fields correctly');
+    return;
+  }
+
+  try {
+    setIsLoading(true);
+
+    // Construct meeting object
+    const meetingId = formData.meetingId || Date.now().toString();
+    const meetingStartDateTime = new Date(
+      selectedDate.getFullYear(),
+      selectedDate.getMonth(),
+      selectedDate.getDate(),
+      selectedStartTime.getHours(),
+      selectedStartTime.getMinutes()
+    );
+    const meetingEndDateTime = new Date(
+      selectedDate.getFullYear(),
+      selectedDate.getMonth(),
+      selectedDate.getDate(),
+      selectedEndTime.getHours(),
+      selectedEndTime.getMinutes()
+    );
+
+    const meetingData = {
+      ...formData,
+      id: meetingId,
+      meetingType,
+      createdAt: new Date().toISOString(),
+      meetingStartDateTime,
+      meetingEndDateTime,
+      individuals:
+        meetingType === 'Individual' ? [formData.individuals[0]] : formData.individuals,
+      syncStatus: 'pending',
+    };
+
+    // Save to AsyncStorage
+    const existingLogsStr = await AsyncStorage.getItem(MEETING_LOGS_STORAGE_KEY);
+    const existingLogs = existingLogsStr ? JSON.parse(existingLogsStr) : [];
+
+    const updatedLogs = [...existingLogs, meetingData];
+    await AsyncStorage.setItem(MEETING_LOGS_STORAGE_KEY, JSON.stringify(updatedLogs));
+
+    // Add to pending sync queue
+    const pendingSyncStr = await AsyncStorage.getItem(MEETING_LOGS_PENDING_SYNC);
+    const pendingSync = pendingSyncStr ? JSON.parse(pendingSyncStr) : [];
+
+    if (!pendingSync.includes(meetingId)) {
+      pendingSync.push(meetingId);
+      await AsyncStorage.setItem(MEETING_LOGS_PENDING_SYNC, JSON.stringify(pendingSync));
     }
-    
-    try {
-      setIsLoading(true);
-      
-      // Prepare meeting data
-      const meetingData = {
-        ...formData,
-        meetingType,
-        createdAt: new Date(),
-        meetingDateTime: new Date(
-          selectedDate.getFullYear(),
-          selectedDate.getMonth(),
-          selectedDate.getDate(),
-          selectedStartTime.getHours(),
-          selectedStartTime.getMinutes()
-        ),
-        meetingEndDateTime: new Date(
-          selectedDate.getFullYear(),
-          selectedDate.getMonth(),
-          selectedDate.getDate(),
-          selectedEndTime.getHours(),
-          selectedEndTime.getMinutes()
-        ),
-        // Include only the first individual if meeting type is Individual
-        individuals: meetingType === 'Individual' 
-          ? [formData.individuals[0]] 
-          : formData.individuals
-      };
 
-      // Save to AsyncStorage first
-      try {
-        const existingLogsStr = await AsyncStorage.getItem(MEETING_LOGS_STORAGE_KEY);
-        const existingLogs = existingLogsStr ? JSON.parse(existingLogsStr) : [];
-        
-        // Add new meeting to existing logs
-        existingLogs.push({
-          ...meetingData,
-          id: formData.meetingId,
-          syncStatus: 'pending'
-        });
+    // Trigger background sync (optionally delay by 10 mins, or immediate if online)
+   (async () => {
+  try {
+    const logsStr = await AsyncStorage.getItem(MEETING_LOGS_STORAGE_KEY);
+    const logs = logsStr ? JSON.parse(logsStr) : [];
 
-        // Save updated logs to AsyncStorage
-        await AsyncStorage.setItem(MEETING_LOGS_STORAGE_KEY, JSON.stringify(existingLogs));
-        
-        // Add to pending sync list
-        const pendingSyncStr = await AsyncStorage.getItem(MEETING_LOGS_PENDING_SYNC);
-        const pendingSync = pendingSyncStr ? JSON.parse(pendingSyncStr) : [];
-        pendingSync.push(formData.meetingId);
-        await AsyncStorage.setItem(MEETING_LOGS_PENDING_SYNC, JSON.stringify(pendingSync));
+    const syncData = logs.find((m: any) => m.id === meetingId);
+    if (syncData) {
+      await addDoc(collection(db, 'meetings'), {
+        ...syncData,
+        createdAt: serverTimestamp(),
+        meetingStartDateTime: new Date(syncData.meetingStartDateTime),
+        meetingEndDateTime: new Date(syncData.meetingEndDateTime),
+      });
 
-        // Schedule Firebase sync after 10 minutes
-        setTimeout(async () => {
-          try {
-            // Get the meeting data from AsyncStorage
-            const logsStr = await AsyncStorage.getItem(MEETING_LOGS_STORAGE_KEY);
-            const logs = logsStr ? JSON.parse(logsStr) : [];
-            const meetingToSync = logs.find((log: any) => log.id === formData.meetingId);
+      // Update syncStatus
+      const updatedLogs = logs.map((log: any) =>
+        log.id === meetingId ? { ...log, syncStatus: 'synced' } : log
+      );
+      await AsyncStorage.setItem(MEETING_LOGS_STORAGE_KEY, JSON.stringify(updatedLogs));
 
-            if (meetingToSync) {
-              // Save to Firebase
-              await addDoc(collection(db, 'meetings'), {
-                ...meetingToSync,
-                createdAt: serverTimestamp(),
-                meetingDateTime: meetingToSync.meetingDateTime,
-                meetingEndDateTime: meetingToSync.meetingEndDateTime
-              });
-
-              // Update sync status in AsyncStorage
-              const updatedLogs = logs.map((log: any) => 
-                log.id === formData.meetingId 
-                  ? { ...log, syncStatus: 'synced' }
-                  : log
-              );
-              await AsyncStorage.setItem(MEETING_LOGS_STORAGE_KEY, JSON.stringify(updatedLogs));
-
-              // Remove from pending sync list
-              const updatedPendingSync = pendingSync.filter((id: string) => id !== formData.meetingId);
-              await AsyncStorage.setItem(MEETING_LOGS_PENDING_SYNC, JSON.stringify(updatedPendingSync));
-            }
-          } catch (error) {
-            console.error('Error syncing meeting to Firebase:', error);
-          }
-        }, 10 * 60 * 1000); // 10 minutes
-        
-        // Show success modal
-        setModalVisible(true);
-        
-        // Auto-hide the modal after 2 seconds and navigate back
-        setTimeout(() => {
-          setModalVisible(false);
-          navigation.goBack();
-        }, 2000);
-        
-      } catch (error) {
-        console.error('Error saving meeting to AsyncStorage:', error);
-        Alert.alert('Error', 'Failed to save meeting. Please try again.');
-      }
-    } catch (error) {
-      console.error('Error in handleSubmit:', error);
-      Alert.alert('Error', 'An unexpected error occurred. Please try again.');
-    } finally {
-      setIsLoading(false);
+      // Remove from pending queue
+      const filteredQueue = pendingSync.filter((id: string) => id !== meetingId);
+      await AsyncStorage.setItem(MEETING_LOGS_PENDING_SYNC, JSON.stringify(filteredQueue));
     }
-  };
+  } catch (err) {
+    console.error('❌ Sync to Firebase failed:', err);
+  }
+})();
+
+
+    // UI Success
+    setModalVisible(true);
+    setTimeout(() => {
+      setModalVisible(false);
+      resetForm();
+      // navigation.goBack(); // Optional
+    }, 2000);
+  } catch (error) {
+    console.error('Error in handleSubmit:', error);
+    Alert.alert('Error', 'Unexpected error occurred. Please try again.');
+  } finally {
+    setIsLoading(false);
+  }
+};
+
 
   const onDateChange = (event: DateTimePickerEvent, date?: Date) => {
     setShowDatePicker(Platform.OS === 'ios');
@@ -388,6 +479,33 @@ const BDMMeetingLogScreen = () => {
       individuals: updatedIndividuals
     });
   };
+const handleScheduleMeetingSubmit = async () => {
+  try {
+    const userId = auth.currentUser?.uid || 'guest';
+    const scheduleId = generateMeetingId(); // You can reuse your generator
+    const timestamp = new Date();
+
+  await addDoc(collection(db, 'bdm_schedule_meeting'), {
+
+  meetingId: scheduleId, // added
+  createdBy: userId,
+  meetingType: meetingType,
+  companyName: formData.companyName,
+  individuals: formData.individuals,
+  meetingDate: scheduleDate ? Timestamp.fromDate(scheduleDate) : null,
+  meetingTime: scheduleTime ? format(scheduleTime, 'hh:mm a') : null,
+  createdAt: serverTimestamp(),
+});
+
+
+    Alert.alert("Success", "Scheduled meeting saved!");
+    setShowScheduleForm(false);
+    resetForm();
+  } catch (error) {
+    console.error("Error saving scheduled meeting:", error);
+    Alert.alert("Error", "Failed to save scheduled meeting. Try again.");
+  }
+};
 
   const renderIndividualForm = (individual: IndividualDetails, index: number) => (
     <View key={`individual-${index}`} style={styles.individualContainer}>
@@ -446,38 +564,132 @@ const BDMMeetingLogScreen = () => {
     </View>
   );
 
-  const renderCompanyForm = () => (
-    <>
-      <View style={styles.inputGroup}>
-        <Text style={styles.label}>Company Name</Text>
-        <TextInput
-          style={[styles.input, errors.companyName && styles.inputError]}
-          placeholder="Enter Company Name"
-          value={formData.companyName}
-          onChangeText={(text) => setFormData({...formData, companyName: text})}
-        />
-        {errors.companyName && <Text style={styles.errorText}>{errors.companyName}</Text>}
-      </View>
+ const renderCompanyForm = () => (
+  <>
+    <View style={styles.inputGroup}>
+      <Text style={styles.label}>Company Name</Text>
+      <TextInput
+        style={[styles.input, errors.companyName && styles.inputError]}
+        placeholder="Enter Company Name"
+        value={formData.companyName}
+        onChangeText={(text) => setFormData({...formData, companyName: text})}
+      />
+      {errors.companyName && <Text style={styles.errorText}>{errors.companyName}</Text>}
+    </View>
 
-      <View style={styles.divider} />
+    <View style={styles.divider} />
 
-      <Text style={styles.sectionTitle}>Individuals Details</Text>
+    <Text style={styles.sectionTitle}>Individuals Details</Text>
 
-      {formData.individuals.map((individual, index) => renderIndividualForm(individual, index))}
-      
-      {/* Add Individual Button */}
-      <TouchableOpacity style={styles.addButton} onPress={addIndividual}>
-        <MaterialIcons name="person-add" size={24} color="#FF8447" />
-        <Text style={styles.addButtonText}>Add Another Individual</Text>
-      </TouchableOpacity>
-    </>
-  );
+    {formData.individuals.map((individual, index) => renderIndividualForm(individual, index))}
+
+    {/* Keep only this one */}
+    <TouchableOpacity style={styles.addButton} onPress={addIndividual}>
+      <MaterialIcons name="person-add" size={24} color="#FF8447" />
+      <Text style={styles.addButtonText}>Add Another Individual</Text>
+    </TouchableOpacity>
+  </>
+);
+
 
   return (
     <AppGradient>
     <BDMMainLayout title="Meeting Log" showBackButton>
       <ScrollView style={styles.scrollView}>
         <View style={styles.formContainer}>
+          <Text style={styles.meetingDateText}>
+  {format(new Date(), 'dd MMMM (EEEE)')}
+</Text>
+{/* Schedule Meeting Button */}
+<TouchableOpacity
+  style={styles.scheduleMeetingButton}
+  onPress={() => setShowScheduleForm(true)} // show the new form
+>
+  <View style={styles.scheduleLeft}>
+    <MaterialIcons name="event" size={20} color="#FF8447" />
+    <Text style={styles.scheduleText}>Schedule Meeting</Text>
+  </View>
+  <MaterialIcons name="arrow-forward-ios" size={18} color="#FF8447" />
+</TouchableOpacity>
+
+
+            {/* Meeting Type Selection */}
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>Meeting With</Text>
+            <View style={styles.meetingTypeContainer}>
+              <TouchableOpacity 
+                style={[
+                  styles.meetingTypeButton,
+                  meetingType === 'Individual' && styles.selectedMeetingType
+                ]}
+                onPress={() => {
+                  setMeetingType('Individual');
+                  setFormData({
+                    ...formData,
+                    meetingType: 'Individual',
+                    companyName: ''
+                  });
+                }}
+              >
+                <MaterialIcons 
+                  name="person" 
+                  size={24} 
+                  color={meetingType === 'Individual' ? '#FF8447' : '#666'} 
+                />
+                <Text style={[
+                  styles.meetingTypeText,
+                  meetingType === 'Individual' && styles.selectedMeetingTypeText
+                ]}>Individual</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[
+                  styles.meetingTypeButton,
+                  meetingType === 'Company' && styles.selectedMeetingType
+                ]}
+                onPress={() => {
+                  setMeetingType('Company');
+                  setFormData({
+                    ...formData,
+                    meetingType: 'Company'
+                  });
+                }}
+              >
+                <MaterialIcons 
+                  name="business" 
+                  size={24} 
+                  color={meetingType === 'Company' ? '#FF8447' : '#666'} 
+                />
+                <Text style={[
+                  styles.meetingTypeText,
+                  meetingType === 'Company' && styles.selectedMeetingTypeText
+                ]}>Company</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          {/* Conditional Form Fields */}
+         {meetingType === 'Company' ? (
+  renderCompanyForm()
+) : (
+  <>
+    {formData.individuals.map((individual, index) => renderIndividualForm(individual, index))}
+    <TouchableOpacity style={styles.addButton} onPress={addIndividual}>
+      <MaterialIcons name="person-add" size={24} color="#FF8447" />
+      <Text style={styles.addButtonText}>Add Another Individual</Text>
+    </TouchableOpacity>
+  </>
+)}
+
+
+          {/* Meeting ID Display */}
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>Meeting ID</Text>
+            <View style={[styles.input, styles.meetingIdContainer]}>
+              <Text style={[styles.inputText, styles.meetingIdText]}>
+                {formData.meetingId}
+              </Text>
+            </View>
+          </View>
           {/* Date Picker */}
           <View style={styles.inputGroup}>
             <Text style={styles.label}>Date of Meeting</Text>
@@ -497,22 +709,22 @@ const BDMMeetingLogScreen = () => {
           </View>
 
           {/* Time Picker */}
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>Location Reach Time</Text>
-            <TouchableOpacity 
-              style={[styles.input, errors.startTime && styles.inputError]}
-              onPress={() => setShowTimePicker(true)}
-            >
-              <Text style={[
-                styles.inputText,
-                formData.startTime ? styles.selectedText : styles.placeholderText
-              ]}>
-                {formData.startTime || 'Select Time'}
-              </Text>
-              <MaterialIcons name="access-time" size={24} color="#FF8447" />
-            </TouchableOpacity>
-            {errors.startTime && <Text style={styles.errorText}>{errors.startTime}</Text>}
-          </View>
+        <View style={styles.inputGroup}>
+  <Text style={styles.label}>Location Reach Time</Text>
+  <TouchableOpacity 
+    style={[styles.input, errors.locationReachTime && styles.inputError]}
+    onPress={() => setShowLocationReachTimePicker(true)}
+  >
+    <Text style={[
+      styles.inputText,
+      formData.locationReachTime ? styles.selectedText : styles.placeholderText
+    ]}>
+      {formData.locationReachTime || 'Select Time'}
+    </Text>
+    <MaterialIcons name="access-time" size={24} color="#FF8447" />
+  </TouchableOpacity>
+  {errors.locationReachTime && <Text style={styles.errorText}>{errors.locationReachTime}</Text>}
+</View>
 
           {/* Start Time Picker */}
           <View style={styles.inputGroup}>
@@ -576,6 +788,25 @@ const BDMMeetingLogScreen = () => {
             {errors.locationUrl && <Text style={styles.errorText}>{errors.locationUrl}</Text>}
           </View>
           
+          {location && mapRegion && (
+            <View style={styles.mapContainer}>
+              <MapView
+                style={styles.map}
+                region={mapRegion}
+                provider={PROVIDER_GOOGLE}
+                scrollEnabled={false}
+                zoomEnabled={false}
+              >
+                <Marker
+                  coordinate={{
+                    latitude: location.coords.latitude,
+                    longitude: location.coords.longitude,
+                  }}
+                />
+              </MapView>
+            </View>
+          )}
+
           <View style={styles.inputGroup}>
             <Text style={styles.label}>Meeting Notes</Text>
             <TextInput
@@ -588,74 +819,7 @@ const BDMMeetingLogScreen = () => {
             />
           </View>
 
-          {/* Meeting Type Selection */}
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>Meeting With</Text>
-            <View style={styles.meetingTypeContainer}>
-              <TouchableOpacity 
-                style={[
-                  styles.meetingTypeButton,
-                  meetingType === 'Individual' && styles.selectedMeetingType
-                ]}
-                onPress={() => {
-                  setMeetingType('Individual');
-                  setFormData({
-                    ...formData,
-                    meetingType: 'Individual',
-                    companyName: ''
-                  });
-                }}
-              >
-                <MaterialIcons 
-                  name="person" 
-                  size={24} 
-                  color={meetingType === 'Individual' ? '#FF8447' : '#666'} 
-                />
-                <Text style={[
-                  styles.meetingTypeText,
-                  meetingType === 'Individual' && styles.selectedMeetingTypeText
-                ]}>Individual</Text>
-              </TouchableOpacity>
-              <TouchableOpacity 
-                style={[
-                  styles.meetingTypeButton,
-                  meetingType === 'Company' && styles.selectedMeetingType
-                ]}
-                onPress={() => {
-                  setMeetingType('Company');
-                  setFormData({
-                    ...formData,
-                    meetingType: 'Company'
-                  });
-                }}
-              >
-                <MaterialIcons 
-                  name="business" 
-                  size={24} 
-                  color={meetingType === 'Company' ? '#FF8447' : '#666'} 
-                />
-                <Text style={[
-                  styles.meetingTypeText,
-                  meetingType === 'Company' && styles.selectedMeetingTypeText
-                ]}>Company</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-
-          {/* Conditional Form Fields */}
-          {meetingType === 'Company' 
-            ? renderCompanyForm() 
-            : formData.individuals.map((individual, index) => renderIndividualForm(individual, index))}
-
-          {/* Meeting ID Display */}
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>Meeting ID</Text>
-            <View style={[styles.input, styles.meetingIdContainer]}>
-              <Text style={[styles.inputText, styles.meetingIdText]}>
-                {formData.meetingId}
-              </Text>
-            </View>
-          </View>
+        
 
           {/* Submit Button */}
           <TouchableOpacity 
@@ -738,11 +902,207 @@ const BDMMeetingLogScreen = () => {
               style={styles.dateTimePicker}
             />
           )}
+          {showLocationReachTimePicker && (
+  <DateTimePicker
+    value={selectedLocationReachTime}
+    mode="time"
+    display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+    onChange={onLocationReachTimeChange}
+    style={styles.dateTimePicker}
+  />
+)}
+
         </View>
       </ScrollView>
+      
+<Modal
+  visible={showScheduleForm}
+  animationType="fade"
+  transparent
+  onRequestClose={() => setShowScheduleForm(false)}
+>
+  <View style={styles.popupOverlay}>
+    <View style={styles.popupContainer}>
+    <ScrollView contentContainerStyle={{ padding: 20 }}>
+      <Text style={styles.newFormTitle}>Schedule Meeting</Text>
+      <TouchableOpacity
+        onPress={() => setShowScheduleForm(false)}
+        style={{ position: 'absolute', top: 10, right: 10 }}
+      >
+        <MaterialIcons name="close" size={24} color="#999" />
+      </TouchableOpacity>
+
+      <View style={styles.inputGroup}>
+        <Text style={styles.label}>Date of Meeting</Text>
+        <TouchableOpacity style={styles.input} onPress={() => setShowScheduleDatePicker(true)}>
+  <Text style={styles.placeholderText}>
+    {scheduleDate ? format(scheduleDate, 'dd MMM yyyy') : 'Select Date'}
+  </Text>
+  <MaterialIcons name="calendar-today" size={20} color="#FF8447" />
+</TouchableOpacity>
+
+      </View>
+
+      <View style={styles.inputGroup}>
+       <Text style={styles.label}>Time of Meeting</Text>
+<TouchableOpacity
+  style={styles.input}
+  onPress={() => setShowScheduleTimePicker(true)}
+>
+  <Text style={styles.placeholderText}>
+    {scheduleTime ? format(scheduleTime, 'hh:mm a') : 'Select Time'}
+  </Text>
+  <MaterialIcons name="access-time" size={20} color="#FF8447" />
+</TouchableOpacity>
+
+      </View>
+
+     <View style={styles.inputGroup}>
+  <Text style={styles.label}>Meeting With</Text>
+  <View style={styles.meetingTypeContainer}>
+    <TouchableOpacity
+      style={[styles.meetingTypeButton, meetingType === 'Individual' && styles.selectedMeetingType]}
+      onPress={() => setMeetingType('Individual')}
+    >
+      <MaterialIcons name="person" size={20} color={meetingType === 'Individual' ? '#FF8447' : '#999'} />
+      <Text style={[styles.meetingTypeText, meetingType === 'Individual' && styles.selectedMeetingTypeText]}>
+        Individual
+      </Text>
+    </TouchableOpacity>
+    <TouchableOpacity
+      style={[styles.meetingTypeButton, meetingType === 'Company' && styles.selectedMeetingType]}
+      onPress={() => setMeetingType('Company')}
+    >
+      <MaterialIcons name="business" size={20} color={meetingType === 'Company' ? '#FF8447' : '#999'} />
+      <Text style={[styles.meetingTypeText, meetingType === 'Company' && styles.selectedMeetingTypeText]}>
+        Company
+      </Text>
+    </TouchableOpacity>
+  </View>
+</View>
+
+
+{meetingType === 'Company' && (
+  <View style={styles.inputGroup}>
+    <Text style={styles.label}>Company Name</Text>
+    <TextInput
+      style={styles.input}
+      placeholder="Enter Company Name"
+      value={formData.companyName}
+      onChangeText={(text) =>
+        setFormData({ ...formData, companyName: text })
+      }
+    />
+  </View>
+)}
+
+{/* Render dynamic individual fields */}
+{formData.individuals.map((individual, index) => (
+  <View key={index} style={styles.individualContainer}>
+    {index > 0 && (
+      <View style={styles.individualHeader}>
+        <Text style={styles.individualTitle}>Individual {index + 1}</Text>
+        <TouchableOpacity onPress={() => removeIndividual(index)}>
+          <MaterialIcons name="delete" size={24} color="#FF3B30" />
+        </TouchableOpacity>
+      </View>
+    )}
+
+    <View style={styles.inputGroup}>
+      <Text style={styles.label}>Name</Text>
+      <TextInput
+        style={styles.input}
+        placeholder="Enter Name"
+        value={individual.name}
+        onChangeText={(text) => updateIndividual(index, 'name', text)}
+      />
+    </View>
+
+    <View style={styles.inputGroup}>
+      <Text style={styles.label}>Phone Number</Text>
+      <TextInput
+        style={styles.input}
+        placeholder="Enter Phone Number"
+        keyboardType="phone-pad"
+        value={individual.phoneNumber}
+        onChangeText={(text) => updateIndividual(index, 'phoneNumber', text)}
+      />
+    </View>
+
+    <View style={styles.inputGroup}>
+      <Text style={styles.label}>Email ID</Text>
+      <TextInput
+        style={styles.input}
+        placeholder="Enter Email ID"
+        keyboardType="email-address"
+        value={individual.emailId}
+        onChangeText={(text) => updateIndividual(index, 'emailId', text)}
+      />
+    </View>
+
+    {index > 0 && <View style={styles.individualDivider} />}
+  </View>
+))}
+
+<TouchableOpacity style={styles.addButton} onPress={addIndividual}>
+  <MaterialIcons name="person-add" size={20} color="#FF8447" />
+  <Text style={styles.addButtonText}>Add Another Individual</Text>
+</TouchableOpacity>
+
+      <Text style={styles.label}>Location URL</Text>
+<TextInput style={styles.input} placeholder="Add location URL" />
+      <TouchableOpacity style={styles.submitButton} onPress={handleScheduleMeetingSubmit}>
+  <Text style={styles.submitButtonText}>Submit</Text>
+</TouchableOpacity>
+
+    </ScrollView>
+  </View>
+   </View>
+</Modal>
+
+{showScheduleDatePicker && (
+  <DateTimePicker
+    value={scheduleDate || new Date()}
+    mode="date"
+    display="default"
+    onChange={(e, date) => {
+      setShowScheduleDatePicker(false);
+      if (date) {
+        setScheduleDate(date);
+        setFormData(prev => ({
+          ...prev,
+          rawDate: date,
+          date: format(date, 'dd MMM yyyy'),
+        }));
+      }
+    }}
+  />
+)}
+
+{showScheduleTimePicker && (
+  <DateTimePicker
+    value={scheduleTime || new Date()}
+    mode="time"
+    display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+    onChange={(event, selectedTime) => {
+      setShowScheduleTimePicker(false);
+      if (selectedTime) {
+        setScheduleTime(selectedTime);
+        setFormData(prev => ({
+          ...prev,
+          rawStartTime: selectedTime,
+          startTime: format(selectedTime, 'hh:mm a'),
+        }));
+      }
+    }}
+  />
+)}
+
+
     </BDMMainLayout>
     </AppGradient>
   );
+  
 };
 
 const styles = StyleSheet.create({
@@ -752,6 +1112,66 @@ const styles = StyleSheet.create({
   scrollView: {
     flex: 1,
   },
+  popupOverlay: {
+  flex: 1,
+  justifyContent: 'center',
+  alignItems: 'center',
+  backgroundColor: 'rgba(0, 0, 0, 0.5)',
+},
+
+popupContainer: {
+  backgroundColor: '#fff',
+  borderRadius: 16,
+  padding: 5,
+  width: '90%', // Or use a fixed width like 340
+  maxHeight: '90%',
+},
+
+  newFormContainer: {
+  backgroundColor: '#FFF',
+  padding: 20,
+  margin: 16,
+  borderRadius: 12,
+  elevation: 2,
+},
+newFormTitle: {
+  fontSize: 18,
+  fontFamily: 'LexendDeca_600SemiBold',
+  color: '#FF8447',
+  marginBottom: 20,
+  textAlign: 'center',
+},
+
+  meetingDateText: {
+  fontSize: 18,
+  color: '#FF8447',
+  fontFamily: 'LexendDeca_600SemiBold',
+  textAlign: 'center',
+  marginBottom: 20,
+},
+  scheduleMeetingButton: {
+  flexDirection: 'row',
+  justifyContent: 'space-between',
+  alignItems: 'center',
+  borderWidth: 1,
+  borderColor: '#FF8447',
+  borderRadius: 30,
+  paddingVertical: 10,
+  paddingHorizontal: 20,
+  marginBottom: 20,
+  backgroundColor: '#FFF9F4',
+},
+scheduleLeft: {
+  flexDirection: 'row',
+  alignItems: 'center',
+  gap: 8,
+},
+scheduleText: {
+  fontSize: 16,
+  color: '#FF8447',
+  fontFamily: 'LexendDeca_500Medium',
+},
+
   formContainer: {
     padding: 16,
     backgroundColor: '#FFFFFF',
@@ -862,6 +1282,7 @@ const styles = StyleSheet.create({
     borderColor: '#FF8447',
     borderRadius: 8,
     marginTop: 16,
+    marginBottom: 25,
   },
   addButtonText: {
     fontSize: 16,
@@ -961,6 +1382,17 @@ const styles = StyleSheet.create({
   meetingIdText: {
     color: '#666',
     fontFamily: 'LexendDeca_500Medium',
+  },
+  mapContainer: {
+    height: 200,
+    marginTop: 10,
+    borderRadius: 8,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  map: {
+    ...StyleSheet.absoluteFillObject,
   },
 });
 

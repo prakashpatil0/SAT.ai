@@ -1,17 +1,18 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Linking, Platform, Alert, Image, ActivityIndicator, Dimensions } from 'react-native';
-import { MaterialIcons } from '@expo/vector-icons';
+import React, { useState, useEffect, useRef } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Linking, Platform, Alert, Image, ActivityIndicator, Dimensions, Modal, Animated } from 'react-native';
+import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
-import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
+import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
 import { RouteProp, useNavigation, useRoute } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { DEFAULT_LOCATION, DEFAULT_MAP_DELTA, GOOGLE_MAPS_STYLE } from '@/app/utils/MapUtils';
 import { format, startOfMonth, endOfMonth, eachMonthOfInterval, subMonths } from 'date-fns';
-import { collection, addDoc, getDocs, query, where, Timestamp, updateDoc, doc, getDoc } from 'firebase/firestore';
+import { collection, addDoc, getDocs, query, where, Timestamp, updateDoc, doc, getDoc, getFirestore, setDoc, serverTimestamp } from 'firebase/firestore';
 import { db, auth } from '@/firebaseConfig';
 import BDMMainLayout from '@/app/components/BDMMainLayout';
 import AppGradient from '@/app/components/AppGradient';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { showTripStartedNotification, hideTripStartedNotification } from '@/app/services/notificationService';
 
 type RootStackParamList = {
   BDMCameraScreen: {
@@ -20,8 +21,9 @@ type RootStackParamList = {
   BDMAttendanceScreen: {
     photo?: { uri: string };
     location?: { coords: { latitude: number; longitude: number } };
-    dateTime?: Date;
+    dateTime?: string;
     isPunchIn?: boolean;
+     locationName?: string | null;
   };
 };
 
@@ -29,22 +31,22 @@ type BDMAttendanceScreenRouteProp = RouteProp<RootStackParamList, 'BDMAttendance
 type BDMAttendanceScreenNavigationProp = StackNavigationProp<RootStackParamList, 'BDMAttendanceScreen'>;
 
 type AttendanceRecord = {
-  date: string;          // "01", "02", ..., "31"
-  day: string;           // "MON", "TUE", etc.
-  month: string;         // "01" to "12"
-  year: string;          // "2023"
-  punchIn: string;       // "09:00" (24-hour format)
-  punchOut: string;      // "17:30" (24-hour format)
+  date: string;          
+  day: string;           
+  month: string;         
+  year: string;          
+  punchIn: string;       
+  punchOut: string;      
   status: 'Present' | 'Half Day' | 'On Leave';
   userId: string;
   timestamp: Date;
-  photoUri: string;      // Punch-in photo URL
-  punchOutPhotoUri?: string; // Punch-out photo URL
-  location: {            // Punch-in location
+  photoUri: string;      
+  punchOutPhotoUri?: string; 
+  location: {            
     latitude: number;
     longitude: number;
   };
-  punchOutLocation?: {   // Punch-out location
+  punchOutLocation?: { 
     latitude: number;
     longitude: number;
   };
@@ -54,8 +56,8 @@ type AttendanceRecord = {
   email: string;
   totalHours: number;
   workMode: 'Office' | 'Work From Home';
-  locationName: string;  // Punch-in location name
-  punchOutLocationName?: string; // Punch-out location name
+  locationName: string; 
+  punchOutLocationName?: string;
   lastUpdated: Date;
 };
 
@@ -66,8 +68,19 @@ type ChartData = {
   }[];
 };
 
+type AttendanceStatus = "Present" | "Half Day" | "On Leave";
+
 const CACHE_KEY = '@map_location_cache';
 const CACHE_EXPIRY = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
+
+const DEFAULT_REGION = {
+  latitude: 28.6139,  // Delhi coordinates
+  longitude: 77.2090,
+  latitudeDelta: 0.0922,
+  longitudeDelta: 0.0421,
+};
+
+const MAP_CACHE_KEY = '@map_tiles_cache';
 
 const BDMAttendanceScreen = () => {
   // Map and location states
@@ -77,6 +90,9 @@ const BDMAttendanceScreen = () => {
   const [locationServiceEnabled, setLocationServiceEnabled] = useState<boolean | null>(null);
   const [mapReady, setMapReady] = useState(false);
   const [isLocationLoading, setIsLocationLoading] = useState(true);
+  const [mapRegion, setMapRegion] = useState(DEFAULT_REGION);
+  const [isMapLoading, setIsMapLoading] = useState(true);
+  const [cachedTiles, setCachedTiles] = useState<any>(null);
   
   // Attendance states
   const [currentDate, setCurrentDate] = useState(new Date());
@@ -108,6 +124,21 @@ const BDMAttendanceScreen = () => {
     datasets: [{ data: [] }]
   });
   const [isLoadingUserDetails, setIsLoadingUserDetails] = useState(true);
+  const [isAutoPunchOut, setIsAutoPunchOut] = useState(false);
+  const [autoPunchOutMessage, setAutoPunchOutMessage] = useState<string>('');
+  const [locationAddress, setLocationAddress] = useState<string | null>(null);
+  const [totalDistance, setTotalDistance] = useState(0);
+  const [formattedWorkHours, setFormattedWorkHours] = useState('0hr 0min');
+  const [isTracking, setIsTracking] = useState(false);
+  const [tripPath, setTripPath] = useState<any[]>([]);
+  const [tripDistance, setTripDistance] = useState(0);
+  const [elapsedTime, setElapsedTime] = useState(0);
+  const [locationSubscription, setLocationSubscription] = useState<Location.LocationSubscription | null>(null);
+  const [timerInterval, setTimerInterval] = useState<NodeJS.Timeout|null>(null);
+  const [tripStartTime, setTripStartTime] = useState<Date | null>(null);
+  const [isSaveSuccessModalVisible, setIsSaveSuccessModalVisible] = useState(false);
+  const scaleAnim = useRef(new Animated.Value(0)).current;
+  const [isSavingAttendance, setIsSavingAttendance] = useState(false);
 
   const navigation = useNavigation<BDMAttendanceScreenNavigationProp>();
   const route = useRoute<BDMAttendanceScreenRouteProp>();
@@ -230,44 +261,105 @@ const BDMAttendanceScreen = () => {
   }, [activeFilter, attendanceHistory]);
 
   useEffect(() => {
-    const checkPunchButtonState = () => {
-      if (punchInTime && punchOutTime) {
-        const now = new Date();
-        const tomorrow = new Date();
-        tomorrow.setDate(tomorrow.getDate() + 1);
-        tomorrow.setHours(8, 0, 0, 0);
-        
-        if (now < tomorrow) {
-          setIsPunchButtonDisabled(true);
-          
-          const timeUntil8AM = tomorrow.getTime() - now.getTime();
+    const checkPunchAvailability = () => {
+      const now = new Date();
+      const currentTime = format(now, 'HH:mm');
+      const [currentHour, currentMinute] = currentTime.split(':').map(Number);
+      const today = format(now, 'yyyy:MM:dd');
+      const tomorrow = new Date(now);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      tomorrow.setHours(8, 0, 0, 0); // Set to 8 AM tomorrow
+
+      // Handle auto punch-out at midnight
+      if (punchInTime && !punchOutTime) {
+        const midnight = new Date(now);
+        midnight.setHours(23, 59, 59, 999);
+
+        if (now >= midnight) {
+          handleAutoPunchOut();
+        } else {
+          const timeUntilMidnight = midnight.getTime() - now.getTime();
           const timeoutId = setTimeout(() => {
-            setIsPunchButtonDisabled(false);
-          }, timeUntil8AM);
-          
+            if (punchInTime && !punchOutTime) {
+              handleAutoPunchOut();
+            }
+          }, timeUntilMidnight);
           return () => clearTimeout(timeoutId);
         }
-      } else {
+      }
+
+      // Handle punch-out restrictions
+      if (punchOutTime) {
+        setIsPunchButtonDisabled(now < tomorrow);
+        return;
+      }
+
+      // Handle punch-in restrictions
+      if (!punchInTime) {
+        const punchInStartTime = '07:00'; // 7 AM
+        const [startHour, startMinute] = punchInStartTime.split(':').map(Number);
+        const punchInEndTime = '23:59'; // 11:59 PM
+        const [endHour, endMinute] = punchInEndTime.split(':').map(Number);
+
+        const currentMinutes = currentHour * 60 + currentMinute;
+        const startMinutes = startHour * 60 + startMinute;
+        const endMinutes = endHour * 60 + endMinute;
+
+        // Disable punch-in if:
+        // 1. Before 8 AM
+        // 2. After 6 PM
+        const isBeforeStartTime = currentMinutes < startMinutes;
+        const isAfterEndTime = currentMinutes > endMinutes;
+        
+        setIsPunchButtonDisabled(isBeforeStartTime || isAfterEndTime);
+
+        if (isBeforeStartTime) {
+          const minutesUntilStart = startMinutes - currentMinutes;
+          const hoursUntilStart = Math.floor(minutesUntilStart / 60);
+          const remainingMinutes = minutesUntilStart % 60;
+          
+          Alert.alert(
+            'Punch In Not Available',
+            `Punch in will be available at 8:00 AM. Please try again in ${hoursUntilStart} hours and ${remainingMinutes} minutes.`
+          );
+        } else if (isAfterEndTime) {
+          Alert.alert(
+            'Punch In Not Available',
+            'Punch in is only available between 8:00 AM and 6:00 PM. Please try again tomorrow.'
+          );
+        }
+      } else if (punchInTime && !punchOutTime) {
+        // Enable punch out immediately after punch in
         setIsPunchButtonDisabled(false);
       }
     };
     
-    checkPunchButtonState();
-    const intervalId = setInterval(checkPunchButtonState, 60000);
+    checkPunchAvailability();
+    const intervalId = setInterval(checkPunchAvailability, 60000);
     return () => clearInterval(intervalId);
   }, [punchInTime, punchOutTime]);
 
   useEffect(() => {
-    if (route.params && route.params.photo && route.params.location) {
+    if (route.params && route.params.photo && route.params.location && !isSavingAttendance) {
       try {
-        const { photo, location, isPunchIn } = route.params;
-        saveAttendance(isPunchIn || false, photo.uri, location.coords);
+        const { photo, location, isPunchIn, locationName, dateTime } = route.params;
+        
+        // Convert dateTime string back to Date object for processing
+        const capturedDateTime = dateTime ? new Date(dateTime) : new Date();
+        
+        saveAttendance(
+          isPunchIn || false,
+          photo.uri,
+          location.coords,
+          locationName || 'Unknown Location',
+          capturedDateTime
+        );
       } catch (error) {
         console.error("Error processing camera data:", error);
         Alert.alert("Error", "Failed to process camera data. Please try again.");
       }
     }
-  }, [route.params]);
+  }, [route.params, isSavingAttendance]);
 
   const initializeDate = () => {
     const today = new Date();
@@ -282,11 +374,12 @@ const BDMAttendanceScreen = () => {
     const updatedWeekDays = weekDaysStatus.map((day, index) => {
       const currentDate = new Date(startOfWeek);
       currentDate.setDate(startOfWeek.getDate() + index);
-      const dateStr = format(currentDate, 'dd');
+      const dateStr = format(currentDate, 'yyyy:MM:dd');
+      const displayDate = format(currentDate, 'dd'); // For UI display
       
       return { 
         day: day.day,
-        date: dateStr,
+        date: displayDate, // Show 'dd' format in UI
         status: (index <= adjustedDay ? 'active' : 'inactive') as 'active' | 'inactive' | 'Present' | 'Half Day' | 'On Leave'
       };
     });
@@ -360,11 +453,11 @@ const BDMAttendanceScreen = () => {
       const querySnapshot = await getDocs(monthQuery);
       
       const history: AttendanceRecord[] = [];
-      const today = format(new Date(), 'dd');
+      const today = format(new Date(), 'yyyy:MM:dd');
       
       querySnapshot.forEach((doc) => {
         const data = doc.data();
-        history.push({
+        const record = {
           date: data.date,
           day: data.day,
           month: data.month,
@@ -387,37 +480,25 @@ const BDMAttendanceScreen = () => {
           locationName: data.locationName,
           punchOutLocationName: data.punchOutLocationName,
           lastUpdated: data.lastUpdated.toDate()
-        });
+        };
 
-        if (data.date === today && data.month === format(new Date(), 'MM')) {
-          setTodayRecord({
-            date: data.date,
-            day: data.day,
-            month: data.month,
-            year: data.year,
-            punchIn: data.punchIn,
-            punchOut: data.punchOut,
-            status: data.status,
-            userId: data.userId,
-            timestamp: data.timestamp.toDate(),
-            photoUri: data.photoUri,
-            punchOutPhotoUri: data.punchOutPhotoUri,
-            location: data.location,
-            punchOutLocation: data.punchOutLocation,
-            designation: data.designation,
-            employeeName: data.employeeName,
-            phoneNumber: data.phoneNumber,
-            email: data.email,
-            totalHours: data.totalHours,
-            workMode: data.workMode,
-            locationName: data.locationName,
-            punchOutLocationName: data.punchOutLocationName,
-            lastUpdated: data.lastUpdated.toDate()
-          });
-          
+        history.push(record);
+
+        if (data.date === today) {
+          setTodayRecord(record);
           setPunchInTime(data.punchIn ? format(new Date(`2000-01-01T${data.punchIn}`), 'hh:mm a') : '');
           setPunchOutTime(data.punchOut ? format(new Date(`2000-01-01T${data.punchOut}`), 'hh:mm a') : '');
           setIsPunchedIn(!!data.punchIn && !data.punchOut);
+          
+          // Check if this is an auto punch-out
+          if (data.punchOut === '23:59' && !data.punchOutPhotoUri) {
+            setIsAutoPunchOut(true);
+            const message = `Your attendance was automatically marked as ${data.status} with a punch-out at 23:59`;
+            setAutoPunchOutMessage(message);
+          } else {
+            setIsAutoPunchOut(false);
+            setAutoPunchOutMessage('');
+          }
         }
       });
 
@@ -444,7 +525,8 @@ const BDMAttendanceScreen = () => {
       const currentDate = new Date(startOfWeek);
       currentDate.setDate(startOfWeek.getDate() + index);
       
-      const dateStr = format(currentDate, 'dd');
+      const dateStr = format(currentDate, 'yyyy:MM:dd');
+      const displayDate = format(currentDate, 'dd'); // For UI display
       const attendanceRecord = history.find(record => record.date === dateStr);
       
       let status: 'active' | 'inactive' | 'Present' | 'Half Day' | 'On Leave';
@@ -458,7 +540,7 @@ const BDMAttendanceScreen = () => {
       
       return {
         day: day.day,
-        date: dateStr,
+        date: displayDate, // Show 'dd' format in UI
         status
       };
     });
@@ -481,7 +563,7 @@ const BDMAttendanceScreen = () => {
     const allDates = Array.from({ length: daysInMonth }, (_, i) => {
       const date = new Date(parseInt(currentYear), parseInt(currentMonth) - 1, i + 1);
       return {
-        dateStr: format(date, 'dd'),
+        dateStr: format(date, 'yyyy:MM:dd'),
         isSunday: format(date, 'EEEE') === 'Sunday'
       };
     });
@@ -499,12 +581,12 @@ const BDMAttendanceScreen = () => {
     });
 
     const attendedDates = currentMonthRecords.map(record => record.date);
-    const today = format(new Date(), 'dd');
+    const today = format(new Date(), 'yyyy:MM:dd');
     
     const onLeaveDates = allDates.filter(({ dateStr, isSunday }) => 
       !isSunday && 
       !attendedDates.includes(dateStr) && 
-      parseInt(dateStr) <= parseInt(today)
+      parseInt(dateStr.split(':')[2]) <= parseInt(today.split(':')[2])
     );
     
     counts['On Leave'] = onLeaveDates.length;
@@ -550,7 +632,11 @@ const BDMAttendanceScreen = () => {
     const labels = Array.from({ length: daysInMonth }, (_, i) => (i + 1).toString());
     
     const data = labels.map(day => {
-      const record = monthRecords.find(r => r.date === day);
+      // Find record by extracting day number from the date format
+      const record = monthRecords.find(r => {
+        const recordDay = r.date.includes(':') ? r.date.split(':')[2] : r.date;
+        return recordDay === day;
+      });
       if (!record) return 0;
       
       switch (record.status) {
@@ -602,27 +688,71 @@ const BDMAttendanceScreen = () => {
     return (totalOutMinutes - totalInMinutes) / 60;
   };
 
-  const saveAttendance = async (isPunchIn: boolean, photoUri: string, locationCoords: any) => {
+ const saveAttendance = async (
+  isPunchIn: boolean,
+  photoUri: string,
+  locationCoords: any,
+  locationNameFromCamera: string,
+  capturedDateTime?: Date
+) => {
+    if (isSavingAttendance) return; // Prevent multiple saves
+    
     try {
+      setIsSavingAttendance(true);
+      
+      // Use captured time if available, otherwise use current time
+      const attendanceTime = capturedDateTime || new Date();
+      
+      // Validate time before saving
+      const db = getFirestore();
+      const timeCheckRef = doc(db, '_timeCheck', 'serverTime');
+      const serverTime = await getDoc(timeCheckRef);
+      const serverTimestamp = serverTime.data()?.timestamp;
+      
+      if (!serverTimestamp) {
+        await setDoc(timeCheckRef, {
+          timestamp: Timestamp.now()
+        });
+      } else {
+        const deviceTime = new Date();
+        const serverTimeDate = serverTimestamp.toDate();
+        const timeDiff = Math.abs(deviceTime.getTime() - serverTimeDate.getTime());
+        
+        // Allow 5 minutes difference to account for network latency
+        if (timeDiff > 5 * 60 * 1000) {
+          const diffMinutes = Math.round(timeDiff / (60 * 1000));
+          Alert.alert(
+            'Time Sync Required',
+            `Your device time appears to be ${diffMinutes} minutes different from server time. ` +
+            'Please sync your device time with network time to continue.',
+            [
+              {
+                text: 'OK',
+                onPress: () => navigation.goBack()
+              }
+            ]
+          );
+          return;
+        }
+      }
+
+      // Continue with existing attendance saving logic
       const userId = auth.currentUser?.uid;
       if (!userId) {
         Alert.alert('Error', 'User not authenticated');
         return;
       }
   
-      const currentTime = new Date();
-      const dateStr = format(currentTime, 'dd');
-      const dayStr = format(currentTime, 'EEE').toUpperCase();
-      const monthStr = format(currentTime, 'MM');
-      const yearStr = format(currentTime, 'yyyy');
-      const timeStr = format(currentTime, 'HH:mm');
+      const dateStr = format(attendanceTime, 'yyyy:MM:dd');
+      const dayStr = format(attendanceTime, 'EEE').toUpperCase();
+      const monthStr = format(attendanceTime, 'MM');
+      const yearStr = format(attendanceTime, 'yyyy');
+      const timeStr = format(attendanceTime, 'HH:mm');
   
       const attendanceRef = collection(db, 'bdm_monthly_attendance');
       const todayQuery = query(
         attendanceRef,
         where('date', '==', dateStr),
-        where('month', '==', monthStr),
-        where('year', '==', yearStr),
         where('userId', '==', userId)
       );
   
@@ -644,7 +774,7 @@ const BDMAttendanceScreen = () => {
           punchOut: newPunchOut,
           status: newStatus,
           userId,
-          timestamp: Timestamp.fromDate(currentTime),
+          timestamp: Timestamp.fromDate(attendanceTime),
           photoUri: isPunchIn ? photoUri : '',
           punchOutPhotoUri: !isPunchIn ? photoUri : '',
           location: isPunchIn ? locationCoords : null,
@@ -655,9 +785,9 @@ const BDMAttendanceScreen = () => {
           email: userDetails.email,
           totalHours: totalHours,
           workMode: 'Office',
-          locationName: isPunchIn ? await getLocationName(locationCoords) : '',
-          punchOutLocationName: !isPunchIn ? await getLocationName(locationCoords) : '',
-          lastUpdated: Timestamp.fromDate(currentTime)
+          locationName: isPunchIn ? locationNameFromCamera : '',
+          punchOutLocationName: !isPunchIn ? locationNameFromCamera : '',
+          lastUpdated: Timestamp.fromDate(attendanceTime)
         });
       } else {
         // Update existing record
@@ -690,14 +820,14 @@ const BDMAttendanceScreen = () => {
           location: isPunchIn ? locationCoords : existingData.location,
           punchOutLocation: !isPunchIn ? locationCoords : existingData.punchOutLocation,
           totalHours: totalHours,
-          locationName: isPunchIn ? await getLocationName(locationCoords) : existingData.locationName,
-          punchOutLocationName: !isPunchIn ? await getLocationName(locationCoords) : existingData.punchOutLocationName,
-          lastUpdated: Timestamp.fromDate(currentTime)
+          locationName: isPunchIn ? locationNameFromCamera : existingData.locationName,
+          punchOutLocationName: !isPunchIn ? locationNameFromCamera : existingData.punchOutLocationName,
+          lastUpdated: Timestamp.fromDate(attendanceTime)
         });
       }
   
       if (isPunchIn) {
-        setPunchInTime(format(currentTime, 'hh:mm a'));
+        setPunchInTime(format(attendanceTime, 'hh:mm a'));
         setIsPunchedIn(true);
         setTodayRecord({
           date: dateStr,
@@ -708,7 +838,7 @@ const BDMAttendanceScreen = () => {
           punchOut: newPunchOut,
           status: newStatus,
           userId,
-          timestamp: currentTime,
+          timestamp: attendanceTime,
           photoUri: photoUri,
           punchOutPhotoUri: '',
           location: locationCoords,
@@ -719,12 +849,12 @@ const BDMAttendanceScreen = () => {
           email: userDetails.email || '',
           totalHours: totalHours,
           workMode: 'Office',
-          locationName: await getLocationName(locationCoords),
+          locationName: locationNameFromCamera,
           punchOutLocationName: '',
-          lastUpdated: currentTime
+          lastUpdated: attendanceTime
         });
       } else {
-        setPunchOutTime(format(currentTime, 'hh:mm a'));
+        setPunchOutTime(format(attendanceTime, 'hh:mm a'));
         setIsPunchedIn(false);
         setTodayRecord({
           ...todayRecord,
@@ -733,33 +863,55 @@ const BDMAttendanceScreen = () => {
           punchOutPhotoUri: photoUri,
           punchOutLocation: locationCoords,
           totalHours: totalHours,
-          punchOutLocationName: await getLocationName(locationCoords),
-          lastUpdated: currentTime
+          punchOutLocationName: locationNameFromCamera,
+          lastUpdated: attendanceTime
         } as AttendanceRecord);
       }
   
+      // Fetch attendance history in background without blocking UI
       fetchAttendanceHistory();
+      
+      // Clear route params to prevent re-processing
+      navigation.setParams({
+        photo: undefined,
+        location: undefined,
+        isPunchIn: undefined,
+        locationName: undefined
+      });
+      
+      // Show success message
+      Alert.alert(
+        'Success',
+        `Attendance ${isPunchIn ? 'Punch In' : 'Punch Out'} recorded successfully at ${format(attendanceTime, 'hh:mm a')}`,
+        [{ text: 'OK' }]
+      );
+      
     } catch (error) {
       console.error('Error saving attendance:', error);
-      Alert.alert('Error', 'Failed to save attendance');
+      Alert.alert('Error', 'Failed to save attendance. Please try again.');
+    } finally {
+      setIsSavingAttendance(false);
     }
   };
 
-  const getLocationName = async (coords: any): Promise<string> => {
-    try {
-      const response = await fetch(
-        `https://maps.googleapis.com/maps/api/geocode/json?latlng=${coords.latitude},${coords.longitude}&key=AIzaSyB1b5wiV2CnRX0iwhq0D7RSI9XTDfOXgD0`
-      );
-      const data = await response.json();
-      if (data.results && data.results[0]) {
-        return data.results[0].formatted_address;
-      }
-      return 'Unknown Location';
-    } catch (error) {
-      console.error('Error getting location name:', error);
+  const getLocationName = async (coords: { latitude: number; longitude: number }): Promise<string> => {
+  try {
+    const response = await fetch(
+      `https://maps.googleapis.com/maps/api/geocode/json?latlng=${coords.latitude},${coords.longitude}&key=AIzaSyB1b5wiV2CnRX0iwhq0D7RSI9XTDfOXgD0`
+    );
+    const data = await response.json();
+
+    if (data.status === 'OK' && data.results && data.results.length > 0) {
+      return data.results[0].formatted_address;
+    } else {
+      console.warn('Geocoding API response error:', data.status, data.error_message);
       return 'Unknown Location';
     }
-  };
+  } catch (error) {
+    console.error('Error fetching location name:', error);
+    return 'Unknown Location';
+  }
+};
 
   const handlePunch = async () => {
     if (isPunchButtonDisabled) {
@@ -844,24 +996,133 @@ const BDMAttendanceScreen = () => {
   };
 
   const handleMapReady = () => {
-    setMapReady(true);
-    console.log('Map is ready');
+    setIsMapLoading(false);
   };
 
-  const renderMapFallback = () => (
-    <TouchableOpacity 
-      style={styles.mapFallback}
-      onPress={openLocationSettings}
-    >
-      <MaterialIcons name="map" size={48} color="#FF8447" />
-      <Text style={styles.mapFallbackText}>
-        {locationServiceEnabled === false 
-          ? 'Location services are disabled. Tap to enable.' 
-          : permissionStatus !== 'granted' 
-            ? 'Location permission required. Tap to grant.' 
-            : 'Could not load map. Tap to retry.'}
-      </Text>
-    </TouchableOpacity>
+  const cacheMapTiles = async (region: any) => {
+    try {
+      const tiles = {
+        region,
+        timestamp: new Date().getTime(),
+      };
+      await AsyncStorage.setItem(MAP_CACHE_KEY, JSON.stringify(tiles));
+      setCachedTiles(tiles);
+    } catch (error) {
+      console.error('Error caching map tiles:', error);
+    }
+  };
+
+  useEffect(() => {
+    const loadCachedTiles = async () => {
+      try {
+        const cached = await AsyncStorage.getItem(MAP_CACHE_KEY);
+        if (cached) {
+          const tiles = JSON.parse(cached);
+          // Only use cache if it's less than 24 hours old
+          if (new Date().getTime() - tiles.timestamp < 24 * 60 * 60 * 1000) {
+            setMapRegion(tiles.region);
+            setCachedTiles(tiles);
+          }
+        }
+      } catch (error) {
+        console.error('Error loading cached tiles:', error);
+      }
+    };
+
+    loadCachedTiles();
+  }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+    
+    const startLocationFetch = async () => {
+      if (isMounted) {
+        setIsLocationLoading(true);
+        try {
+          const location = await fetchLocation();
+          if (location && isMounted) {
+            const newRegion = {
+              latitude: location.coords.latitude,
+              longitude: location.coords.longitude,
+              latitudeDelta: 0.0922,
+              longitudeDelta: 0.0421,
+            };
+            setMapRegion(newRegion);
+            cacheMapTiles(newRegion);
+          }
+        } catch (error) {
+          console.error('Error fetching location:', error);
+        } finally {
+          if (isMounted) {
+            setIsLocationLoading(false);
+          }
+        }
+      }
+    };
+
+    startLocationFetch();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const renderMap = () => (
+    <View style={styles.mapContainer}>
+      <MapView
+        style={styles.map}
+        region={mapRegion}
+        onRegionChangeComplete={cacheMapTiles}
+        onMapReady={handleMapReady}
+        liteMode={true}
+        showsUserLocation={true}
+        showsMyLocationButton={true}
+        showsCompass={true}
+        showsScale={true}
+        showsBuildings={false}
+        showsTraffic={false}
+        showsIndoors={false}
+        showsPointsOfInterest={false}
+        rotateEnabled={true}
+        pitchEnabled={true}
+        toolbarEnabled={true}
+        moveOnMarkerPress={true}
+        loadingEnabled={true}
+        loadingIndicatorColor="#FF8447"
+        loadingBackgroundColor="#FFFFFF"
+        zoomEnabled={true}
+        zoomControlEnabled={true}
+        followsUserLocation={true}
+      >
+        {location && (
+          <Marker
+            coordinate={{
+              latitude: location.coords.latitude,
+              longitude: location.coords.longitude,
+            }}
+            title="Your Location"
+            description={locationAddress || 'Current Location'}
+          >
+            <View style={styles.markerContainer}>
+              <MaterialIcons name="location-pin" size={36} color="#E53935" />
+            </View>
+          </Marker>
+        )}
+        {isTracking && tripPath.length > 1 && (
+          <Polyline
+            coordinates={tripPath}
+            strokeColor="#007AFF"
+            strokeWidth={6}
+          />
+        )}
+      </MapView>
+      {isMapLoading && (
+        <View style={styles.mapLoadingOverlay}>
+          <ActivityIndicator size="large" color="#FF8447" />
+          <Text style={styles.mapLoadingText}>Loading Map...</Text>
+        </View>
+      )}
+    </View>
   );
 
   const getStatusStyle = (status: string) => {
@@ -906,6 +1167,399 @@ const BDMAttendanceScreen = () => {
     ];
   };
 
+  const renderPunchCard = () => (
+    <View style={styles.punchCard}>
+      <View style={styles.punchInfo}>
+        <Text style={styles.punchLabel}>Take Attendance</Text>
+        <TouchableOpacity
+          style={[
+            styles.punchButton, 
+            isPunchedIn && styles.punchOutButton,
+            (isPunchButtonDisabled || isSavingAttendance) && styles.punchButtonDisabled
+          ]}
+          onPress={handlePunch}
+          disabled={isPunchButtonDisabled || isSavingAttendance}
+        >
+          {isSavingAttendance ? (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="small" color="white" />
+              <Text style={[styles.punchButtonText, styles.punchButtonTextDisabled]}>
+                Saving...
+              </Text>
+            </View>
+          ) : (
+            <Text style={[
+              styles.punchButtonText,
+              (isPunchButtonDisabled || isSavingAttendance) && styles.punchButtonTextDisabled
+            ]}>
+              {isPunchedIn ? 'Punch Out' : 'Punch In'}
+            </Text>
+          )}
+        </TouchableOpacity>
+      </View>
+      <View style={styles.timeInfo}>
+        <View style={styles.timeColumn}>
+          <Text style={styles.timeLabel}>Punch In</Text>
+          <Text style={styles.timeValue}>{punchInTime || '-----'}</Text>
+        </View>
+        <View style={styles.timeColumn}>
+          <Text style={styles.timeLabel}>Punch Out</Text>
+          <Text style={[
+            styles.timeValue,
+            isAutoPunchOut && styles.autoPunchOutTime
+          ]}>
+            {punchOutTime || '-----'}
+          </Text>
+        </View>
+      </View>
+      {isAutoPunchOut && (
+        <View style={styles.autoPunchOutContainer}>
+          <MaterialIcons name="info-outline" size={16} color="#FF5252" />
+          <Text style={styles.autoPunchOutText}>{autoPunchOutMessage}</Text>
+        </View>
+      )}
+      {isPunchButtonDisabled && !isAutoPunchOut && (
+        <Text style={styles.nextPunchInfo}>
+          Next punch available at 8:00 AM tomorrow
+        </Text>
+      )}
+    </View>
+  );
+
+  const renderHistoryCard = (record: AttendanceRecord, index: number) => {
+    const isAutoPunchOutRecord = record.punchOut === '23:59' && !record.punchOutPhotoUri;
+    
+    // Extract day number from the date format for display
+    const displayDate = record.date.includes(':') ? record.date.split(':')[2] : record.date;
+    
+    return (
+      <View key={index} style={styles.historyCard}>
+        <View style={styles.dateColumn}>
+          <Text style={styles.dateNumber}>{displayDate}</Text>
+          <Text style={styles.dateDay}>{record.day}</Text>
+        </View>
+        <View style={styles.punchDetails}>
+          <View style={styles.punchTimeContainer}>
+            <Text style={styles.punchTime}>
+              {record.punchIn ? format(new Date(`2000-01-01T${record.punchIn}`), 'hh:mm a') : '-----'}
+            </Text>
+            <Text style={styles.punchType}>Punch In</Text>
+          </View>
+          <View style={styles.punchTimeContainer}>
+            <Text style={[
+              styles.punchTime,
+              isAutoPunchOutRecord && styles.autoPunchOutTime
+            ]}>
+              {record.punchOut ? format(new Date(`2000-01-01T${record.punchOut}`), 'hh:mm a') : '-----'}
+            </Text>
+            <Text style={styles.punchType}>Punch Out</Text>
+          </View>
+          {record.totalHours > 0 && (
+            <Text style={styles.totalHours}>
+              Total Hours: {record.totalHours.toFixed(1)}h
+            </Text>
+          )}
+          {isAutoPunchOutRecord && (
+            <Text style={styles.autoPunchOutIndicator}>
+              Auto punch-out at 23:59
+            </Text>
+          )}
+        </View>
+        <View style={[styles.statusBadge, getStatusStyle(record.status)]}>
+          <Text style={[styles.statusText, getStatusTextStyle(record.status)]}>
+            {record.status}
+          </Text>
+        </View>
+      </View>
+    );
+  };
+
+  const handleAutoPunchOut = async () => {
+    try {
+      const userId = auth.currentUser?.uid;
+      if (!userId) {
+        console.error('User not authenticated');
+        return;
+      }
+
+      const currentTime = new Date();
+      const dateStr = format(currentTime, 'yyyy:MM:dd');
+      const attendanceRef = collection(db, 'bdm_monthly_attendance');
+      const todayQuery = query(
+        attendanceRef,
+        where('date', '==', dateStr),
+        where('userId', '==', userId)
+      );
+
+      const querySnapshot = await getDocs(todayQuery);
+      if (!querySnapshot.empty) {
+        const docRef = querySnapshot.docs[0].ref;
+        const existingData = querySnapshot.docs[0].data();
+
+        if (existingData.punchIn && !existingData.punchOut) {
+          const totalHours = calculateTotalHours(existingData.punchIn, '23:59');
+          const newStatus = calculateStatus(existingData.punchIn, '23:59');
+
+          await updateDoc(docRef, {
+            punchOut: '23:59',
+            status: newStatus,
+            totalHours: totalHours,
+            lastUpdated: Timestamp.fromDate(currentTime)
+          });
+
+          setPunchOutTime(format(new Date(`2000-01-01T23:59`), 'hh:mm a'));
+          setIsPunchedIn(false);
+          setIsAutoPunchOut(true);
+          setAutoPunchOutMessage(`Your attendance was automatically marked as ${newStatus} with a punch-out at 23:59`);
+          fetchAttendanceHistory();
+        }
+      }
+    } catch (error) {
+      console.error('Error during auto punch-out:', error);
+    }
+  };
+
+  const getUserRole = async (): Promise<string | null> => {
+    const userId = auth.currentUser?.uid;
+    if (!userId) return null;
+
+    const userDoc = await getDoc(doc(db, "users", userId));
+    return userDoc.exists() ? userDoc.data().role : null;
+  };
+
+  const calculateStatus = (punchIn: string, punchOut: string): AttendanceStatus => {
+    if (!punchIn) return "On Leave";
+    if (punchIn && !punchOut) return "Present";
+
+    const durationHours = calculateTotalHours(punchIn, punchOut);
+
+    if (durationHours < 4) {
+      return "On Leave";
+    } else if (durationHours >= 4 && durationHours < 8) {
+      return "Half Day";
+    } else {
+      return "Present";
+    }
+  };
+
+  const fetchLocation = async (useHighAccuracy = false) => {
+    try {
+      const options: Location.LocationOptions = {
+        accuracy: useHighAccuracy ? Location.Accuracy.Highest : Location.Accuracy.Balanced,
+        timeInterval: 5000,
+        distanceInterval: 10,
+      };
+
+      const location = await Location.getCurrentPositionAsync(options);
+      setLocation(location);
+      
+      // Get address from coordinates
+      const geocode = await Location.reverseGeocodeAsync({
+        latitude: location.coords.latitude,
+        longitude: location.coords.longitude
+      });
+      
+      if (geocode.length > 0) {
+        const address = geocode[0];
+        const addressString = [
+          address.name,
+          address.street,
+          address.district,
+          address.city,
+          address.region,
+          address.postalCode,
+          address.country
+        ]
+          .filter(Boolean)
+          .join(', ');
+        
+        setLocationAddress(addressString);
+      }
+      
+      return location;
+    } catch (error) {
+      console.error('Error getting location:', error);
+      // If low accuracy fails, try high accuracy
+      if (!useHighAccuracy) {
+        return fetchLocation(true);
+      }
+      return null;
+    }
+  };
+
+  useEffect(() => {
+    if (todayRecord && todayRecord.punchIn && todayRecord.punchOut) {
+      const hours = calculateTotalHours(todayRecord.punchIn, todayRecord.punchOut);
+      setFormattedWorkHours(formatWorkHours(hours));
+
+      if (todayRecord.location && todayRecord.punchOutLocation) {
+        const distance = calculateDistance(
+          todayRecord.location.latitude,
+          todayRecord.location.longitude,
+          todayRecord.punchOutLocation.latitude,
+          todayRecord.punchOutLocation.longitude
+        );
+        setTotalDistance(distance);
+      }
+    } else {
+      setTotalDistance(0);
+      setFormattedWorkHours('0hr 0min');
+    }
+  }, [todayRecord]);
+
+  const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => {
+    if (!lat1 || !lon1 || !lat2 || !lon2) return 0;
+    const R = 6371; // Radius of the Earth in kilometers
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a =
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+      Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    const distance = R * c;
+    return distance; // in km
+  };
+
+  const formatWorkHours = (totalHours: number): string => {
+    if (totalHours <= 0) {
+      return '0hr 0min';
+    }
+    const hours = Math.floor(totalHours);
+    const minutes = Math.round((totalHours - hours) * 60);
+    
+    return `${hours}hr ${minutes}min`;
+  };
+
+  const formatElapsedTime = (seconds: number): string => {
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = Math.floor(seconds % 60);
+    return [
+      h > 0 ? `${h}h` : '',
+      m > 0 ? `${m}m` : '',
+      `${s}s`,
+    ].filter(Boolean).join(' ');
+  };
+
+  useEffect(() => {
+    if (isTracking) {
+      startTracking();
+    } else {
+      stopTracking();
+    }
+
+    return () => {
+      stopTracking();
+    };
+  }, [isTracking]);
+
+  const startTracking = async () => {
+    const { status } = await Location.requestForegroundPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission denied', 'Location permission is required for tracking.');
+      setIsTracking(false);
+      return;
+    }
+
+    setTripPath([]);
+    setTripDistance(0);
+    setElapsedTime(0);
+    setTripStartTime(new Date());
+
+    showTripStartedNotification();
+
+    const interval = setInterval(() => {
+      setElapsedTime(prevTime => prevTime + 1);
+    }, 1000);
+    setTimerInterval(interval);
+
+    const subscription = await Location.watchPositionAsync(
+      {
+        accuracy: Location.Accuracy.BestForNavigation,
+        timeInterval: 1000,
+        distanceInterval: 10,
+      },
+      (location) => {
+        setTripPath((prevPath) => {
+          const newPath = [...prevPath, location.coords];
+          if (newPath.length > 1) {
+            const lastPoint = newPath[newPath.length - 2];
+            const newPoint = newPath[newPath.length - 1];
+            const newDistance = calculateDistance(
+              lastPoint.latitude,
+              lastPoint.longitude,
+              newPoint.latitude,
+              newPoint.longitude
+            );
+            setTripDistance((prevDistance) => prevDistance + newDistance);
+          }
+          return newPath;
+        });
+      }
+    );
+    setLocationSubscription(subscription);
+  };
+
+  const stopTracking = async () => {
+    if (locationSubscription) {
+      locationSubscription.remove();
+      setLocationSubscription(null);
+    }
+    if (timerInterval) {
+      clearInterval(timerInterval);
+      setTimerInterval(null);
+    }
+  
+    hideTripStartedNotification();
+
+    if (tripPath.length > 0) {
+      const rideData = {
+        userId: auth.currentUser?.uid,
+        submittedBy: userDetails.employeeName,
+        startTime: tripStartTime,
+        stopTime: new Date(),
+        startLocation: tripPath[0],
+        stopLocation: tripPath[tripPath.length - 1],
+        path: tripPath,
+        distance: tripDistance,
+        duration: elapsedTime,
+        createdAt: serverTimestamp(),
+      };
+  
+      try {
+        await addDoc(collection(db, "user_rides"), rideData);
+        showSuccessAnimation();
+      } catch (error) {
+        console.error("Error saving ride data:", error);
+        Alert.alert("Error", "Could not save your ride data. Please try again.");
+      }
+    }
+  };
+
+  const showSuccessAnimation = () => {
+    setIsSaveSuccessModalVisible(true);
+    Animated.timing(scaleAnim, {
+      toValue: 1,
+      duration: 300,
+      useNativeDriver: true,
+    }).start();
+
+    setTimeout(() => {
+      Animated.timing(scaleAnim, {
+        toValue: 0,
+        duration: 300,
+        useNativeDriver: true,
+      }).start(() => {
+        setIsSaveSuccessModalVisible(false);
+      });
+    }, 2000);
+  };
+
+  const handleToggleTracking = () => {
+    setIsTracking(!isTracking);
+  };
+
   return (
     <AppGradient>
       <BDMMainLayout 
@@ -914,94 +1568,21 @@ const BDMAttendanceScreen = () => {
         showDrawer={true}
       >
         <ScrollView style={styles.scrollView}>
-          <View style={styles.mapContainer}>
-            {mapError ? (
-              renderMapFallback()
-            ) : location ? (
-              <MapView
-                provider={PROVIDER_GOOGLE}
-                style={styles.map}
-                initialRegion={{
-                  latitude: location.coords.latitude,
-                  longitude: location.coords.longitude,
-                  latitudeDelta: DEFAULT_MAP_DELTA.latitudeDelta,
-                  longitudeDelta: DEFAULT_MAP_DELTA.longitudeDelta,
-                }}
-                customMapStyle={GOOGLE_MAPS_STYLE}
-                showsUserLocation={true}
-                showsMyLocationButton={true}
-                followsUserLocation={true}
-                loadingEnabled={true}
-                loadingIndicatorColor="#FF8447"
-                loadingBackgroundColor="#FFF8F0"
-                onMapReady={handleMapReady}
-                moveOnMarkerPress={false}
-                showsCompass={true}
-                showsScale={true}
-                showsTraffic={true}
-                showsBuildings={true}
-                showsIndoors={true}
-                showsPointsOfInterest={true}
-              >
-                {mapReady && (
-                  <Marker
-                    coordinate={{
-                      latitude: location.coords.latitude,
-                      longitude: location.coords.longitude,
-                    }}
-                  >
-                    <View style={styles.markerContainer}>
-                      <MaterialIcons name="location-pin" size={36} color="#E53935" />
-                    </View>
-                  </Marker>
-                )}
-              </MapView>
-            ) : (
-              <View style={styles.loadingLocation}>
-                <ActivityIndicator size="large" color="#FF8447" />
-                <Text style={styles.loadingText}>
-                  {isLocationLoading ? 'Getting your location...' : 'Location not available'}
-                </Text>
+          <View style={styles.mapInfoCard}>
+            {renderMap()}
+            <View style={styles.travelInfoContainer}>
+              <TouchableOpacity style={styles.travelInfoItem} onPress={handleToggleTracking}>
+                <MaterialCommunityIcons name={isTracking ? "stop-circle-outline" : "bike-fast"} size={24} color="#007AFF" />
+                <Text style={styles.travelInfoText}>{isTracking ? `${tripDistance.toFixed(1)} km` : `${totalDistance.toFixed(1)} km`}</Text>
+              </TouchableOpacity>
+              <View style={styles.travelInfoItem}>
+                <MaterialIcons name="access-time" size={24} color="#007AFF" />
+                <Text style={styles.travelInfoText}>{isTracking ? formatElapsedTime(elapsedTime) : formattedWorkHours}</Text>
               </View>
-            )}
+            </View>
           </View>
 
-          <View style={styles.punchCard}>
-            <View style={styles.punchInfo}>
-              <Text style={styles.punchLabel}>Take Attendance</Text>
-              <TouchableOpacity
-                style={[
-                  styles.punchButton, 
-                  isPunchedIn && styles.punchOutButton,
-                  isPunchButtonDisabled && styles.punchButtonDisabled
-                ]}
-                onPress={handlePunch}
-                disabled={isPunchButtonDisabled}
-              >
-                <Text style={[
-                  styles.punchButtonText,
-                  isPunchButtonDisabled && styles.punchButtonTextDisabled
-                ]}>
-                  {isPunchedIn ? 'Punch Out' : 'Punch In'}
-                </Text>
-              </TouchableOpacity>
-            </View>
-            <View style={styles.timeInfo}>
-              <View style={styles.timeColumn}>
-                <Text style={styles.timeLabel}>Punch In</Text>
-                <Text style={styles.timeValue}>{punchInTime || '-----'}</Text>
-              </View>
-              <View style={styles.timeColumn}>
-                <Text style={styles.timeLabel}>Punch Out</Text>
-                <Text style={styles.timeValue}>{punchOutTime || '-----'}</Text>
-              </View>
-            </View>
-            {isPunchButtonDisabled && (
-              <Text style={styles.nextPunchInfo}>
-                Next punch available at 8:00 AM tomorrow
-              </Text>
-            )}
-          </View>
+          {renderPunchCard()}
 
           <View style={styles.weekCard}>
             <Text style={styles.dateText}>{format(currentDate, 'dd MMMM (EEEE)')}</Text>
@@ -1103,35 +1684,22 @@ const BDMAttendanceScreen = () => {
                 </Text>
               </View>
             ) : (
-              filteredHistory.map((record, index) => (
-                <View key={index} style={styles.historyCard}>
-                  <View style={styles.dateColumn}>
-                    <Text style={styles.dateNumber}>{record.date}</Text>
-                    <Text style={styles.dateDay}>{record.day}</Text>
-                  </View>
-                  <View style={styles.punchDetails}>
-                    <View style={styles.punchTimeContainer}>
-                      <Text style={styles.punchTime}>{record.punchIn ? format(new Date(`2000-01-01T${record.punchIn}`), 'hh:mm a') : '-----'}</Text>
-                      <Text style={styles.punchType}>Punch In</Text>
-                    </View>
-                    <View style={styles.punchTimeContainer}>
-                      <Text style={styles.punchTime}>{record.punchOut ? format(new Date(`2000-01-01T${record.punchOut}`), 'hh:mm a') : '-----'}</Text>
-                      <Text style={styles.punchType}>Punch Out</Text>
-                    </View>
-                    {record.totalHours > 0 && (
-                      <Text style={styles.totalHours}>
-                        Total Hours: {record.totalHours.toFixed(1)}h
-                      </Text>
-                    )}
-                  </View>
-                  <View style={[styles.statusBadge, getStatusStyle(record.status)]}>
-                    <Text style={[styles.statusText, getStatusTextStyle(record.status)]}>{record.status}</Text>
-                  </View>
-                </View>
-              ))
+              filteredHistory.map((record, index) => renderHistoryCard(record, index))
             )}
           </View>
         </ScrollView>
+        <Modal
+          transparent
+          visible={isSaveSuccessModalVisible}
+          animationType="fade"
+        >
+          <View style={styles.modalContainer}>
+            <Animated.View style={[styles.modalContent, { transform: [{ scale: scaleAnim }] }]}>
+              <MaterialIcons name="check-circle" size={80} color="#4CAF50" />
+              <Text style={styles.modalText}>Trip Saved Successfully!</Text>
+            </Animated.View>
+          </View>
+        </Modal>
       </BDMMainLayout>
     </AppGradient>
   );
@@ -1142,30 +1710,58 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#FFF8F0',
   },
+  mapInfoCard: {
+    backgroundColor: 'white',
+    borderRadius: 12,
+    marginHorizontal: 16,
+    marginVertical: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  travelInfoContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    alignItems: 'center',
+    paddingVertical: 12,
+    borderBottomLeftRadius: 12,
+    borderBottomRightRadius: 12,
+    backgroundColor: '#F7F9FC',
+    paddingHorizontal: 16,
+  },
+  travelInfoItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  travelInfoText: {
+    marginLeft: 8,
+    fontSize: 16,
+    fontFamily: 'LexendDeca_500Medium',
+    color: '#333',
+  },
   mapContainer: {
     height: 200,
-    borderRadius: 12,
+    borderTopLeftRadius: 12,
+    borderTopRightRadius: 12,
     overflow: 'hidden',
-    margin: 16,
-    marginBottom: 12,
+    position: 'relative',
   },
   map: {
-    flex: 1,
+    ...StyleSheet.absoluteFillObject,
   },
-  mapFallback: {
-    flex: 1,
-    backgroundColor: '#F5F5F5',
+  mapLoadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(255, 255, 255, 0.8)',
     justifyContent: 'center',
     alignItems: 'center',
-    borderRadius: 12,
   },
-  mapFallbackText: {
+  mapLoadingText: {
+    marginTop: 10,
+    color: '#FF8447',
     fontSize: 16,
-    fontFamily: 'LexendDeca_400Regular',
-    color: '#666',
-    textAlign: 'center',
-    marginTop: 12,
-    paddingHorizontal: 24,
+    fontFamily: 'LexendDeca_500Medium',
   },
   punchCard: {
     backgroundColor: 'white',
@@ -1400,10 +1996,8 @@ const styles = StyleSheet.create({
     fontFamily: 'LexendDeca_500Medium',
   },
   markerContainer: {
-    width: 36,
-    height: 36,
-    justifyContent: 'center',
     alignItems: 'center',
+    justifyContent: 'center',
   },
   emptyHistoryContainer: {
     alignItems: 'center',
@@ -1442,41 +2036,6 @@ const styles = StyleSheet.create({
   },
   historySection: {
     marginTop: 16,
-  },
-  loadingLocation: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#F5F5F5',
-  },
-  loadingText: {
-    marginTop: 12,
-    fontSize: 16,
-    fontFamily: 'LexendDeca_400Regular',
-    color: '#666',
-  },
-  punchButtonDisabled: {
-    backgroundColor: '#CCCCCC',
-    opacity: 0.7,
-  },
-  punchButtonTextDisabled: {
-    color: '#666',
-  },
-  nextPunchInfo: {
-    textAlign: 'center',
-    fontSize: 12,
-    fontFamily: 'LexendDeca_400Regular',
-    color: '#666',
-    marginTop: 8,
-    fontStyle: 'italic',
-  },
-  summaryItemBlurred: {
-    opacity: 0.5,
-  },
-  summaryItemActive: {
-    borderWidth: 2,
-    borderColor: '#FF8447',
-    transform: [{ scale: 1.05 }],
   },
   historyHeader: {
     flexDirection: 'row',
@@ -1566,6 +2125,85 @@ const styles = StyleSheet.create({
     fontFamily: 'LexendDeca_400Regular',
     marginTop: 4,
     fontStyle: 'italic',
+  },
+  autoPunchOutContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFEBEE',
+    padding: 8,
+    borderRadius: 8,
+    marginTop: 8,
+  },
+  autoPunchOutText: {
+    fontSize: 12,
+    fontFamily: 'LexendDeca_400Regular',
+    color: '#FF5252',
+    marginLeft: 8,
+    flex: 1,
+  },
+  autoPunchOutTime: {
+    color: '#FF5252',
+    fontStyle: 'italic',
+  },
+  autoPunchOutIndicator: {
+    fontSize: 11,
+    color: '#FF5252',
+    fontFamily: 'LexendDeca_400Regular',
+    fontStyle: 'italic',
+    marginTop: 2,
+  },
+  punchButtonDisabled: {
+    backgroundColor: '#CCCCCC',
+    opacity: 0.7,
+  },
+  punchButtonTextDisabled: {
+    color: '#666',
+  },
+  nextPunchInfo: {
+    textAlign: 'center',
+    fontSize: 12,
+    fontFamily: 'LexendDeca_400Regular',
+    color: '#666',
+    marginTop: 8,
+    fontStyle: 'italic',
+  },
+  summaryItemBlurred: {
+    opacity: 0.5,
+  },
+  summaryItemActive: {
+    borderWidth: 2,
+    borderColor: '#FF8447',
+    transform: [{ scale: 1.05 }],
+  },
+  modalContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+  },
+  modalContent: {
+    width: 250,
+    padding: 20,
+    backgroundColor: 'white',
+    borderRadius: 12,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+  modalText: {
+    fontSize: 18,
+    fontFamily: 'LexendDeca_500Medium',
+    color: '#333',
+    marginTop: 16,
+    textAlign: 'center',
+  },
+  loadingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });
 

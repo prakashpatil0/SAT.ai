@@ -4,7 +4,7 @@ import { TextInput, Button, Text, HelperText } from 'react-native-paper';
 import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { createUserWithEmailAndPassword } from 'firebase/auth';
-import { doc, setDoc, deleteDoc } from 'firebase/firestore';
+import { doc, setDoc, deleteDoc, collection, query, getDocs } from 'firebase/firestore';
 import { serverTimestamp } from 'firebase/firestore';
 import { auth, db } from '@/firebaseConfig';
 import AppGradient from './components/AppGradient';
@@ -95,6 +95,32 @@ const SignUpScreen = () => {
     password: '',
   });
 
+  const generateUserId = async (name: string): Promise<string> => {
+    // Split name into first and last name
+    const nameParts = name.trim().split(' ');
+    const firstName = nameParts[0];
+    const lastName = nameParts[nameParts.length - 1];
+    
+    // Get first characters
+    const firstInitial = firstName.charAt(0).toUpperCase();
+    const lastInitial = lastName.charAt(0).toUpperCase();
+    
+    // Get current year
+    const currentYear = new Date().getFullYear();
+    
+    // Get count of existing users
+    const usersRef = collection(db, 'users');
+    const q = query(usersRef);
+    const querySnapshot = await getDocs(q);
+    const userCount = querySnapshot.size + 1; // Add 1 for the new user
+    
+    // Format the sequential number with leading zero if needed
+    const sequentialNumber = userCount.toString().padStart(2, '0');
+    
+    // Combine all parts to create the user ID
+    return `${currentYear}${firstInitial}${lastInitial}${sequentialNumber}`;
+  };
+
   const handleSignUp = async () => {
     if (!validateForm()) {
       return;
@@ -102,6 +128,9 @@ const SignUpScreen = () => {
 
     try {
       setLoading(true);
+      
+      // Generate user ID
+      const userId = await generateUserId(formData.name);
       
       // Create user in Firebase Auth
       const userCredential = await createUserWithEmailAndPassword(auth, formData.email, formData.password);
@@ -114,22 +143,24 @@ const SignUpScreen = () => {
         phoneNumber: formData.phoneNumber.trim(),
         role: formData.role.toLowerCase(),
         designation: 
-        formData.role.toLowerCase() === 'bdm'
-          ? 'BDM'
-          : formData.role.toLowerCase() === 'telecaller'
-          ? 'Telecaller'
-          : formData.role.toLowerCase() === 'hrmanager'
-          ? 'HR Manager'
-          : '',
+          formData.role.toLowerCase() === 'bdm'
+            ? 'BDM'
+            : formData.role.toLowerCase() === 'telecaller'
+            ? 'Telecaller'
+            : formData.role.toLowerCase() === 'hrmanager'
+            ? 'HR Manager'
+            : '',
+        userId: userId, // Add the generated user ID
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
         isActive: true
       });
 
-      // Store user role in AsyncStorage
+      // Store user role and ID in AsyncStorage
       await AsyncStorage.multiSet([
         ['userRole', formData.role.toLowerCase()],
         ['sessionToken', user.uid],
+        ['userId', userId],
         ['lastActiveTime', new Date().toISOString()]
       ]);
 

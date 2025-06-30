@@ -1155,11 +1155,6 @@ useEffect(() => {
             animated: true,
             index: currentIndex.current,
           });
-        } catch (err) {
-          console.warn("ScrollToIndex failed", err);
-        }
-
-        currentIndex.current = (currentIndex.current + 1) % meetingDetails.length;
           currentIndex.current = (currentIndex.current + 1) % meetingDetails.length;
         } catch (error) {
           console.warn('Error scrolling to index:', error);

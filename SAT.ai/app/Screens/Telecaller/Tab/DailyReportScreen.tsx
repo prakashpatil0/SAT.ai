@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   View,
   Text,
@@ -36,49 +36,49 @@ import { format, startOfDay, endOfDay } from "date-fns";
 import { doc, getDoc } from "firebase/firestore";
 
 const PRODUCT_LIST = [
-  { label: "Health Insurance", value: "health_insurance" },
-  { label: "Bike Insurance", value: "bike_insurance" },
-  { label: "Car Insurance", value: "car_insurance" },
-  { label: "Term Insurance", value: "term_insurance" },
-  { label: "Mutual Funds", value: "mutual_funds" },
-  { label: "Saving Plans", value: "saving_plan" },
-  { label: "Travel Insurance", value: "travel_insurance" },
-  { label: "Group Mediclaim", value: "group_mediclaim" },
-  { label: "Group Personal Accident", value: "group_personal_accident" },
-  { label: "Group Term Life", value: "group_term_life" },
-  { label: "Group Credit Life", value: "group_credit_life" },
-  { label: "Workmen Compensation", value: "workmen_compensation" },
-  { label: "Group Gratuity", value: "group_gratuity" },
-  { label: "Fire & Burglary Insurance", value: "fire_burglary_insurance" },
-  { label: "Shop Owner Insurance", value: "shop_owner_insurance" },
-  { label: "Motor Fleet Insurance", value: "motor_fleet_insurance" },
-  { label: "Marine Single Transit", value: "marine_single_transit" },
-  { label: "Marine Open Policy", value: "marine_open_policy" },
-  { label: "Marine Sales Turnover", value: "marine_sales_turnover" },
+  { label: "Health Insurance", value: "Health Insurance" },
+  { label: "Bike Insurance", value: "Bike Insurance" },
+  { label: "Car Insurance", value: "Car Insurance" },
+  { label: "Term Insurance", value: "Term Insurance" },
+  { label: "Mutual Funds", value: "Mutual Funds" },
+  { label: "Saving Plans", value: "Saving Plans" },
+  { label: "Travel Insurance", value: "Travel Insurance" },
+  { label: "Group Mediclaim", value: "Group Mediclaim" },
+  { label: "Group Personal Accident", value: "Group Personal Accident" },
+  { label: "Group Term Life", value: "Group Term Life" },
+  { label: "Group Credit Life", value: "Group Credit Life" },
+  { label: "Workmen Compensation", value: "Workmen Compensation" },
+  { label: "Group Gratuity", value: "Group Gratuity" },
+  { label: "Fire & Burglary Insurance", value: "Fire & Burglary Insurance" },
+  { label: "Shop Owner Insurance", value: "Shop Owner Insurance" },
+  { label: "Motor Fleet Insurance", value: "Motor Fleet Insurance" },
+  { label: "Marine Single Transit", value: "Marine Single Transit" },
+  { label: "Marine Open Policy", value: "Marine Open Policy" },
+  { label: "Marine Sales Turnover", value: "Marine Sales Turnover" },
   {
     label: "Directors & Officers Insurance",
-    value: "directors_officers_insurance",
+    value: "Directors & Officers Insurance",
   },
   {
     label: "General Liability Insurance",
-    value: "general_liability_insurance",
+    value: "General Liability Insurance",
   },
   {
     label: "Product Liability Insurance",
-    value: "product_liability_insurance",
+    value: "Product Liability Insurance",
   },
   {
     label: "Professional Indemnity for Doctors",
-    value: "professional_indemnity_for_doctors",
+    value: "Professional Indemnity for Doctors",
   },
   {
     label: "Professional Indemnity for Companies",
-    value: "professional_indemnity_for_companies",
+    value: "Professional Indemnity for Companies",
   },
-  { label: "Cyber Insurance", value: "cyber_insurance" },
-  { label: "Office Package Policy", value: "office_package_policy" },
-  { label: "Crime Insurance", value: "crime_insurance" },
-  { label: "Other", value: "other" },
+  { label: "Cyber Insurance", value: "Cyber Insurance" },
+  { label: "Office Package Policy", value: "Office Package Policy" },
+  { label: "Crime Insurance", value: "Crime Insurance" },
+  { label: "Other", value: "Other" },
 ];
 
 interface ClosingDetail {
@@ -134,6 +134,15 @@ const ReportScreen: React.FC = () => {
   const [todayDuration, setTodayDuration] = useState(0);
   const [waveAnimation] = useState(new Animated.Value(0));
   const [isLoading, setIsLoading] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const numMeetingsRef = useRef<TextInput>(null);
+  const meetingDurationRef = useRef<TextInput>(null);
+  const positiveLeadsRef = useRef<TextInput>(null);
+  const rejectedLeadsRef = useRef<TextInput>(null);
+  const notAttendedCallsRef = useRef<TextInput>(null);
+  const closingLeadsRef = useRef<TextInput>(null);
+  const closingAmountRefs = useRef<Array<TextInput | null>>([]);
 
   // Filter products based on search
   useEffect(() => {
@@ -362,70 +371,95 @@ const ReportScreen: React.FC = () => {
 
   const validateForm = (): boolean => {
     const newErrors: { [key: string]: string } = {};
+    let firstEmptyField: (() => void) | null = null;
 
     if (!numMeetings.trim()) {
       newErrors.numMeetings = "Number of calls is required";
+      if (!firstEmptyField) firstEmptyField = () => numMeetingsRef.current?.focus();
     } else if (isNaN(Number(numMeetings)) || Number(numMeetings) < 0) {
       newErrors.numMeetings = "Please enter a valid number";
+      if (!firstEmptyField) firstEmptyField = () => numMeetingsRef.current?.focus();
     }
 
     if (!meetingDuration.trim()) {
       newErrors.meetingDuration = "Call duration is required";
+      if (!firstEmptyField) firstEmptyField = () => meetingDurationRef.current?.focus();
     }
 
     if (!positiveLeads.trim()) {
       newErrors.positiveLeads = "Positive leads is required";
+      if (!firstEmptyField) firstEmptyField = () => positiveLeadsRef.current?.focus();
     } else if (isNaN(Number(positiveLeads)) || Number(positiveLeads) < 0) {
       newErrors.positiveLeads = "Please enter a valid number";
+      if (!firstEmptyField) firstEmptyField = () => positiveLeadsRef.current?.focus();
     }
 
     if (!rejectedLeads.trim()) {
       newErrors.rejectedLeads = "Rejected leads is required";
+      if (!firstEmptyField) firstEmptyField = () => rejectedLeadsRef.current?.focus();
     } else if (isNaN(Number(rejectedLeads)) || Number(rejectedLeads) < 0) {
       newErrors.rejectedLeads = "Please enter a valid number";
+      if (!firstEmptyField) firstEmptyField = () => rejectedLeadsRef.current?.focus();
     }
 
     if (!notAttendedCalls.trim()) {
       newErrors.notAttendedCalls = "Not attended calls is required";
+      if (!firstEmptyField) firstEmptyField = () => notAttendedCallsRef.current?.focus();
     } else if (
       isNaN(Number(notAttendedCalls)) ||
       Number(notAttendedCalls) < 0
     ) {
       newErrors.notAttendedCalls = "Please enter a valid number";
+      if (!firstEmptyField) firstEmptyField = () => notAttendedCallsRef.current?.focus();
     }
 
     if (!closingLeads.trim()) {
       newErrors.closingLeads = "Closing leads is required";
+      if (!firstEmptyField) firstEmptyField = () => closingLeadsRef.current?.focus();
     } else if (isNaN(Number(closingLeads)) || Number(closingLeads) < 0) {
       newErrors.closingLeads = "Please enter a valid number";
+      if (!firstEmptyField) firstEmptyField = () => closingLeadsRef.current?.focus();
     }
 
     closingDetails.forEach((detail, index) => {
       if (!detail.selectedProduct) {
         newErrors[`closing_${index}_product`] = "Please select a product";
+        if (!firstEmptyField) firstEmptyField = () => closingAmountRefs.current[index]?.focus();
       }
 
       if (!detail.amount.trim()) {
         newErrors[`closing_${index}_amount`] = "Amount is required";
+        if (!firstEmptyField) firstEmptyField = () => closingAmountRefs.current[index]?.focus();
       }
       if (!detail.description.trim()) {
         newErrors[`closing_${index}_description`] = "Description is required";
+        if (!firstEmptyField) firstEmptyField = () => closingAmountRefs.current[index]?.focus();
       }
     });
 
     setErrors(newErrors);
+
+    // Focus the first empty field if any
+    if (firstEmptyField) {
+      setTimeout(() => firstEmptyField && firstEmptyField(), 100);
+      return false;
+    }
+
     return Object.keys(newErrors).length === 0;
   };
 
   const handleSubmit = async () => {
+    if (isSubmitting) return;
     if (!validateForm()) {
       Alert.alert("Error", "Please fill all required fields");
       return;
     }
 
+    setIsSubmitting(true);
     try {
       if (!auth.currentUser) {
         Alert.alert("Error", "Please login first");
+        setIsSubmitting(false);
         return;
       }
       const userId = auth.currentUser.uid;
@@ -442,7 +476,7 @@ const ReportScreen: React.FC = () => {
       const now = new Date();
       const reportData = {
         userId,
-        submittedBy, // ✅ NEW FIELD
+        submittedBy,
         date: Timestamp.fromDate(now),
         numMeetings: parseInt(numMeetings),
         meetingDuration,
@@ -452,7 +486,6 @@ const ReportScreen: React.FC = () => {
         closingLeads: parseInt(closingLeads),
         closingDetails: closingDetails.map((detail) => ({
           product: detail.selectedProduct,
-
           otherProduct: detail.otherProduct,
           amount: parseInt(detail.amount.replace(/[^0-9]/g, "")),
           description: detail.description,
@@ -462,25 +495,21 @@ const ReportScreen: React.FC = () => {
         updatedAt: Timestamp.fromDate(now),
       };
 
-      // Save to Firebase
-      const docRef = await addDoc(
+      await addDoc(
         collection(db, "telecaller_reports"),
         reportData
       );
 
-      // Save as last report in AsyncStorage
       await AsyncStorage.setItem(
         STORAGE_KEYS.LAST_REPORT,
         JSON.stringify(reportData)
       );
 
-      // Clear draft after successful submission
       await AsyncStorage.removeItem(STORAGE_KEYS.DRAFT_REPORT);
 
       setModalVisible(true);
       setTimeout(() => {
         setModalVisible(false);
-        // Reset form
         setNumMeetings("");
         setMeetingDuration("");
         setPositiveLeads("");
@@ -488,7 +517,6 @@ const ReportScreen: React.FC = () => {
         setNotAttendedCalls("");
         setClosingLeads("");
         setClosingDetails([
-          ...closingDetails,
           {
             selectedProduct: "",
             otherProduct: "",
@@ -497,12 +525,13 @@ const ReportScreen: React.FC = () => {
             showOtherInput: false,
           },
         ]);
-
         setTotalClosingAmount(0);
+        setIsSubmitting(false);
       }, 2000);
     } catch (error) {
       console.error("Error submitting report:", error);
       Alert.alert("Error", "Failed to submit report. Please try again.");
+      setIsSubmitting(false);
     }
   };
 
@@ -607,6 +636,7 @@ const ReportScreen: React.FC = () => {
                 onChangeText={setPositiveLeads}
                 keyboardType="numeric"
                 placeholder="0"
+                ref={positiveLeadsRef}
               />
               {errors.positiveLeads && (
                 <Text style={styles.errorText}>{errors.positiveLeads}</Text>
@@ -622,6 +652,7 @@ const ReportScreen: React.FC = () => {
                 onChangeText={setRejectedLeads}
                 keyboardType="numeric"
                 placeholder="0"
+                ref={rejectedLeadsRef}
               />
               {errors.rejectedLeads && (
                 <Text style={styles.errorText}>{errors.rejectedLeads}</Text>
@@ -637,6 +668,7 @@ const ReportScreen: React.FC = () => {
                 onChangeText={setNotAttendedCalls}
                 keyboardType="numeric"
                 placeholder="0"
+                ref={notAttendedCallsRef}
               />
               {errors.notAttendedCalls && (
                 <Text style={styles.errorText}>{errors.notAttendedCalls}</Text>
@@ -649,6 +681,7 @@ const ReportScreen: React.FC = () => {
                 onChangeText={setClosingLeads}
                 keyboardType="numeric"
                 placeholder="0"
+                ref={closingLeadsRef}
               />
               {errors.closingLeads && (
                 <Text style={styles.errorText}>{errors.closingLeads}</Text>
@@ -709,44 +742,26 @@ const ReportScreen: React.FC = () => {
 
                     {/* Product Dropdown */}
                     {dropdownVisible === index && (
-                      <View style={styles.dropdownContainer}>
-                        <View style={styles.searchContainer}>
-                          <TextInput
-                            style={styles.searchInput}
-                            placeholder="Search products..."
-                            value={searchQuery}
-                            onChangeText={setSearchQuery}
-                          />
-                          <Ionicons name="search" size={20} color="#666" />
-                        </View>
-                        <FlatList
-                          data={filteredProducts}
-                          keyExtractor={(item) => item.value}
-                          style={styles.dropdownList}
-                          nestedScrollEnabled
-                          renderItem={({ item }) => (
-                            <TouchableOpacity
+                      <View style={styles.dropdownList}>
+                        {filteredProducts.map((item) => (
+                          <TouchableOpacity
+                            key={item.value}
+                            style={[
+                              styles.dropdownItem,
+                              detail.selectedProduct === item.value && styles.dropdownItemSelected,
+                            ]}
+                            onPress={() => handleProductSelection(index, item.value)}
+                          >
+                            <Text
                               style={[
-                                styles.dropdownItem,
-                                detail.selectedProduct === item.value &&
-                                  styles.dropdownItemSelected,
+                                styles.dropdownItemText,
+                                detail.selectedProduct === item.value && styles.dropdownItemTextSelected,
                               ]}
-                              onPress={() =>
-                                handleProductSelection(index, item.value)
-                              }
                             >
-                              <Text
-                                style={[
-                                  styles.dropdownItemText,
-                                  detail.selectedProduct === item.value &&
-                                    styles.dropdownItemTextSelected,
-                                ]}
-                              >
-                                {item.label}
-                              </Text>
-                            </TouchableOpacity>
-                          )}
-                        />
+                              {item.label}
+                            </Text>
+                          </TouchableOpacity>
+                        ))}
                       </View>
                     )}
                     {errors[`closing_${index}_product`] && (
@@ -783,6 +798,7 @@ const ReportScreen: React.FC = () => {
                         }}
                         keyboardType="numeric"
                         placeholder="Enter Amount"
+                        ref={(el) => (closingAmountRefs.current[index] = el)}
                       />
                     </View>
                     {errors[`closing_${index}_amount`] && (
@@ -975,28 +991,12 @@ const styles = StyleSheet.create({
     color: "#666",
     flex: 1,
   },
-  dropdownContainer: {
+  dropdownList: {
     marginTop: 8,
     borderWidth: 1,
     borderColor: "#ddd",
     borderRadius: 8,
     backgroundColor: "#fff",
-    elevation: 2,
-  },
-  searchContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    padding: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: "#eee",
-  },
-  searchInput: {
-    flex: 1,
-    marginRight: 8,
-    padding: 8,
-  },
-  dropdownList: {
-    maxHeight: 200,
   },
   dropdownItem: {
     flexDirection: "row",

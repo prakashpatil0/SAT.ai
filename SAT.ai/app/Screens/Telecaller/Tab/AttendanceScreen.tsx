@@ -39,7 +39,7 @@ type AttendanceStatus = "Present" | "Half Day" | "On Leave";
 type CameraScreenParams = {
   photo: { uri: string };
   location: { coords: { latitude: number; longitude: number } };
-  dateTime: Date;
+  dateTime: string; 
   isPunchIn: boolean;
 };
 
@@ -52,6 +52,7 @@ const getUserRole = async (): Promise<string | null> => {
 };
 
 type RootStackParamList = {
+
   CameraScreen: { isPunchIn: boolean };
   AttendanceScreen: {
     photo?: { uri: string };
@@ -59,6 +60,8 @@ type RootStackParamList = {
     dateTime?: string;
     isPunchIn?: boolean;
     locationName?: string | null;
+    locationPunchout?: string | null;
+    
   };
 };
 
@@ -84,7 +87,7 @@ interface WeekDay {
   status: AttendanceStatus;
 }
 
-// const EIGHT_HOURS_IN_MS = 8 * 60 * 60 * 1000; // 8 hours in milliseconds
+const EIGHT_HOURS_IN_MS = 8 * 60 * 60 * 1000; // 8 hours in milliseconds
 // const FOUR_HOURS_IN_MS = 4 * 60 * 60 * 1000; // 4 hours in milliseconds
 // const PUNCH_IN_DEADLINE = "09:45"; // 9:45 AM for full day
 // const PUNCH_IN_HALF_DAY = "14:00"; // 2:00 PM for half day
@@ -96,6 +99,9 @@ const { width } = Dimensions.get("window");
 const AttendanceScreen = () => {
   const navigation = useNavigation<AttendanceScreenNavigationProp>();
   const route = useRoute<RouteProp<RootStackParamList, "AttendanceScreen">>();
+  const { dateTime } = route.params || {};
+const dateTimeObj = dateTime ? new Date(dateTime) : null;
+
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedMonth, setSelectedMonth] = useState(
     format(new Date(), "MMMM")
@@ -201,6 +207,7 @@ const AttendanceScreen = () => {
       const dateStr = format(currentTime, 'yyyy:MM:dd');
       const roleCollection = `${role}_monthly_attendance`;
       const attendanceRef = collection(db, roleCollection);
+      const displayDate = format(currentTime, 'dd');
       const todayQuery = query(
         attendanceRef,
         where('date', '==', dateStr),
@@ -242,7 +249,8 @@ const AttendanceScreen = () => {
     const today = format(now, 'yyyy:MM:dd');
     const tomorrow = new Date(now);
     tomorrow.setDate(tomorrow.getDate() + 1);
-    tomorrow.setHours(8, 0, 0, 0); // Set to 8 AM tomorrow
+   tomorrow.setHours(4, 0, 0, 0); // ✅ Set to 4 AM tomorrow
+
 
     // Handle auto punch-out at midnight
     if (punchInTime && !punchOutTime) {
@@ -270,10 +278,10 @@ const AttendanceScreen = () => {
 
     // Handle punch-in and punch-out separately
     if (!punchInTime) {
-      // Punch In restrictions
-      const punchInStartTime = '07:00'; // 8 AM
+     const punchInStartTime = '04:00'; // ✅ NEW: Allow Punch In from 4 AM
+
       const [startHour, startMinute] = punchInStartTime.split(':').map(Number);
-      const punchInEndTime = '23:59'; // 11:59 PM
+      const punchInEndTime = '23:59'; // 6 PM
       const [endHour, endMinute] = punchInEndTime.split(':').map(Number);
 
       const currentMinutes = currentHour * 60 + currentMinute;
@@ -290,15 +298,17 @@ const AttendanceScreen = () => {
         const hoursUntilStart = Math.floor(minutesUntilStart / 60);
         const remainingMinutes = minutesUntilStart % 60;
         
-        Alert.alert(
-          'Punch In Not Available',
-          `Punch in will be available at 8:00 AM. Please try again in ${hoursUntilStart} hours and ${remainingMinutes} minutes.`
-        );
+      Alert.alert(
+  'Punch In Not Available',
+  `Punch in will be available at 4:00 AM. Please try again in ${hoursUntilStart} hours and ${remainingMinutes} minutes.`
+);
+
       } else if (isAfterEndTime) {
-        Alert.alert(
-          'Punch In Not Available',
-          'Punch in is only available between 8:00 AM and 6:00 PM. Please try again tomorrow.'
-        );
+       Alert.alert(
+  'Punch In Not Available',
+  'Punch in is only available between 4:00 AM and 6:00 PM. Please try again tomorrow.'
+);
+
       }
     } else if (punchInTime && !punchOutTime) {
       // Punch Out is always enabled after punch in until midnight
@@ -417,6 +427,24 @@ const AttendanceScreen = () => {
       return;
     }
 
+    const daysInMonth = new Date(
+      parseInt(currentYear),
+      parseInt(currentMonth),
+      0
+    ).getDate();
+
+    const allDates = Array.from({ length: daysInMonth }, (_, i) => {
+      const date = new Date(
+        parseInt(currentYear),
+        parseInt(currentMonth) - 1,
+        i + 1
+      );
+      return {
+        dateStr: format(date, 'dd'),
+        isSunday: format(date, 'EEEE') === 'Sunday',
+      };
+    });
+
     const currentMonthRecords = history.filter((record) => {
       const recordDate = new Date(record.timestamp);
       return (
@@ -430,6 +458,18 @@ const AttendanceScreen = () => {
         counts[record.status]++;
       }
     });
+
+    const today = format(new Date(), 'dd');
+
+    const attendedDates = currentMonthRecords.map((record) => record.date);
+    const onLeaveDates = allDates.filter(
+      ({ dateStr, isSunday }) =>
+        !isSunday &&
+        !attendedDates.includes(dateStr) &&
+        parseInt(dateStr) < parseInt(today)
+    );
+
+    counts['On Leave'] += onLeaveDates.length;
 
     setStatusCounts(counts);
   };
@@ -467,6 +507,8 @@ const AttendanceScreen = () => {
       const timeStr = format(currentTime, 'HH:mm');
       const roleCollection = `${role}_monthly_attendance`;
       const locationName = locationNameFromCamera || 'Unknown Location';
+      
+  const locationPunchout = locationNameFromCamera || 'Unknown Location';
       const attendanceRef = collection(db, roleCollection);
 
       const todayQuery = query(
@@ -510,6 +552,7 @@ const AttendanceScreen = () => {
           timestamp: Timestamp.fromDate(currentTime),
           photoUri: isPunchIn ? photoUri : '',
           location: isPunchIn ? location : null,
+           locationPunchout: !isPunchIn ? locationPunchout : '',
           locationName: isPunchIn ? geoLocationName : 'Unknown Location',
           totalHours: 0,
         });
@@ -522,16 +565,29 @@ const AttendanceScreen = () => {
         const totalHours = calculateTotalHours(newPunchIn, newPunchOut);
         const newStatus = calculateStatus(newPunchIn, newPunchOut);
 
-        await updateDoc(docRef, {
-          punchIn: newPunchIn,
-          punchOut: newPunchOut,
-          status: newStatus,
-          photoUri: isPunchIn ? photoUri : existingData.photoUri || '',
-          location: isPunchIn ? location : existingData.location || null,
-          locationName: isPunchIn ? geoLocationName : existingData.locationName || 'Unknown Location',
-          totalHours: totalHours,
-        });
-      }
+           await updateDoc(docRef, {
+
+      punchIn: newPunchIn,
+
+      punchOut: newPunchOut,
+
+      status: newStatus,
+
+      location: !isPunchIn ? location : existingData.location,
+
+      photoUri: !isPunchIn ? photoUri : existingData.photoUri,
+
+      totalHours: isPunchIn
+
+        ? existingData.totalHours
+
+        : existingData.totalHours + EIGHT_HOURS_IN_MS,
+
+      ...(isPunchIn ? { locationName } : { locationPunchout }),
+
+    });
+
+  }
 
       if (isPunchIn) {
         setPunchInTime(format(currentTime, 'hh:mm a'));
@@ -554,12 +610,9 @@ const AttendanceScreen = () => {
       route.params?.location &&
       route.params?.isPunchIn !== undefined
     ) {
-      const { photo, location, locationName, isPunchIn, dateTime } = route.params;
-      
-      // Convert dateTime string back to Date object for processing
-      const capturedDateTime = dateTime ? new Date(dateTime) : new Date();
-      
-      saveAttendance(isPunchIn, photo.uri, location, locationName, capturedDateTime);
+          const { photo, location, locationName, locationPunchout, isPunchIn } = route.params;
+
+saveAttendance(isPunchIn, photo.uri, location, locationName);
     }
   }, [route.params]);
 
@@ -574,23 +627,22 @@ const AttendanceScreen = () => {
   }, [attendanceHistory]);
 
   useEffect(() => {
-    if (attendanceHistory.length > 0) {
-      const monthlyRecords = attendanceHistory.filter((record) => {
-        const recordDate = new Date(record.timestamp);
-        return format(recordDate, "MMMM") === selectedMonth;
-      });
+  if (attendanceHistory.length > 0) {
+  const allRecordsInMonth = attendanceHistory.filter((record) => {
+    const recordDate = new Date(record.timestamp);
+    return format(recordDate, 'MMMM') === selectedMonth;
+  });
 
-      calculateStatusCounts(monthlyRecords);
+  // Apply status filter to display
+  let filtered = [...allRecordsInMonth];
+  if (selectedStatus) {
+    filtered = filtered.filter((record) => record.status === selectedStatus);
+  }
 
-      let recordsToDisplay = monthlyRecords;
-      if (selectedStatus) {
-        recordsToDisplay = monthlyRecords.filter(
-          (record) => record.status === selectedStatus
-        );
-      }
+  setFilteredHistory(filtered);
+  calculateStatusCounts(allRecordsInMonth); // ✅ use unfiltered data for counts
+}
 
-      setFilteredHistory(recordsToDisplay);
-    }
   }, [selectedMonth, selectedStatus, attendanceHistory]);
 
   const updateWeekDays = () => {
@@ -1500,4 +1552,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default AttendanceScreen;
+export default AttendanceScreen; 

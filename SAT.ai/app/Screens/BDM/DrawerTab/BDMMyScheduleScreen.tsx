@@ -35,6 +35,9 @@ interface Event {
   meetingType?: string;
   contactName?: string;
   phoneNumber?: string;
+    companyName?: string; // ✅ new
+  designation?: string; // ✅ new
+  emailId?: string;      // ✅ new
   status?: string;
   color?: string;
 }
@@ -57,6 +60,7 @@ const BDMMyScheduleScreen = () => {
   const [followUps, setFollowUps] = useState<Event[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [notificationIds, setNotificationIds] = useState<string[]>([]);
+  
 // Request notification permissions on mount
 useEffect(() => {
   (async () => {
@@ -273,54 +277,111 @@ const renderDayView = () => (
     );
   };
 
-  const renderEventModal = () => (
-    <Modal
-      visible={modalVisible}
-      transparent
-      animationType="fade"
-      onRequestClose={() => setModalVisible(false)}
-    >
-      <View style={styles.modalOverlay}>
-        <Surface style={styles.modalContent}>
-          <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>{selectedEvent?.title}</Text>
-            <TouchableOpacity onPress={() => setModalVisible(false)}>
-              <MaterialIcons name="close" size={24} color="#666" />
-            </TouchableOpacity>
+ const renderEventModal = () => (
+  <Modal
+    visible={modalVisible}
+    transparent
+    animationType="fade"
+    onRequestClose={() => setModalVisible(false)}
+  >
+    <View style={styles.modalOverlay}>
+      <Surface style={styles.modalContent}>
+        <View style={styles.modalHeader}>
+          <Text style={styles.modalTitle}>{selectedEvent?.title}</Text>
+          <TouchableOpacity onPress={() => setModalVisible(false)}>
+            <MaterialIcons name="close" size={24} color="#666" />
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.modalBody}>
+          {/* Title */}
+          <View style={styles.modalRow}>
+            <MaterialIcons name="title" size={20} color="#666" />
+            <Text style={styles.modalText}>
+              {selectedEvent?.title || 'N/A'}
+            </Text>
           </View>
-          <View style={styles.modalBody}>
+
+          {/* Time */}
+          <View style={styles.modalRow}>
+            <MaterialIcons name="access-time" size={20} color="#666" />
+            <Text style={styles.modalText}>
+              {selectedEvent?.startTime} - {selectedEvent?.endTime}
+            </Text>
+          </View>
+
+          {/* Date */}
+          <View style={styles.modalRow}>
+            <MaterialIcons name="event" size={20} color="#666" />
+            <Text style={styles.modalText}>
+              {selectedEvent?.date ? format(selectedEvent.date, 'EEEE, MMMM d') : ''}
+            </Text>
+          </View>
+
+          {/* Company Name */}
+          {selectedEvent?.companyName && (
             <View style={styles.modalRow}>
-              <MaterialIcons name="access-time" size={20} color="#666" />
-              <Text style={styles.modalText}>
-                {selectedEvent?.startTime} - {selectedEvent?.endTime}
-              </Text>
+              <MaterialIcons name="business" size={20} color="#666" />
+              <Text style={styles.modalText}>{selectedEvent.companyName}</Text>
             </View>
+          )}
+
+          {/* Designation */}
+          {selectedEvent?.designation && (
             <View style={styles.modalRow}>
-              <MaterialIcons name="event" size={20} color="#666" />
-              <Text style={styles.modalText}>
-                {selectedEvent?.date ? format(selectedEvent.date, 'EEEE, MMMM d') : ''}
-              </Text>
+              <MaterialIcons name="badge" size={20} color="#666" />
+              <Text style={styles.modalText}>{selectedEvent.designation}</Text>
             </View>
-            {selectedEvent?.description && (
-              <View style={styles.modalRow}>
-                <MaterialIcons name="description" size={20} color="#666" />
-                <Text style={styles.modalText}>{selectedEvent.description}</Text>
-              </View>
-            )}
-          </View>
-          <View style={styles.modalFooter}>
-            <Button 
-              mode="contained" 
-              onPress={() => setModalVisible(false)}
-              style={styles.modalButton}
-            >
-              Close
-            </Button>
-          </View>
-        </Surface>
-      </View>
-    </Modal>
-  );
+          )}
+
+          {/* Email ID */}
+          {selectedEvent?.emailId && (
+            <View style={styles.modalRow}>
+              <MaterialIcons name="email" size={20} color="#666" />
+              <Text style={styles.modalText}>{selectedEvent.emailId}</Text>
+            </View>
+          )}
+
+          {/* Meeting Type */}
+          {selectedEvent?.meetingType && (
+            <View style={styles.modalRow}>
+              <MaterialIcons name="groups" size={20} color="#666" />
+              <Text style={styles.modalText}>{selectedEvent.meetingType}</Text>
+            </View>
+          )}
+
+          {/* Optional Description */}
+          {selectedEvent?.description && (
+            <View style={styles.modalRow}>
+              <MaterialIcons name="description" size={20} color="#666" />
+              <Text style={styles.modalText}>{selectedEvent.description}</Text>
+            </View>
+          )}
+        </View>
+        {/* Phone Number */}
+{selectedEvent?.phoneNumber && (
+  <View style={styles.modalRow}>
+    <MaterialIcons name="phone" size={20} color="#666" />
+    <Text style={styles.modalText}>{selectedEvent.phoneNumber}</Text>
+  </View>
+)}
+
+
+        <View style={styles.modalFooter}>
+          <Button 
+            mode="contained" 
+            onPress={() => setModalVisible(false)}
+            style={styles.modalButton}
+          >
+            Close
+          </Button>
+        </View>
+      </Surface>
+    </View>
+  </Modal>
+);
+
+
 
   const renderFollowUpModal = () => (
     <Modal
@@ -490,22 +551,28 @@ const fetchMeetings = async () => {
 
       const isInRange = isDateInCurrentView(meetingDate);
 
-      if (isInRange) {
-        const meeting: Event = {
-          id: docSnap.id,
-          title: `Meeting with ${data.individuals?.[0]?.name || 'Client'}`,
-          startTime,
-          endTime: addMinutesToTime(startTime, 30), // Assuming meetings are 30 minutes long
-          date: meetingDate,
-          type: 'meeting',
-          contactName: data.individuals?.[0]?.name || '',
-          phoneNumber: data.individuals?.[0]?.phoneNumber || '',
-          meetingId: data.meetingId,
-          meetingType: data.meetingType,
-        };
+     if (isInRange) {
+  const meeting: Event = {
+  id: docSnap.id,
+  title: `Meeting with ${data.individuals?.[0]?.name || 'Client'}`,
+  startTime,
+  endTime: addMinutesToTime(startTime, 30),
+  date: meetingDate,
+  type: 'meeting',
+  contactName: data.individuals?.[0]?.name || '',
+  phoneNumber: data.individuals?.[0]?.phoneNumber || '',
+  meetingId: data.meetingId,
+  meetingType: data.meetingType,
+  companyName: data.companyName || '',
+  designation: data.individuals?.[0]?.designation || '',
+  emailId: data.individuals?.[0]?.emailId || '',
+};
 
-        fetchedMeetings.push(meeting);
-      }
+
+  fetchedMeetings.push(meeting);
+  scheduleMeetingNotifications(meeting); // <-- Add this line
+}
+
     });
 
     // Update the state once the data is fetched
@@ -629,6 +696,86 @@ if (twoHoursBefore > now) {
   }
 };
 
+const scheduleMeetingNotifications = async (meeting: Event) => {
+  try {
+    const existingIds = await AsyncStorage.getItem(`notifications_meeting_${meeting.id}`);
+    if (existingIds) {
+      const ids = JSON.parse(existingIds);
+      await Promise.all(ids.map((id: string) => Notifications.cancelScheduledNotificationAsync(id)));
+    }
+
+    const meetingDateTime = new Date(meeting.date);
+    const [hours, minutes] = meeting.startTime.split(':').map(Number);
+    meetingDateTime.setHours(hours, minutes, 0, 0);
+
+    const now = new Date();
+    const notificationIds: string[] = [];
+
+    // 1️⃣ Day before at 7 PM
+    const dayBefore = new Date(meetingDateTime);
+    dayBefore.setDate(dayBefore.getDate() - 1);
+    dayBefore.setHours(19, 0, 0, 0);
+    if (dayBefore > now) {
+      const id1 = await Notifications.scheduleNotificationAsync({
+        content: {
+          title: '📅 Tomorrow’s Meeting',
+          body: `${meeting.contactName || 'Meeting'} at ${meeting.startTime}`,
+          data: { meetingId: meeting.id },
+        },
+        trigger: dayBefore,
+      });
+      notificationIds.push(id1);
+    }
+
+    // 2️⃣ Same day at 8 AM
+    const morning = new Date(meetingDateTime);
+    morning.setHours(8, 0, 0, 0);
+    if (morning > now) {
+      const id2 = await Notifications.scheduleNotificationAsync({
+        content: {
+          title: '⏰ Today’s Meeting',
+          body: `${meeting.contactName || 'Meeting'} at ${meeting.startTime}`,
+          data: { meetingId: meeting.id },
+        },
+        trigger: morning,
+      });
+      notificationIds.push(id2);
+    }
+
+    // 3️⃣ 2 hours before
+    const twoHoursBefore = subMinutes(meetingDateTime, 120);
+    if (twoHoursBefore > now) {
+      const id3 = await Notifications.scheduleNotificationAsync({
+        content: {
+          title: '🔔 Meeting in 2 Hours',
+          body: `${meeting.contactName || 'Meeting'} at ${meeting.startTime}`,
+          data: { meetingId: meeting.id },
+        },
+        trigger: twoHoursBefore,
+      });
+      notificationIds.push(id3);
+    }
+
+    // 4️⃣ 5 minutes before
+    const fiveMinBefore = subMinutes(meetingDateTime, 5);
+    if (fiveMinBefore > now) {
+      const id4 = await Notifications.scheduleNotificationAsync({
+        content: {
+          title: '📞 Follow-up in 5 minutes',
+          body: `${meeting.contactName || 'Meeting'} at ${meeting.startTime}`,
+          data: { meetingId: meeting.id },
+        },
+        trigger: fiveMinBefore,
+      });
+      notificationIds.push(id4);
+    }
+
+    await AsyncStorage.setItem(`notifications_meeting_${meeting.id}`, JSON.stringify(notificationIds));
+  } catch (error) {
+    console.error('❌ Error scheduling meeting notifications:', error);
+  }
+};
+
 
 
 
@@ -710,10 +857,6 @@ const getEventsForCurrentView = (): Event[] => {
     return d === 0 ? a.startTime.localeCompare(b.startTime) : d;
   });
 };
-
-
-
-
 
  useEffect(() => {
   fetchFollowUps();

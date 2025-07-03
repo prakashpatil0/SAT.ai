@@ -23,6 +23,7 @@ import targetService from "@/app/services/targetService";
 import Dialer, { Contact as DialerContact } from '@/app/components/Dialer/Dialer';
 import { startOfWeek, endOfWeek } from 'date-fns';
 import { Timestamp } from 'firebase/firestore';
+import { AppState, AppStateStatus } from 'react-native';
 
 // Define navigation types
 type RootStackParamList = {
@@ -276,7 +277,21 @@ const HomeScreen = () => {
     fetchContacts();
   }, [fetchContacts]);
 
-  const fetchCallLogs = useCallback(async () => {
+
+useEffect(() => {
+  const subscription = AppState.addEventListener('change', async (nextAppState: AppStateStatus) => {
+    if (nextAppState === 'active') {
+      await handleRefresh(); // fetch latest logs when user returns to app
+    }
+  });
+
+  return () => {
+    subscription.remove(); // cleanup
+  };
+}, [handleRefresh]);
+
+
+const fetchCallLogs = useCallback(async () => {
     try {
       const userId = auth.currentUser?.uid;
       if (!userId) return;

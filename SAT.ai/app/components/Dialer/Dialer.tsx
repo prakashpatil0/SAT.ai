@@ -583,7 +583,7 @@ const Dialer: React.FC<DialerProps> = ({
                   )}
                   
                   <View style={styles.headerActions}>
-                    <TouchableOpacity
+                    {/* <TouchableOpacity
                       style={styles.actionButton}
                       onPress={() => setIsSearching(!isSearching)}
                     >
@@ -592,25 +592,25 @@ const Dialer: React.FC<DialerProps> = ({
                         size={24} 
                         color="#FF8447" 
                       />
-                    </TouchableOpacity>
+                    </TouchableOpacity> */}
                     
                     {phoneNumber.length > 0 && (
                       <>
-                        <TouchableOpacity
+                        {/* <TouchableOpacity
                           style={styles.actionButton}
                           onPress={handleCreateNewContact}
                         >
                           <MaterialIcons name="person-add" size={24} color="#FF8447" />
                           <Text style={styles.actionText}>New</Text>
-                        </TouchableOpacity>
+                        </TouchableOpacity> */}
                         
-                        <TouchableOpacity
+                        {/* <TouchableOpacity
                           style={styles.actionButton}
                           onPress={handleAddToContact}
                         >
                           <MaterialIcons name="person-add-alt" size={24} color="#FF8447" />
                           <Text style={styles.actionText}>Add to</Text>
-                        </TouchableOpacity>
+                        </TouchableOpacity> */}
                         
                         <TouchableOpacity
                           style={styles.backspaceButton}

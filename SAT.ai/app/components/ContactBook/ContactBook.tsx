@@ -18,7 +18,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { MaterialIcons } from '@expo/vector-icons';
 import TelecallerMainLayout from "@/app/components/TelecallerMainLayout";
 import * as ExpoContacts from 'expo-contacts';
-
+import Dialer from '@/app/components/Dialer/Dialer';
 import AppGradient from '../AppGradient';
 type AddContactModalProps = {
     visible: boolean;
@@ -28,7 +28,8 @@ type AddContactModalProps = {
     editingContact?: Contact | null;
     
   };
-  
+// import Dialer, { Contact as DialerContact } from '@/app/components/Dialer/Dialer';
+
 interface Contact {
   id: string;
   firstName: string;
@@ -41,7 +42,8 @@ interface Contact {
 const ALPHABETS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
 
 const ContactBook = () => {
-    
+
+    const [contacts, setContacts] = useState<{ [key: string]: Contact[] }>({}); 
     const [firstName, setFirstName] = useState('');
     const [lastName, setLastName] = useState('');
     const [phoneNumber, setPhoneNumber] = useState('');
@@ -50,7 +52,6 @@ const ContactBook = () => {
       firstName: '',
       phoneNumber: ''
     });
-  const [contacts, setContacts] = useState<{ [key: string]: Contact[] }>({});
   const [searchQuery, setSearchQuery] = useState('');
   const [searchHistory, setSearchHistory] = useState<string[]>([]);
   const [showSearchHistory, setShowSearchHistory] = useState(false);
@@ -66,54 +67,75 @@ const ContactBook = () => {
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const cleanPhoneNumber = (phone?: string) => (phone || '').replace(/\D/g, '');
 
+  // const [contacts, setContacts] = useState<DialerContact[]>([]);
+  const [isLoadingContacts, setIsLoadingContacts] = useState(false);
 
-  const importDeviceContacts = async () => {
-    try {
-      const { status } = await ExpoContacts.requestPermissionsAsync();
-      if (status === 'granted') {
-        const { data } = await ExpoContacts.getContactsAsync({
-          fields: [ExpoContacts.Fields.PhoneNumbers, ExpoContacts.Fields.Emails],
-        });
-  
-        if (data.length > 0) {
-  
-          // 📍 MOVE THIS FUNCTION INSIDE
-          const cleanPhoneNumber = (phone?: string) => (phone || '').replace(/\D/g, '');
-  
-          const formattedContacts = data.map((contact) => ({
+const importDeviceContacts = async () => {
+  try {
+    // Request permission to access device contacts
+    const { status } = await ExpoContacts.requestPermissionsAsync();
+    if (status === 'granted') {
+      // Fetch contacts from the device
+      const { data } = await ExpoContacts.getContactsAsync({
+        fields: [ExpoContacts.Fields.PhoneNumbers, ExpoContacts.Fields.Emails],
+      });
+
+      // If there are contacts fetched
+      if (data.length > 0) {
+        // Function to clean the phone number by removing non-digit characters
+        const cleanPhoneNumber = (phone?: string) => (phone || '').replace(/\D/g, '');
+
+        // Format and filter contacts
+        const formattedContacts = data
+          .map((contact) => ({
             id: contact.id,
             firstName: contact.firstName || '',
             lastName: contact.lastName || '',
-            phoneNumber: contact.phoneNumbers && contact.phoneNumbers.length > 0 ? contact.phoneNumbers[0].number : '',
+            phoneNumber: contact.phoneNumbers && contact.phoneNumbers.length > 0 
+              ? contact.phoneNumbers[0].number 
+              : '',
             email: contact.emails && contact.emails.length > 0 ? contact.emails[0].email : '',
             favorite: false,
-          })).filter(c => c.phoneNumber);
-  
-          const storedContacts = await AsyncStorage.getItem('telecaller_contacts');
-          let existingContacts = storedContacts ? JSON.parse(storedContacts) : [];
-  
-          const mergedContacts = [...existingContacts];
-  
-          formattedContacts.forEach(newContact => {
-            const newPhone = cleanPhoneNumber(newContact.phoneNumber);
-            const exists = existingContacts.some(c => cleanPhoneNumber(c.phoneNumber) === newPhone);
-            if (!exists && newPhone) {
-              mergedContacts.push(newContact);
-            }
-          });
-  
-          await AsyncStorage.setItem('telecaller_contacts', JSON.stringify(mergedContacts));
-          loadContacts();
-          Alert.alert('Success', 'Device contacts synced successfully.');
-        }
+          }))
+          .filter(c => c.phoneNumber); // Filter out contacts without phone numbers
+
+        // Fetch existing contacts from AsyncStorage
+        const storedContacts = await AsyncStorage.getItem('telecaller_contacts');
+        let existingContacts = storedContacts ? JSON.parse(storedContacts) : [];
+
+        // Merge existing contacts with newly fetched contacts
+        const mergedContacts = [...existingContacts];
+
+        formattedContacts.forEach(newContact => {
+          const newPhone = cleanPhoneNumber(newContact.phoneNumber);
+          
+          // Check if the contact already exists based on phone number
+          const exists = existingContacts.some((c: Contact) => cleanPhoneNumber(c.phoneNumber) === newPhone);
+          if (!exists && newPhone) {
+            mergedContacts.push(newContact); // Add new contact only if it doesn't exist
+          }
+        });
+
+        // Save merged contacts back to AsyncStorage
+        await AsyncStorage.setItem('telecaller_contacts', JSON.stringify(mergedContacts));
+
+        // Load contacts into state and perform additional operations like refreshing UI
+        loadContacts();
+
+        // Display success message
+        Alert.alert('Success', 'Device contacts synced successfully.');
       } else {
-        Alert.alert('Permission Denied', 'We need access to your contacts to sync them.');
+        Alert.alert('No Contacts Found', 'There are no contacts in your device.');
       }
-    } catch (error) {
-      console.error('Error syncing contacts:', error);
-      Alert.alert('Error', 'Failed to sync contacts');
+    } else {
+      Alert.alert('Permission Denied', 'We need access to your contacts to sync them.');
     }
-  };
+  } catch (error) {
+    console.error('Error syncing contacts:', error);
+    Alert.alert('Error', 'Failed to sync contacts. Please try again.');
+  }
+};
+
   
   
 
@@ -130,28 +152,16 @@ const ContactBook = () => {
   const loadContacts = async () => {
     try {
       const storedContacts = await AsyncStorage.getItem('telecaller_contacts');
-if (storedContacts) {
-  const parsedContacts: Contact[] = JSON.parse(storedContacts);
-  organizeContactsByAlphabet(parsedContacts);
-
-  const lettersWithContacts = parsedContacts.reduce((letters: string[], contact: Contact) => {
-    const firstLetter = (contact.firstName?.[0] || '#').toUpperCase();
-
-    if (!letters.includes(firstLetter)) {
-      letters.push(firstLetter);
-    }
-    return letters;
-  }, []);
-
-  setActiveLetters(lettersWithContacts.sort());
-}
-
+      if (storedContacts) {
+        const parsedContacts: Contact[] = JSON.parse(storedContacts);
+        organizeContactsByAlphabet(parsedContacts); // Organize contacts by first letter
+      }
     } catch (error) {
       console.error('Error loading contacts:', error);
       Alert.alert('Error', 'Failed to load contacts');
     }
   };
-  
+
 
   const loadSearchHistory = async () => {
     try {
@@ -210,16 +220,8 @@ if (storedContacts) {
       acc[firstLetter].push(contact);
       return acc;
     }, {});
-  
-    Object.keys(organized).forEach(letter => {
-      organized[letter].sort((a, b) => {
-        if (a.favorite && !b.favorite) return -1;
-        if (!a.favorite && b.favorite) return 1;
-        return (a.firstName || '').localeCompare(b.firstName || '');
-      });
-    });
-  
-    setContacts(organized);
+
+    setContacts(organized); // Store organized contacts
   };
   
 
@@ -511,10 +513,13 @@ if (storedContacts) {
     }
   };
   
-  
+useEffect(() => {
+  console.log('Contacts passed to Dialer:', contacts);
+}, [JSON.stringify(contacts)]); 
+  // Removed fetchContacts and its useEffect because contacts are managed as an object by alphabet in this component.
 
-  return (
-    <AppGradient>
+ return (
+  <AppGradient>
     <TelecallerMainLayout showBackButton={true} title="Contact Book">
       <View style={styles.searchContainer}>
         <MaterialIcons name="search" size={24} color="#999" style={styles.searchIcon} />
@@ -561,17 +566,16 @@ if (storedContacts) {
         </View>
       )}
 
-      
       <TouchableOpacity
-  style={styles.createContactButton}
-  onPress={() => {
-    setEditingContact(null); // For Add New Contact
-    setModalVisible(true);   // Open Modal
-  }}
->
-  <MaterialIcons name="person-add" size={24} color="#0099ff" />
-  <Text style={styles.createContactText}>Create New Contact</Text>
-</TouchableOpacity>
+        style={styles.createContactButton}
+        onPress={() => {
+          setEditingContact(null); // For Add New Contact
+          setModalVisible(true);   // Open Modal
+        }}
+      >
+        <MaterialIcons name="person-add" size={24} color="#0099ff" />
+        <Text style={styles.createContactText}>Create New Contact</Text>
+      </TouchableOpacity>
 
       <View style={styles.contactsContainer}>
         <ScrollView 
@@ -593,15 +597,15 @@ if (storedContacts) {
               {filteredContacts[letter].map(contact => renderContact(contact))}
             </View>
           ))}
-          
+
           {/* Add some padding at the bottom for better scrolling */}
-          <View style={{height: 100}} />
+          <View style={{ height: 100 }} />
         </ScrollView>
-       
+
         <View style={styles.alphabetList}>  
           <ScrollView 
             showsVerticalScrollIndicator={false}
-            contentContainerStyle={{paddingVertical: 4}}
+            contentContainerStyle={{ paddingVertical: 4 }}
           >
             {ALPHABETS.map((letter) => (
               <TouchableOpacity
@@ -609,7 +613,7 @@ if (storedContacts) {
                 onPress={() => scrollToLetter(letter)}
                 style={[
                   styles.alphabetItem,
-                  activeLetters.includes(letter) ? {opacity: 1} : {opacity: 0.3},
+                  activeLetters.includes(letter) ? { opacity: 1 } : { opacity: 0.3 },
                   selectedLetter === letter && styles.alphabetItemSelected
                 ]}
                 disabled={!activeLetters.includes(letter)}
@@ -617,7 +621,7 @@ if (storedContacts) {
               >
                 <Text style={[
                   styles.alphabetText,
-                  activeLetters.includes(letter) ? {color: '#666', fontFamily: 'LexendDeca_500Medium'} : {},
+                  activeLetters.includes(letter) ? { color: '#666', fontFamily: 'LexendDeca_500Medium' } : {},
                   selectedLetter === letter && styles.alphabetTextSelected
                 ]}>
                   {letter}
@@ -649,119 +653,62 @@ if (storedContacts) {
           <Text style={styles.letterIndicatorText}>{selectedLetter}</Text>
         </Animated.View>
       ) : null}
-
-     
     </TelecallerMainLayout>
+
+
+
     {modalVisible && (
-  <Modal
-  visible={modalVisible} // your existing state
-  animationType="slide"
-  transparent={true}
-  onRequestClose={() => setModalVisible(false)}
->
-  <KeyboardAvoidingView
-    behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-    style={styles.modalContainer}
-  >
-    <View style={styles.modalContent}>
-
-      <View style={styles.modalHeader}>
-        <TouchableOpacity
-          onPress={() => {
-            Keyboard.dismiss();
-            setModalVisible(false); // Close Modal
-          }}
-          style={styles.closeButton}
+      <Modal
+        visible={modalVisible} // your existing state
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setModalVisible(false)}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={styles.modalContainer}
         >
-          <MaterialIcons name="close" size={24} color="#333" />
-        </TouchableOpacity>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <TouchableOpacity
+                onPress={() => {
+                  Keyboard.dismiss();
+                  setModalVisible(false); // Close Modal
+                }}
+                style={styles.closeButton}
+              >
+                <MaterialIcons name="close" size={24} color="#333" />
+              </TouchableOpacity>
 
-        <Text style={styles.modalTitle}>
-          {editingContact ? 'Edit Contact' : 'Add New Contact'}
-        </Text>
-        <View style={styles.placeholder} />
-      </View>
+              <Text style={styles.modalTitle}>
+                {editingContact ? 'Edit Contact' : 'Add New Contact'}
+              </Text>
+              <View style={styles.placeholder} />
+            </View>
 
-      <ScrollView
-        style={styles.form}
-        showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
-      >
-        <View style={styles.inputGroup}>
-          <Text style={styles.label}>First Name <Text style={styles.required}>*</Text></Text>
-          <TextInput
-            style={[styles.input, errors.firstName ? styles.inputError : null]}
-            placeholder="Enter First Name"
-            value={firstName}
-            onChangeText={setFirstName}
-            returnKeyType="next"
-          />
-          {errors.firstName ? (
-            <Text style={styles.errorText}>{errors.firstName}</Text>
-          ) : null}
-        </View>
+            <ScrollView
+              style={styles.form}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+            >
+              {/* Form Fields for First Name, Last Name, Phone Number, Email */}
+            </ScrollView>
 
-        <View style={styles.inputGroup}>
-          <Text style={styles.label}>Last Name</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="Enter Last Name"
-            value={lastName}
-            onChangeText={setLastName}
-            returnKeyType="next"
-          />
-        </View>
+            <TouchableOpacity
+              style={styles.saveButton}
+              onPress={handleSave}
+            >
+              <Text style={styles.saveButtonText}>
+                {editingContact ? 'Update Contact' : 'Save Contact'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+    )}
+  </AppGradient>
+);
 
-        <View style={styles.inputGroup}>
-  <Text style={styles.label}>
-    Phone Number <Text style={styles.required}>*</Text>
-  </Text>
-  <TextInput
-    style={[styles.input, errors.phoneNumber ? styles.inputError : null]}
-    placeholder="Enter Phone Number"
-    value={phoneNumber}
-    onChangeText={setPhoneNumber}
-    keyboardType="phone-pad"
-    editable={true} 
-    selectTextOnFocus={true}  
-    returnKeyType="next"
-  />
-  {errors.phoneNumber ? (
-    <Text style={styles.errorText}>{errors.phoneNumber}</Text>
-  ) : null}
-</View>
-
-
-        <View style={styles.inputGroup}>
-          <Text style={styles.label}>Email ID</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="Enter Email ID"
-            value={email}
-            onChangeText={setEmail}
-            keyboardType="email-address"
-            autoCapitalize="none"
-            returnKeyType="done"
-          />
-        </View>
-      </ScrollView>
-
-      <TouchableOpacity
-        style={styles.saveButton}
-        onPress={handleSave}
-      >
-        <Text style={styles.saveButtonText}>
-          {editingContact ? 'Update Contact' : 'Save Contact'}
-        </Text>
-      </TouchableOpacity>
-
-    </View>
-  </KeyboardAvoidingView>
-</Modal>
-)}
-
-    </AppGradient>
-  );
 };
 
 const styles = StyleSheet.create({

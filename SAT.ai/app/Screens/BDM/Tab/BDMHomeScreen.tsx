@@ -24,6 +24,7 @@ import { useProfile } from "@/app/context/ProfileContext";
 import { BDMStackParamList } from "@/app/index";
 import BDMMainLayout from "@/app/components/BDMMainLayout";
 import CallLogModule from "react-native-call-log";
+import { AppState, AppStateStatus } from 'react-native';
 
 const SCREEN_HEIGHT = Dimensions.get("window").height;
 import {
@@ -677,48 +678,80 @@ const [meetingDetails, setMeetingDetails] = useState<
     }
   }, [requestCallLogPermission]);
 
-  const handleCallFromLogs = useCallback(async (phoneNumber: string) => {
-    try {
-      const userId = auth.currentUser?.uid;
-      if (!userId) {
-        Alert.alert("Error", "User not authenticated");
-        return;
-      }
+const handleCallFromLogs = useCallback(async (phoneNumber: string) => {
+  try {
+    const userId = auth.currentUser?.uid;
+    if (!userId) return;
 
-      const startTime = new Date();
-      const callLogRef = await addDoc(collection(db, "callLogs"), {
-        userId,
-        phoneNumber,
-        timestamp: startTime,
-        startTime: startTime,
-        type: "outgoing",
-        status: "in-progress",
-        duration: 0,
-      });
+    const startTime = new Date();
+    await addDoc(collection(db, 'callLogs'), {
+      userId,
+      phoneNumber,
+      timestamp: startTime,
+      startTime: startTime,
+      type: 'outgoing',
+      status: 'in-progress',
+      duration: 0
+    });
 
-      startCallTimer();
+    startCallTimer(); // optional
 
-      const phoneUrl = Platform.select({
-        ios: `telprompt:${phoneNumber}`,
-        android: `tel:${phoneNumber}`,
-      });
+    const phoneUrl = Platform.select({
+      ios: `telprompt:${phoneNumber}`,
+      android: `tel:${phoneNumber}`
+    });
 
-      if (phoneUrl && (await Linking.canOpenURL(phoneUrl))) {
-        await Linking.openURL(phoneUrl);
-        setCallActive(true);
-        if (isDialerVisible) {
-          setPhoneNumber("");
-          closeDialer();
-        }
-      } else {
-        throw new Error("Cannot make phone call");
-      }
-    } catch (error) {
-      Alert.alert("Error", "Failed to initiate call. Please check phone permissions.");
-      setCallActive(false);
-      stopCallTimer();
+    if (phoneUrl && await Linking.canOpenURL(phoneUrl)) {
+      await Linking.openURL(phoneUrl);
     }
-  }, [isDialerVisible, startCallTimer, stopCallTimer]);
+  } catch (error) {
+    Alert.alert('Error', 'Failed to make the call.');
+  }
+}, []);
+
+const handleEndCall = useCallback(async () => {
+  try {
+    const userId = auth.currentUser?.uid;
+    if (!userId) return;
+
+    stopCallTimer();
+
+    const callLogsRef = collection(db, 'callLogs');
+    const q = query(
+      callLogsRef,
+      where('userId', '==', userId),
+      where('status', '==', 'in-progress'),
+      orderBy('timestamp', 'desc')
+    );
+    const querySnapshot = await getDocs(q);
+    const lastCallLog = querySnapshot.docs[0];
+
+    if (lastCallLog) {
+      const startTime = lastCallLog.data().startTime?.toDate?.() || new Date();
+      const duration = Math.floor((Date.now() - startTime.getTime()) / 1000);
+      await updateDoc(doc(db, 'callLogs', lastCallLog.id), {
+        status: 'completed',
+        endTime: new Date(),
+        duration: duration,
+        lastUpdated: new Date()
+      });
+
+      fetchCallLogs(); // IMMEDIATE REFRESH
+    }
+  } catch (err) {
+    Alert.alert('Error', 'Failed to end the call properly.');
+  }
+}, [fetchCallLogs, stopCallTimer]);
+
+
+useEffect(() => {
+  const subscription = AppState.addEventListener('change', (state) => {
+    if (state === 'active') {
+      handleEndCall(); // Call ends → update log + fetch
+    }
+  });
+  return () => subscription.remove();
+}, [handleEndCall]);
 
   const resetPermissions = useCallback(async () => {
     if (__DEV__) {

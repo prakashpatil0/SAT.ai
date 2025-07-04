@@ -116,6 +116,7 @@ const ReportScreen: React.FC = () => {
   const [notAttendedCalls, setNotAttendedCalls] = useState("");
   const [closingLeads, setClosingLeads] = useState("");
   const [closingDetails, setClosingDetails] = useState<ClosingDetail[]>([
+    
     {
       selectedProduct: "",
       otherProduct: "",
@@ -124,7 +125,38 @@ const ReportScreen: React.FC = () => {
       showOtherInput: false,
     },
   ]);
+ const resetForm = () => {
+    // Reset all form field values
+    setPositiveLeads('');
+    setRejectedLeads('');
+    setNotAttendedCalls('');
+    setClosingLeads('');
 
+    // Reset closingDetails array
+    setClosingDetails([
+      {
+        selectedProduct: "",
+        otherProduct: "",
+        amount: "",
+        description: "",
+        showOtherInput: false,
+      },
+    ]);
+
+    // Reset error states
+    setErrors({
+      positiveLeads: '',
+      rejectedLeads: '',
+      notAttendedCalls: '',
+      closingLeads: '',
+      [`closing_0_amount`]: '',
+      [`closing_0_description`]: '',
+      [`closing_0_product`]: '',
+    });
+
+    // Reset total closing amount
+    setTotalClosingAmount(0);
+  };
   const [totalClosingAmount, setTotalClosingAmount] = useState(0);
   const [dropdownVisible, setDropdownVisible] = useState<number | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
@@ -626,66 +658,139 @@ const ReportScreen: React.FC = () => {
                 </Text>
               </View>
 
-              <Text style={styles.label}>Positive Leads</Text>
-              <TextInput
-                style={[
-                  styles.input,
-                  errors.positiveLeads && styles.inputError,
-                ]}
-                value={positiveLeads}
-                onChangeText={setPositiveLeads}
-                keyboardType="numeric"
-                placeholder="0"
-                ref={positiveLeadsRef}
-              />
-              {errors.positiveLeads && (
-                <Text style={styles.errorText}>{errors.positiveLeads}</Text>
-              )}
+<Text style={styles.label}>Positive Leads</Text>
+<TextInput
+  style={[
+    styles.input,
+    errors.positiveLeads && styles.inputError,
+  ]}
+  value={positiveLeads}
+  onChangeText={(text) => {
+    // Check if the new text contains only digits
+    const isValid = /^[0-9]*$/.test(text);
 
-              <Text style={styles.label}>Rejected Leads</Text>
-              <TextInput
-                style={[
-                  styles.input,
-                  errors.rejectedLeads && styles.inputError,
-                ]}
-                value={rejectedLeads}
-                onChangeText={setRejectedLeads}
-                keyboardType="numeric"
-                placeholder="0"
-                ref={rejectedLeadsRef}
-              />
-              {errors.rejectedLeads && (
-                <Text style={styles.errorText}>{errors.rejectedLeads}</Text>
-              )}
+    if (isValid) {
+      setPositiveLeads(text);
+      setErrors((prev) => ({ ...prev, positiveLeads: '' })); // Clear error
+    } else {
+      setErrors((prev) => ({
+        ...prev,
+        positiveLeads: 'Only valid number allowed',
+      }));
+    }
+  }}
+  keyboardType="numeric"
+  placeholder="Enter number"
+  ref={positiveLeadsRef}
+/>
 
-              <Text style={styles.label}>Not Attended Calls</Text>
-              <TextInput
-                style={[
-                  styles.input,
-                  errors.notAttendedCalls && styles.inputError,
-                ]}
-                value={notAttendedCalls}
-                onChangeText={setNotAttendedCalls}
-                keyboardType="numeric"
-                placeholder="0"
-                ref={notAttendedCallsRef}
-              />
-              {errors.notAttendedCalls && (
-                <Text style={styles.errorText}>{errors.notAttendedCalls}</Text>
-              )}
+{/* Show error if present */}
+{errors.positiveLeads ? (
+  <Text style={styles.errorText}>{errors.positiveLeads}</Text>
+) : null}
 
-              <Text style={styles.label}>Closing Leads</Text>
-              <TextInput
-                style={[styles.input, errors.closingLeads && styles.inputError]}
-                value={closingLeads}
-                onChangeText={setClosingLeads}
-                keyboardType="numeric"
-                placeholder="0"
-                ref={closingLeadsRef}
-              />
-              {errors.closingLeads && (
-                <Text style={styles.errorText}>{errors.closingLeads}</Text>
-              )}
+
+
+  {/* Positive Leads Field */}
+
+
+{/* Rejected Leads Field */}
+<Text style={styles.label}>Rejected Leads</Text>
+<TextInput
+  style={[
+    styles.input,
+    errors.rejectedLeads && styles.inputError,
+  ]}
+  value={rejectedLeads}
+  onChangeText={(text) => {
+    // Check if the input is a valid number (only digits)
+    const isValid = /^[0-9]*$/.test(text);
+
+    if (isValid) {
+      setRejectedLeads(text); // Update value only if valid
+      setErrors((prev) => ({ ...prev, rejectedLeads: '' })); // Clear error message
+    } else {
+      setErrors((prev) => ({
+        ...prev,
+        rejectedLeads: 'Only valid number allowed', // Show error message
+      }));
+    }
+  }}
+  keyboardType="numeric"
+  placeholder="Enter number"
+  ref={rejectedLeadsRef}
+/>
+{/* Show error message below if any */}
+{errors.rejectedLeads && (
+  <Text style={styles.errorText}>{errors.rejectedLeads}</Text>
+)}
+
+
+     {/* Not Attended Calls Field */}
+<Text style={styles.label}>Not Attended Calls</Text>
+<TextInput
+  style={[
+    styles.input,
+    errors.notAttendedCalls && styles.inputError,
+  ]}
+  value={notAttendedCalls}
+  onChangeText={(text) => {
+    // Allow only digits
+    const numericText = text.replace(/[^0-9]/g, ''); // Only digits allowed
+    setNotAttendedCalls(numericText);
+
+    // Clear error if valid number is entered
+    if (numericText) {
+      setErrors((prev) => ({ ...prev, notAttendedCalls: '' }));
+    } else {
+      setErrors((prev) => ({
+        ...prev,
+        notAttendedCalls: 'Only valid number allowed', // Show error message
+      }));
+    }
+  }}
+  keyboardType="numeric"
+  placeholder=""
+  ref={notAttendedCallsRef}
+/>
+{/* Show error message below if any */}
+{errors.notAttendedCalls && (
+  <Text style={styles.errorText}>{errors.notAttendedCalls}</Text>
+)}
+
+{/* Closing Leads Field */}
+<Text style={styles.label}>Closing Leads</Text>
+<TextInput
+  style={[styles.input, errors.closingLeads && styles.inputError]}
+  value={closingLeads}
+  onChangeText={(text) => {
+    // Allow only digits using a regular expression
+    const numericText = text.replace(/[^0-9]/g, ''); // Only digits allowed
+    setClosingLeads(numericText);
+
+    // Clear the error message if valid number is entered
+    if (numericText) {
+      setErrors((prev) => ({ ...prev, closingLeads: '' }));
+    } else {
+      // Show error message if the input is invalid
+      setErrors((prev) => ({
+        ...prev,
+        closingLeads: 'Only valid number allowed', // Error message
+      }));
+    }
+  }}
+  keyboardType="numeric"
+  placeholder=""
+  ref={closingLeadsRef}
+/>
+
+{/* Display error message if there's an error */}
+{errors.closingLeads && (
+  <Text style={styles.errorText}>{errors.closingLeads}</Text>
+)}
+
+
+
 
               {/* Closing Details */}
               <View style={styles.section}>
@@ -771,41 +876,47 @@ const ReportScreen: React.FC = () => {
                     )}
 
                     {/* Other fields */}
-                    <Text style={styles.label}>
-                      Closing Amount <Text style={styles.required}>*</Text>
-                    </Text>
-                    <View style={styles.amountInputContainer}>
-                      <Text style={styles.currencySymbol}>₹</Text>
-                      <TextInput
-                        style={[
-                          styles.amountInput,
-                          errors[`closing_${index}_amount`] &&
-                            styles.inputError,
-                        ]}
-                        value={detail.amount}
-                        onChangeText={(text) => {
-                          const newDetails = [...closingDetails];
-                          newDetails[index] = { ...detail, amount: text };
-                          setClosingDetails(newDetails);
+<Text style={styles.label}>
+  Closing Amount <Text style={styles.required}>*</Text>
+</Text>
+<View style={styles.amountInputContainer}>
+  <Text style={styles.currencySymbol}>₹</Text>
+  <TextInput
+    style={[
+      styles.amountInput,
+      errors[`closing_${index}_amount`] && styles.inputError, // Apply error styles if error exists
+    ]}
+    value={detail.amount}
+    onChangeText={(text) => {
+      // Ensure only digits are stored
+      const numericText = text.replace(/[^0-9]/g, ''); // Only digits allowed
 
-                          // Update total amount
-                          const total = newDetails.reduce((sum, d) => {
-                            const amount =
-                              parseInt(d.amount.replace(/[^0-9]/g, "")) || 0;
-                            return sum + amount;
-                          }, 0);
-                          setTotalClosingAmount(total);
-                        }}
-                        keyboardType="numeric"
-                        placeholder="Enter Amount"
-                        ref={(el) => (closingAmountRefs.current[index] = el)}
-                      />
-                    </View>
-                    {errors[`closing_${index}_amount`] && (
-                      <Text style={styles.errorText}>
-                        {errors[`closing_${index}_amount`]}
-                      </Text>
-                    )}
+      // Update the amount in the closingDetails array
+      const newDetails = [...closingDetails];
+      newDetails[index] = { ...detail, amount: numericText };
+      setClosingDetails(newDetails);
+
+      // Recalculate total amount
+      const total = newDetails.reduce((sum, d) => {
+        const amount = parseInt(d.amount.replace(/[^0-9]/g, "")) || 0; // Ensure no NaN
+        return sum + amount;
+      }, 0);
+      setTotalClosingAmount(total); // Update the total
+    }}
+    keyboardType="numeric"
+    placeholder="Enter Amount"
+    ref={(el) => (closingAmountRefs.current[index] = el)} // Dynamic ref for each index
+  />
+</View>
+
+{/* Show error message below if any */}
+{errors[`closing_${index}_amount`] && (
+  <Text style={styles.errorText}>
+    {errors[`closing_${index}_amount`]} {/* Display the error message */}
+  </Text>
+)}
+
+
 
                     <Text style={styles.label}>Description</Text>
                     <TextInput
@@ -861,6 +972,15 @@ const ReportScreen: React.FC = () => {
                   ₹ {totalClosingAmount.toLocaleString()}
                 </Text>
               </View>
+// Add this within the return block in your JSX
+
+{/* Reset Button */}
+<TouchableOpacity
+  style={styles.resetButton}
+  onPress={resetForm} // Call the resetForm function on press
+>
+  <Text style={styles.resetButtonText}>Reset Form</Text>
+</TouchableOpacity>
 
               {/* Submit Button */}
               <TouchableOpacity
@@ -874,12 +994,13 @@ const ReportScreen: React.FC = () => {
                   end={{ x: 1, y: 0 }}
                 >
                   <Text style={styles.submitText}>Submit Report</Text>
+                  
                 </LinearGradient>
               </TouchableOpacity>
             </View>
           </KeyboardAwareScrollView>
         </View>
-
+        
         {/* Success Modal */}
         <Modal
           transparent={true}
@@ -958,6 +1079,13 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     marginLeft: 4,
   },
+//   errorText1: {
+//   color: 'red',
+//   fontSize: 12,
+//   marginTop: 4,
+//   marginLeft: 4,
+// },
+
   section: {
     marginTop: 20,
   },
@@ -1099,6 +1227,20 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontFamily: "LexendDeca_600SemiBold",
   },
+  resetButton: {
+  backgroundColor: '#FF5252', // Red color
+  padding: 12,
+  borderRadius: 8,
+  alignItems: 'center',
+  marginTop: 20,
+},
+
+resetButtonText: {
+  color: '#fff',
+  fontSize: 16,
+  fontWeight: 'bold',
+}
+,
   modalOverlay: {
     flex: 1,
     justifyContent: "center",

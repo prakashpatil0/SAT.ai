@@ -262,7 +262,8 @@ const WeeklyTargetScreen = () => {
         callDuration: weeklyTotalDuration,
         positiveLeads: weeklyTotalPositiveLeads,
         closingAmount: weeklyTotalClosingAmount,
-        percentageAchieved: Math.round(weeklyAchievementPercentage * 10) / 10,
+      percentageAchieved: Math.round(weeklyAchievementPercentage),
+
         createdAt: Timestamp.fromDate(currentDate),
         updatedAt: Timestamp.fromDate(currentDate),
         date: date,
@@ -281,7 +282,8 @@ const WeeklyTargetScreen = () => {
         callDuration: monthlyTotalDuration,
         positiveLeads: monthlyTotalPositiveLeads,
         closingAmount: monthlyTotalClosingAmount,
-        percentageAchieved: Math.round(monthlyAchievementPercentage * 10) / 10,
+     percentageAchieved: Math.round(weeklyAchievementPercentage),
+
         createdAt: Timestamp.fromDate(currentDate),
         updatedAt: Timestamp.fromDate(currentDate),
         date: date,
@@ -532,24 +534,12 @@ const WeeklyTargetScreen = () => {
     }
   }, [loading]);
 
-  const calculatePercentage = (achievements: Achievements, targets: Targets): number => {
-    // Calculate individual scores (capped at 100% each)
-    const callScore = Math.min((achievements.numCalls / targets.numCalls) * 100, 100);
-    const durationScore = Math.min((achievements.callDuration / targets.callDuration) * 100, 100);
-    const leadScore = Math.min((achievements.positiveLeads / targets.positiveLeads) * 100, 100);
-    const closingScore = Math.min((achievements.closingAmount / targets.closingAmount) * 100, 100);
+ const calculatePercentage = (achievements: Achievements, targets: Targets): number => {
+  if (targets.closingAmount === 0) return 0; // Prevent divide-by-zero
+  const achievedPercentage = (achievements.closingAmount / targets.closingAmount) * 100;
+  return Math.min(achievedPercentage, 100); // Cap at 100%
+};
 
-    // Calculate weighted total score
-    const totalScore = (callScore * 0.25) +
-                      (durationScore * 0.20) +
-                      (leadScore * 0.25) +
-                      (closingScore * 0.30);
-
-    // Cap the final percentage to 100%
-    const achievedPercentage = Math.min(totalScore, 100);
-    
-    return achievedPercentage;
-  };
 
   const renderWaveSkeleton = () => {
     const translateY = waveAnimation.interpolate({

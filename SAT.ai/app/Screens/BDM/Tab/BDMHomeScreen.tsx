@@ -14,6 +14,8 @@ import {
   PermissionsAndroid,
   Dimensions,
   Alert,
+  AppState,
+  AppStateStatus,
 } from "react-native";
 import { ProgressBar } from "react-native-paper";
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
@@ -847,28 +849,23 @@ useEffect(() => {
     }
   }, []);
 
-  const calculateTotalDuration = useCallback(
-    (date: string) => {
-      const dayLogs = callLogs.filter((log) => new Date(log.timestamp).toLocaleDateString() === date);
-      let totalSeconds = 0;
-      dayLogs.forEach((log) => {
+  const calculateTodaysTotalDuration = useCallback(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    let totalSeconds = 0;
+    callLogs.forEach((log) => {
+      const logDate = new Date(log.timestamp);
+      if (logDate >= today && log.status === 'completed') {
         totalSeconds += log.duration || 0;
-      });
-
-      const hours = Math.floor(totalSeconds / 3600);
-      const minutes = Math.floor((totalSeconds % 3600) / 60);
-      const seconds = totalSeconds % 60;
-
-      if (hours > 0) {
-        return `${hours}h ${minutes}m`;
-      } else if (minutes > 0) {
-        return `${minutes}m ${seconds}s`;
-      } else {
-        return `${seconds}s`;
       }
-    },
-    [callLogs]
-  );
+    });
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+    return [hours, minutes, seconds]
+      .map((v) => v.toString().padStart(2, '0'))
+      .join(':');
+  }, [callLogs]);
 
   const handleCardClick = useCallback((id: string) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -940,6 +937,31 @@ useEffect(() => {
     }
   }, [fetchWeeklyAchievement, fetchDeviceCallLogs, fetchCallLogs]);
 
+  const calculateTotalDurationForDate = useCallback((targetDate: Date) => {
+    let totalSeconds = 0;
+    callLogs.forEach((log) => {
+      const logDate = new Date(log.timestamp);
+      if (
+        logDate.getFullYear() === targetDate.getFullYear() &&
+        logDate.getMonth() === targetDate.getMonth() &&
+        logDate.getDate() === targetDate.getDate() &&
+        log.status === 'completed'
+      ) {
+        totalSeconds += log.duration || 0;
+      }
+    });
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+    if (hours > 0) {
+      return `${hours}h ${minutes}m`;
+    } else if (minutes > 0) {
+      return `${minutes}m ${seconds}s`;
+    } else {
+      return `${seconds}s`;
+    }
+  }, [callLogs]);
+
   const renderCallCard = useCallback(
     ({ item, index }: { item: GroupedCallLog; index: number }) => {
       const isNewDate =
@@ -950,15 +972,17 @@ useEffect(() => {
       // Detect contact type based on name
       const contactType = detectContactType(displayName || '');
       const isCompany = contactType === 'company';
+      // Get the date for this group
+      const groupDate = new Date(item.timestamp);
 
       return (
-        <>
+        <> 
           {isNewDate && (
             <View style={styles.dateHeader}>
-              <Text style={styles.dateText}>{formatDate(new Date(item.timestamp))}</Text>
+              <Text style={styles.dateText}>{formatDate(groupDate)}</Text>
               <View style={styles.durationContainer}>
                 <MaterialIcons name="access-time" size={16} color="#666" style={styles.durationIcon} />
-                <Text style={styles.durationText}>{calculateTotalDuration(new Date(item.timestamp).toLocaleDateString())}</Text>
+                <Text style={styles.durationText}>{calculateTotalDurationForDate(groupDate)}</Text>
               </View>
             </View>
           )}
@@ -1007,7 +1031,7 @@ useEffect(() => {
         </>
       );
     },
-    [callLogs, expandedCallId, formatDate, calculateTotalDuration, formatDuration, handleCardClick, navigateToContactDetails]
+    [callLogs, expandedCallId, formatDate, calculateTotalDurationForDate, formatDuration, handleCardClick, navigateToContactDetails]
   );
 
   const renderCallActions = useCallback(
@@ -1077,6 +1101,8 @@ useEffect(() => {
     const stats = { totalMeetings, totalDuration, lastUpdated: new Date().toISOString() };
     await AsyncStorage.setItem("bdm_meeting_stats", JSON.stringify(stats));
   }, [callLogs]);
+
+  const appState = useRef<AppStateStatus>(AppState.currentState as AppStateStatus);
 
   useEffect(() => {
     const loadInitialData = async () => {
@@ -1203,14 +1229,24 @@ useEffect(() => {
 
 
   useEffect(() => {
-    fetchCallLogs();
-    fetchDeviceCallLogs();
-    const backgroundInterval = setInterval(() => {
-      fetchCallLogs();
-      fetchDeviceCallLogs();
-    }, 20000);
-    return () => clearInterval(backgroundInterval);
-  }, [fetchCallLogs, fetchDeviceCallLogs]);
+    appState.current = AppState.currentState as AppStateStatus;
+    const handleAppStateChange = async (nextAppState: AppStateStatus) => {
+      if (
+        (appState.current === 'inactive' || appState.current === 'background') &&
+        nextAppState === 'active'
+      ) {
+        // App has come to the foreground, reload call logs and contacts
+        await loadSavedContacts();
+        await fetchCallLogs();
+        await fetchDeviceCallLogs();
+      }
+      appState.current = nextAppState;
+    };
+    const subscription = AppState.addEventListener('change', handleAppStateChange);
+    return () => {
+      subscription.remove();
+    };
+  }, [loadSavedContacts, fetchCallLogs, fetchDeviceCallLogs]);
 
   const memoizedCallLogs = useMemo(() => {
     return callLogs.sort((a, b) => {
@@ -1219,6 +1255,118 @@ useEffect(() => {
       return bTime - aTime;
     });
   }, [callLogs]);
+
+  const getLogUniqueKey = (log: { userId: string; phoneNumber: string; timestamp: any }) => {
+    const ts = log.timestamp instanceof Date ? log.timestamp.getTime() : (typeof log.timestamp === 'string' ? parseInt(log.timestamp) : log.timestamp);
+    return `${log.userId}_${log.phoneNumber}_${ts}`;
+  };
+
+  const saveBDMCallLogsToFirebase = useCallback(async (logs: any[]) => {
+    try {
+      const userId = auth.currentUser?.uid;
+      if (!userId) return;
+      // Get user profile data
+      let userName = 'Unknown User';
+      try {
+        const userDoc = await getDoc(doc(db, 'users', userId));
+        if (userDoc.exists()) {
+          const userData = userDoc.data();
+          userName = userData.firstName || userData.name || 'Unknown User';
+        }
+      } catch (error) {
+        userName = userProfile?.firstName || userProfile?.name || 'Unknown User';
+      }
+      // Fetch existing logs for today from Firestore (for deduplication)
+      const today = new Date();
+      const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 0, 0, 0, 0);
+      const endOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59, 999);
+      const callLogsRef = collection(db, 'bdm_call_logs');
+      let existingKeys = new Set<string>();
+      try {
+        const todayQuery = query(
+          callLogsRef,
+          where('userId', '==', userId),
+          where('timestamp', '>=', startOfToday),
+          where('timestamp', '<=', endOfToday)
+        );
+        const querySnapshot = await getDocs(todayQuery);
+        existingKeys = new Set(
+          querySnapshot.docs.map(docSnap => {
+            const data = docSnap.data();
+            return getLogUniqueKey({
+              userId,
+              phoneNumber: data.phoneNumber,
+              timestamp: data.timestamp?.toMillis?.() || data.timestamp
+            });
+          })
+        );
+      } catch (fetchError) {
+        // If deduplication fetch fails, just proceed without showing an error
+      }
+      // Save only new logs (unique by userId, phoneNumber, timestamp)
+      const savePromises = logs
+        .map(log => {
+          let timestamp;
+          try {
+            const timestampValue = typeof log.timestamp === 'string' ? 
+              parseInt(log.timestamp) : 
+              log.timestamp;
+            const milliseconds = timestampValue < 10000000000 ? timestampValue * 1000 : timestampValue;
+            timestamp = isNaN(milliseconds) || milliseconds <= 0 ? Timestamp.now() : Timestamp.fromMillis(milliseconds);
+          } catch (error) {
+            timestamp = Timestamp.now();
+          }
+          const logData = {
+            userId,
+            userName: userName,
+            phoneNumber: log.phoneNumber || '',
+            contactName: log.contactName || log.phoneNumber || '',
+            timestamp: timestamp,
+            duration: parseInt(log.duration) || 0,
+            type: (log.type || 'OUTGOING').toLowerCase(),
+            status: (log.type === 'MISSED' ? 'missed' : 'completed'),
+            createdAt: Timestamp.now()
+          };
+          const uniqueKey = getLogUniqueKey({ userId, phoneNumber: logData.phoneNumber, timestamp });
+          if (!existingKeys.has(uniqueKey)) {
+            return addDoc(callLogsRef, logData);
+          }
+          return null;
+        })
+        .filter(Boolean);
+      await Promise.all(savePromises);
+    } catch (error) {
+      // Optionally handle error
+    }
+  }, [userProfile]);
+
+  // Helper to get today's logs from a flat array
+  const getTodaysLogs = (logs: any[]) => {
+    const today = new Date();
+    return logs.filter(log => {
+      const logDate = new Date(log.timestamp instanceof Date ? log.timestamp : (typeof log.timestamp === 'string' ? parseInt(log.timestamp) : log.timestamp));
+      return logDate.toDateString() === today.toDateString();
+    });
+  };
+
+  // After device call logs are fetched and callLogs state is updated, save only today's logs to Firestore
+  useEffect(() => {
+    if (callLogs && callLogs.length > 0) {
+      // Convert GroupedCallLog[] to flat array of logs for saving
+      const flatLogs = callLogs.flatMap(group => group.allCalls || [group]);
+      const todaysLogs = getTodaysLogs(flatLogs);
+      saveBDMCallLogsToFirebase(todaysLogs);
+    }
+  }, [callLogs, saveBDMCallLogsToFirebase]);
+
+  // Handler for manual save button: save only today's logs
+  const handleManualSaveTodaysLogs = useCallback(() => {
+    if (callLogs && callLogs.length > 0) {
+      const flatLogs = callLogs.flatMap(group => group.allCalls || [group]);
+      const todaysLogs = getTodaysLogs(flatLogs);
+      saveBDMCallLogsToFirebase(todaysLogs);
+    }
+  }, [callLogs, saveBDMCallLogsToFirebase]);
 
   return (
     <AppGradient>
@@ -1230,7 +1378,6 @@ useEffect(() => {
 <View style={styles.meetingSection}>
 <View style={{ height: 40 }}>
   <FlatList
-    ref={flatListRef}
     data={meetingDetails}
     keyExtractor={(item) => item.meetingId}
     pagingEnabled={true}
@@ -1269,18 +1416,10 @@ renderItem={({ item }) => {
 
   />
 </View>
-
-
-
 </View>
-
-
         ) : (
           <Text style={styles.noMeetingsText}>No upcoming meetings found.</Text>
         )}
-
-
-
           <View style={styles.welcomeSection}>
             <Text style={styles.welcomeText}>{isFirstTimeUser ? "Welcome,👋👋" : "Hi,👋"}</Text>
             {isLoading ? (
@@ -1317,9 +1456,17 @@ renderItem={({ item }) => {
 
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>Calls & Meeting History</Text>
-            <TouchableOpacity onPress={handleRefresh} style={styles.refreshButton}>
-              <MaterialIcons name="refresh" size={24} color="#FF8447" />
-            </TouchableOpacity>
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <TouchableOpacity onPress={handleRefresh} style={styles.refreshButton}>
+                <MaterialIcons name="refresh" size={24} color="#FF8447" />
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => handleManualSaveTodaysLogs()}
+                style={styles.refreshButton}
+              >
+                <MaterialIcons name="save" size={24} color="#FF8447" />
+              </TouchableOpacity>
+            </View>
           </View>
 
           {isLoadingSimLogs ? (
@@ -1329,7 +1476,10 @@ renderItem={({ item }) => {
           ) : (
             <FlatList
               data={memoizedCallLogs}
-              keyExtractor={(item) => `${new Date(item.timestamp).toISOString()}-${item.phoneNumber}`}
+              keyExtractor={(item) => {
+                const userId = auth.currentUser?.uid || '';
+                return getLogUniqueKey({ userId, phoneNumber: item.phoneNumber, timestamp: item.timestamp });
+              }}
               renderItem={renderCallCard}
               onScroll={handleScroll}
               onScrollEndDrag={handleScrollEnd}

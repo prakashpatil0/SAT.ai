@@ -105,6 +105,7 @@ import BDMLeaderBoard from "./Screens/BDM/DrawerTab/BDMLeaderBoard";
 import HrSettings from "./HRMS/DrawerTab/HrSettings";
 
 import { initializeNotificationService } from "@/app/services/notificationService";
+import NetworkStatusBanner from "@/app/components/NetworkStatusBanner";
 
 export type RootStackParamList = {
   Login: undefined;
@@ -916,6 +917,7 @@ export default function App() {
 
   return (
     <ProfileProvider>
+      <NetworkStatusBanner />
       <RootStack />
     </ProfileProvider>
   );
@@ -962,3 +964,11 @@ const styles = StyleSheet.create({
     borderColor: "#FF8447",
   },
 });
+
+// Helper to wrap screens that require route/navigation props
+function withNavProps(Component: any) {
+  return function Wrapper(props: any) {
+    const navigation = useNavigation();
+    return <Component {...props} navigation={navigation} />;
+  };
+}

@@ -6,8 +6,6 @@ import * as Sharing from 'expo-sharing';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as FileSystem from "expo-file-system";
 import * as MediaLibrary from "expo-media-library";
-import * as Animatable from "react-native-animatable";
-import Icon from "react-native-vector-icons/MaterialCommunityIcons";
 import { useNavigation } from "@react-navigation/native";
 import TelecallerMainLayout from "@/app/components/TelecallerMainLayout";
 import AppGradient from '@/app/components/AppGradient';
@@ -311,7 +309,7 @@ const VirtualBusinessCard = () => {
           </ViewShot>
           <Text style={styles.noteText}>(You can edit your card click on content)</Text>
 
-          <Animatable.View animation="pulse" iterationCount="infinite" duration={1500}>
+          <View>
             <View style={styles.actionRow}>
               <TouchableOpacity style={styles.actionButton} onPress={handleShare}>
                 <Feather name="share-2" size={24} color="#333" />
@@ -323,7 +321,7 @@ const VirtualBusinessCard = () => {
                 <Text style={styles.actionText}>Download</Text>
               </TouchableOpacity>
             </View>
-          </Animatable.View>
+          </View>
 
           {/* Edit Modal */}
           <Modal
@@ -373,11 +371,10 @@ const VirtualBusinessCard = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    paddingTop: 10,
+    marginTop: -20,
   },
   header: {
     flexDirection: 'row',
-    // alignItems: 'center',
     paddingHorizontal: 20,
     justifyContent: 'space-between',
   },
@@ -480,7 +477,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontFamily: "LexendDeca_500Medium",
     color: '#5F6368',
-    marginTop: 5,
+    marginTop: 2,
   },
   bottomLine: {
     height: 10,
@@ -495,7 +492,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     fontSize: 12,
     color: '#666',
-    marginTop: 8,
+    marginTop: -5,
     fontFamily: 'Inter_400Regular',
     fontStyle: 'italic', // 👈 This makes the text italic
   },

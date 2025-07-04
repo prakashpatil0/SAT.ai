@@ -443,6 +443,8 @@ const BDMReportScreen = () => {
       fetchTodayMeetings();
       fetchTodayCallData();
 
+      const interval = setInterval(fetchTodayCallData, 1000);
+
       const unsubscribe = onSnapshot(
         query(
           collection(db, "callLogs"),
@@ -457,7 +459,11 @@ const BDMReportScreen = () => {
         }
       );
 
-      return () => unsubscribe();
+      // 🧹 Clean up both snapshot listener and interval on blur
+      return () => {
+        unsubscribe();
+        clearInterval(interval);
+      };
     }, [fetchTodayCallData, processCallLogs, updateMeetingDuration])
   );
 
@@ -500,12 +506,6 @@ const BDMReportScreen = () => {
     setupCallLogsListener().finally(() => setIsLoading(false));
     return () => unsubscribe?.();
   }, [processCallLogs, updateMeetingDuration]);
-
-  useEffect(() => {
-    fetchTodayCallData();
-    const interval = setInterval(fetchTodayCallData, 10000);
-    return () => clearInterval(interval);
-  }, [fetchTodayCallData]);
 
   useEffect(() => {
     const date = new Date();
@@ -651,7 +651,7 @@ const BDMReportScreen = () => {
   );
 
   const validateForm = () => {
-const newErrors: { [key: string]: string } = {};
+    const newErrors: { [key: string]: string } = {};
 
     // Validate positiveLeadsFromCalls
     if (

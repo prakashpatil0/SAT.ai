@@ -335,7 +335,7 @@ const BDMVirtualBusinessCard = () => {
         <Text style={styles.noteText}>(You can edit your card click on content)</Text>
 
         {/* Share & Download Buttons */}
-        <Animatable.View animation="pulse" iterationCount="infinite" duration={1500}>
+        <View style={{marginTop: -10}}>
           <View style={styles.actionRow}>
             <TouchableOpacity style={styles.actionButton} onPress={handleShare}>
               <Feather name="share-2" size={24} color="#333" />
@@ -347,7 +347,7 @@ const BDMVirtualBusinessCard = () => {
               <Text style={styles.actionText}>Download</Text>
             </TouchableOpacity>
           </View>
-        </Animatable.View>
+        </View>
 
         {/* Edit Modal */}
         <Modal
@@ -397,7 +397,7 @@ const BDMVirtualBusinessCard = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    paddingTop: 10,
+    marginTop: -25,
   },
   loadingContainer: {
     flex: 1,
@@ -513,7 +513,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     fontSize: 12,
     color: '#666',
-    marginTop: 8,
+    marginTop: 2,
     fontFamily: 'Inter_400Regular',
     fontStyle: 'italic', // 👈 This makes the text italic
   },

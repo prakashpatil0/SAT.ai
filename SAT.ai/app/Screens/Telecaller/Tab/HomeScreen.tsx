@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from "react";
-import { View, Text, FlatList, StyleSheet, TouchableOpacity, Animated, Modal, Platform, NativeScrollEvent, NativeSyntheticEvent, ActivityIndicator, PermissionsAndroid, PanResponder, Dimensions } from "react-native";
+import { View, Text, FlatList, StyleSheet, TouchableOpacity, Animated, Modal, Platform, NativeScrollEvent, NativeSyntheticEvent, ActivityIndicator, PermissionsAndroid, PanResponder, Dimensions, AppState, AppStateStatus } from "react-native";
 import { ProgressBar } from "react-native-paper";
 import { useNavigation } from "@react-navigation/native";
 import { MaterialIcons } from '@expo/vector-icons';
@@ -8,17 +8,15 @@ import TelecallerMainLayout from '@/app/components/TelecallerMainLayout';
 import * as Linking from 'expo-linking';
 import AppGradient from "@/app/components/AppGradient";
 import { Audio } from 'expo-av';
-import { getAuth } from 'firebase/auth';
-import { getFirestore, collection, addDoc, query, where, orderBy, onSnapshot, getDocs, getDoc, doc, updateDoc, deleteDoc } from 'firebase/firestore';
+import { collection, addDoc, query, where, orderBy, onSnapshot, getDocs, getDoc, doc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { Alert } from 'react-native';
-import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { auth, db } from "@/firebaseConfig";
 import CallLogModule from 'react-native-call-log';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import api from '@/app/services/api';
 import { useProfile } from '@/app/context/ProfileContext';
 import TelecallerAddContactModal from '@/app/Screens/Telecaller/TelecallerAddContactModal';
-import { getCurrentWeekAchievements } from "@/app/services/targetService";
+// import { getCurrentWeekAchievements } from "@/app/services/targetService";
 import targetService from "@/app/services/targetService";
 import Dialer, { Contact as DialerContact } from '@/app/components/Dialer/Dialer';
 import { startOfWeek, endOfWeek } from 'date-fns';
@@ -102,7 +100,6 @@ interface GroupedCallLog extends CallLog {
 
 const CALL_LOGS_STORAGE_KEY = 'device_call_logs';
 const CALL_LOGS_LAST_UPDATE = 'call_logs_last_update';
-const OLDER_LOGS_UPDATE_INTERVAL = 12 * 60 * 60 * 1000; // 12 hours
 const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000; // 30 days in milliseconds
 
 const HomeScreen = () => {
@@ -135,6 +132,10 @@ const HomeScreen = () => {
   });
   const [isFirstTimeUser, setIsFirstTimeUser] = useState(true);
   const [hasCallLogPermission, setHasCallLogPermission] = useState<boolean | null>(null);
+  const [contacts, setContacts] = useState<DialerContact[]>([]);
+  const [isLoadingContacts, setIsLoadingContacts] = useState(false);
+  const [rawCallLogs, setRawCallLogs] = useState<CallLog[]>([]);
+  const appState = useRef<AppStateStatus>(AppState.currentState as AppStateStatus);
 
   const panResponder = useRef(
     PanResponder.create({
@@ -162,33 +163,48 @@ const HomeScreen = () => {
     return savedContacts[phoneNumber] || false;
   }, [savedContacts]);
 
-  const handleContactSaved = useCallback(async (contact: { id: string; firstName: string; lastName: string; phoneNumber: string; email?: string; favorite?: boolean }) => {
-    try {
-      const contactWithFavorite: DialerContact = {
-        ...contact,
-        favorite: contact.favorite ?? false
-      };
+  // Utility to normalize phone numbers (remove spaces, dashes, country code if needed)
+  const normalizePhoneNumber = (number: string) => {
+    if (!number) return '';
+    // Remove spaces, dashes, parentheses, and leading +91 or 0 (for India, adjust as needed)
+    let normalized = number.replace(/[^\d]/g, '');
+    if (normalized.length > 10 && normalized.startsWith('91')) normalized = normalized.slice(2);
+    if (normalized.length > 10 && normalized.startsWith('0')) normalized = normalized.slice(1);
+    return normalized;
+  };
 
-      setSavedContacts(prev => ({
-        ...prev,
-        [contact.phoneNumber]: true
-      }));
-
-      setContacts(prev => {
-        const existingIndex = prev.findIndex(c => c.phoneNumber === contact.phoneNumber);
-        if (existingIndex !== -1) {
-          const updated = [...prev];
-          updated[existingIndex] = contactWithFavorite;
-          return updated;
+  // Fix: Move handleContactSaved below fetchContacts and fetchCallLogs so they are defined before use.
+  // Also, add guards in case fetchContacts or fetchCallLogs are undefined.
+  const handleContactSaved = useCallback(
+    async (contact: { id: string; firstName: string; lastName: string; phoneNumber: string; email?: string; favorite?: boolean }) => {
+      try {
+        const contactWithFavorite: DialerContact = {
+          ...contact,
+          favorite: contact.favorite ?? false
+        };
+        setSavedContacts(prev => ({ ...prev, [normalizePhoneNumber(contact.phoneNumber)]: true }));
+        setContacts(prev => {
+          const normalized = normalizePhoneNumber(contact.phoneNumber);
+          const existingIndex = prev.findIndex(c => normalizePhoneNumber(c.phoneNumber) === normalized);
+          if (existingIndex !== -1) {
+            const updated = [...prev];
+            updated[existingIndex] = contactWithFavorite;
+            return updated;
+          }
+          return [...prev, contactWithFavorite];
+        });
+        if (typeof fetchContacts === "function") {
+          await fetchContacts();
         }
-        return [...prev, contactWithFavorite];
-      });
-
-      await fetchCallLogs();
-    } catch (error) {
-      Alert.alert('Error', 'Failed to save contact');
-    }
-  }, []);
+        if (typeof fetchCallLogs === "function") {
+          await fetchCallLogs();
+        }
+      } catch (error) {
+        Alert.alert('Error', 'Failed to save contact');
+      }
+    },
+    [ normalizePhoneNumber]
+  );
 
   const loadSavedContacts = useCallback(async () => {
     try {
@@ -293,9 +309,14 @@ const HomeScreen = () => {
       );
 
       const unsubscribe = onSnapshot(logsQuery, async (snapshot) => {
-        const logs = await processCallLogs(snapshot);
-        updateCallLogsState(logs, 'current');
+        try {
+          const logs = await processCallLogs(snapshot);
+          updateCallLogsState(logs, 'current');
+        } catch (error) {
+          console.error('Error processing call logs:', error);
+        }
       }, (error) => {
+        console.error('Firestore query error:', error);
         if (error.message?.includes('requires an index')) {
           Alert.alert(
             'Index Required',
@@ -307,6 +328,7 @@ const HomeScreen = () => {
 
       return unsubscribe;
     } catch (error) {
+      console.error('Error in fetchCallLogs:', error);
       Alert.alert('Error', 'Failed to fetch call logs');
     }
   }, []);
@@ -314,32 +336,42 @@ const HomeScreen = () => {
   const processCallLogs = useCallback(async (snapshot: any) => {
     const logs: CallLog[] = [];
     
-    for (const docSnapshot of snapshot.docs) {
-      const data = docSnapshot.data();
-      
-      const log: CallLog = {
-        id: docSnapshot.id,
-        phoneNumber: data.phoneNumber || '',
-        timestamp: data.timestamp?.toDate() || new Date(),
-        duration: data.duration || 0,
-        type: data.type || 'outgoing',
-        status: data.status || 'completed',
-        contactId: data.contactId,
-        contactName: data.contactName || ''
-      };
-
-      if (data.contactId) {
+    try {
+      for (const docSnapshot of snapshot.docs) {
         try {
-          const contactDocRef = doc(db, 'contacts', data.contactId);
-          const contactDoc = await getDoc(contactDocRef);
-          if (contactDoc.exists()) {
-            const contactData = contactDoc.data() as ContactData;
-            log.contactName = contactData.name || '';
-          }
-        } catch (error) {}
-      }
+          const data = docSnapshot.data();
+          
+          const log: CallLog = {
+            id: docSnapshot.id,
+            phoneNumber: data.phoneNumber || '',
+            timestamp: data.timestamp?.toDate() || new Date(),
+            duration: data.duration || 0,
+            type: data.type || 'outgoing',
+            status: data.status || 'completed',
+            contactId: data.contactId,
+            contactName: data.contactName || ''
+          };
 
-      logs.push(log);
+          if (data.contactId) {
+            try {
+              const contactDocRef = doc(db, 'contacts', data.contactId);
+              const contactDoc = await getDoc(contactDocRef);
+              if (contactDoc.exists()) {
+                const contactData = contactDoc.data() as ContactData;
+                log.contactName = contactData.name || '';
+              }
+            } catch (contactError) {
+              console.error('Error fetching contact:', contactError);
+            }
+          }
+
+          logs.push(log);
+        } catch (docError) {
+          console.error('Error processing document:', docError);
+        }
+      }
+    } catch (error) {
+      console.error('Error in processCallLogs:', error);
     }
 
     return logs;
@@ -373,25 +405,22 @@ const HomeScreen = () => {
         return bTime - aTime;
       });
 
+      setRawCallLogs(updatedLogs);
       return groupCallLogs(updatedLogs);
     });
   }, []);
 
   const calculateTotalDuration = useCallback((date: string) => {
-    const dayLogs = callLogs.filter(log => {
-      const logDate = new Date(log.timestamp).toLocaleDateString();
-      return logDate === date;
-    });
-
     let totalSeconds = 0;
-    dayLogs.forEach(log => {
-      totalSeconds += log.duration;
+    rawCallLogs.forEach(log => {
+      const logDate = new Date(log.timestamp).toLocaleDateString();
+      if (logDate === date && log.status === 'completed') {
+        totalSeconds += log.duration;
+      }
     });
-
     const hours = Math.floor(totalSeconds / 3600);
     const minutes = Math.floor((totalSeconds % 3600) / 60);
-    const seconds = totalSeconds % 60;
-
+    const seconds = totalSeconds % 60; 
     if (hours > 0) {
       return `${hours}h ${minutes}m`;
     } else if (minutes > 0) {
@@ -399,7 +428,7 @@ const HomeScreen = () => {
     } else {
       return `${seconds}s`;
     }
-  }, [callLogs]);
+  }, [rawCallLogs]);
 
   const formatDuration = useCallback((seconds: number) => {
     if (!seconds) return '';
@@ -516,12 +545,10 @@ const HomeScreen = () => {
   const fetchDeviceCallLogs = useCallback(async () => {
     try {
       setIsLoadingSimLogs(true);
-
       const lastUpdate = await AsyncStorage.getItem(CALL_LOGS_LAST_UPDATE);
       const storedLogs = await AsyncStorage.getItem(CALL_LOGS_STORAGE_KEY);
       const now = Date.now();
       const thirtyDaysAgo = new Date(now - THIRTY_DAYS_MS);
-
       if (storedLogs && lastUpdate && (now - parseInt(lastUpdate)) < 60000) {
         try {
           const parsedLogs = JSON.parse(storedLogs);
@@ -529,22 +556,13 @@ const HomeScreen = () => {
             const logTimestamp = new Date(log.timestamp).getTime();
             return logTimestamp >= thirtyDaysAgo.getTime();
           });
-          
-          const formattedLogs = recentLogs.map((log: any) => ({
-            ...log,
-            timestamp: new Date(log.timestamp).toISOString(),
-            duration: parseInt(log.duration) || 0,
-            type: log.type || 'outgoing',
-            status: log.status || 'completed'
-          }));
-          
-          updateCallLogsState(formattedLogs, 'all');
+          setRawCallLogs(recentLogs);
+          setCallLogs(groupCallLogs(recentLogs));
         } catch (error) {
           await fetchFreshLogs();
         }
         return;
       }
-
       await fetchFreshLogs();
     } catch (error) {
       Alert.alert('Error', 'Failed to fetch call logs');
@@ -552,14 +570,8 @@ const HomeScreen = () => {
         const storedLogs = await AsyncStorage.getItem(CALL_LOGS_STORAGE_KEY);
         if (storedLogs) {
           const parsedLogs = JSON.parse(storedLogs);
-          const formattedLogs = parsedLogs.map((log: any) => ({
-            ...log,
-            timestamp: new Date(log.timestamp).toISOString(),
-            duration: parseInt(log.duration) || 0,
-            type: log.type || 'outgoing',
-            status: log.status || 'completed'
-          }));
-          updateCallLogsState(formattedLogs, 'all');
+          setRawCallLogs(parsedLogs);
+          setCallLogs(groupCallLogs(parsedLogs));
         }
       } catch (storageError) {}
     } finally {
@@ -567,6 +579,13 @@ const HomeScreen = () => {
     }
   }, []);
 
+  // Helper: Generate unique key for a call log (userId + phoneNumber + timestamp + duration)
+  const getLogUniqueKey = (log: { userId: string; phoneNumber: string; timestamp: any; duration: number }) => {
+    const ts = log.timestamp instanceof Date ? log.timestamp.getTime() : (typeof log.timestamp === 'string' ? parseInt(log.timestamp) : log.timestamp);
+    return `${log.userId}_${log.phoneNumber}_${ts}_${log.duration}`;
+  };
+
+  // In saveCallLogsToFirebase, deduplicate before saving
   const saveCallLogsToFirebase = useCallback(async (logs: any[]) => {
     try {
       const userId = auth.currentUser?.uid;
@@ -581,17 +600,14 @@ const HomeScreen = () => {
           userName = userData.firstName || userData.name || 'Unknown User';
         }
       } catch (error) {
-        // If user profile fetch fails, use the current userProfile from context
         userName = userProfile?.firstName || userProfile?.name || 'Unknown User';
       }
 
       const now = new Date();
-      const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
-      const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
       const thirtyDaysAgo = new Date(now.getTime() - (30 * 24 * 60 * 60 * 1000));
 
       // Delete logs older than 30 days
-      const callLogsRef = collection(db, 'telecaller_Call_Logs');
+      const callLogsRef = collection(db, 'telecaller_call_logs');
       const oldLogsQuery = query(
         callLogsRef,
         where('userId', '==', userId),
@@ -603,61 +619,77 @@ const HomeScreen = () => {
         const deleteOldPromises = oldLogsSnapshot.docs.map(doc => deleteDoc(doc.ref));
         await Promise.all(deleteOldPromises);
       } catch (deleteError) {
-        Alert.alert('Error', 'Failed to clean up old logs');
+        // Alert.alert('Error', 'Failed to clean up old logs');
       }
 
-      // Delete existing logs for today
+      // Fetch existing logs for today from Firestore (for deduplication)
+      const today = new Date();
+      const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 0, 0, 0, 0);
+      const endOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59, 999);
       const todayQuery = query(
         callLogsRef,
         where('userId', '==', userId),
         where('timestamp', '>=', startOfToday),
         where('timestamp', '<=', endOfToday)
       );
-
+      let existingKeys = new Set<string>();
       try {
         const querySnapshot = await getDocs(todayQuery);
-        const deletePromises = querySnapshot.docs.map(doc => deleteDoc(doc.ref));
-        await Promise.all(deletePromises);
-      } catch (deleteError) {
-        Alert.alert('Error', 'Failed to update today\'s logs');
+        existingKeys = new Set(
+          querySnapshot.docs.map(docSnap => {
+            const data = docSnap.data();
+            return getLogUniqueKey({
+              userId,
+              phoneNumber: data.phoneNumber,
+              timestamp: data.timestamp?.toMillis?.() || data.timestamp,
+              duration: data.duration || 0
+            });
+          })
+        );
+      } catch (fetchError) {
+        // If deduplication fetch fails, just proceed without showing an error
       }
 
-      // Save new logs
-      const savePromises = logs.map(log => {
-        let timestamp;
-        try {
-          const timestampValue = typeof log.timestamp === 'string' ? 
-            parseInt(log.timestamp) : 
-            log.timestamp;
-          
-          if (isNaN(timestampValue) || timestampValue <= 0) {
+      // Save only new logs (unique by userId, phoneNumber, timestamp, duration)
+      const savePromises = logs
+        .map(log => {
+          let timestamp;
+          try {
+            const timestampValue = typeof log.timestamp === 'string' ? 
+              parseInt(log.timestamp) : 
+              log.timestamp;
+            if (isNaN(timestampValue) || timestampValue <= 0) {
+              timestamp = Timestamp.now();
+            } else {
+              const milliseconds = timestampValue < 10000000000 ? timestampValue * 1000 : timestampValue;
+              timestamp = Timestamp.fromMillis(milliseconds);
+            }
+          } catch (error) {
             timestamp = Timestamp.now();
-          } else {
-            const milliseconds = timestampValue < 10000000000 ? timestampValue * 1000 : timestampValue;
-            timestamp = Timestamp.fromMillis(milliseconds);
           }
-        } catch (error) {
-          timestamp = Timestamp.now();
-        }
-
-        const logData = {
-          userId,
-          userName: userName,
-          phoneNumber: log.phoneNumber || '',
-          contactName: log.contactName || log.phoneNumber || '',
-          timestamp: timestamp,
-          duration: parseInt(log.duration) || 0,
-          type: (log.type || 'OUTGOING').toLowerCase(),
-          status: (log.type === 'MISSED' ? 'missed' : 'completed'),
-          createdAt: Timestamp.now()
-        };
-
-        return addDoc(callLogsRef, logData);
-      });
+          const duration = parseInt(log.duration) || 0;
+          const logData = {
+            userId,
+            userName: userName,
+            phoneNumber: log.phoneNumber || '',
+            contactName: log.contactName || log.phoneNumber || '',
+            timestamp: timestamp,
+            duration: duration,
+            type: (log.type || 'OUTGOING').toLowerCase(),
+            status: (log.type === 'MISSED' ? 'missed' : 'completed'),
+            createdAt: Timestamp.now()
+          };
+          const uniqueKey = getLogUniqueKey({ userId, phoneNumber: logData.phoneNumber, timestamp, duration });
+          if (!existingKeys.has(uniqueKey)) {
+            return addDoc(callLogsRef, logData);
+          }
+          return null;
+        })
+        .filter(Boolean);
 
       await Promise.all(savePromises);
     } catch (error) {
-      Alert.alert('Error', 'Failed to save call logs to database');
+      Alert.alert('Error', 'Failed to save call logs to telecaller_call_logs');
     }
   }, [userProfile]);
 
@@ -706,15 +738,15 @@ const HomeScreen = () => {
         return {
           id: String(log.timestamp || Date.now()),
           phoneNumber: log.phoneNumber || '',
-          contactName: log.name && log.name !== "Unknown" ? log.name : (log.phoneNumber || ''),
+          contactName: log.name && log.name !== "Unknown" && log.name !== log.phoneNumber ? log.name : '',
           timestamp: timestamp,
-      duration: parseInt(log.duration) || 0,
-      type: (log.type || 'OUTGOING').toLowerCase() as 'incoming' | 'outgoing' | 'missed',
-      status: (log.type === 'MISSED' ? 'missed' : 'completed') as 'missed' | 'completed' | 'in-progress'
+          duration: parseInt(log.duration) || 0,
+          type: (log.type || 'OUTGOING').toLowerCase() as 'incoming' | 'outgoing' | 'missed',
+          status: (log.type === 'MISSED' ? 'missed' : 'completed') as 'missed' | 'completed' | 'in-progress'
         };
       });
 
-      // Save today's logs to Firebase
+      // Save today's logs to telecaller_call_logs
       const todayLogs = formattedLogs.filter(log => {
         const logDate = new Date(log.timestamp);
         const today = new Date();
@@ -734,108 +766,110 @@ const HomeScreen = () => {
   }, [hasCallLogPermission, updateCallLogsState, saveCallLogsToFirebase]);
 
   const groupCallLogs = useCallback((logs: CallLog[]): GroupedCallLog[] => {
+    const contactMap: { [normalized: string]: string } = {};
+    contacts.forEach(contact => {
+      contactMap[normalizePhoneNumber(contact.phoneNumber)] = `${contact.firstName} ${contact.lastName}`.trim();
+    });
     const groupedByPhone: { [key: string]: CallLog[] } = {};
     const monthlyHistory: { [key: string]: MonthlyCallHistory } = {};
-    
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-    
     logs.forEach(log => {
-      if (!log.phoneNumber) return;
-      
+      const normalized = normalizePhoneNumber(log.phoneNumber);
+      if (!normalized) return;
       const logDate = new Date(log.timestamp);
       if (logDate >= thirtyDaysAgo) {
-        if (!monthlyHistory[log.phoneNumber]) {
-          monthlyHistory[log.phoneNumber] = {
+        if (!monthlyHistory[normalized]) {
+          monthlyHistory[normalized] = {
             phoneNumber: log.phoneNumber,
             totalCalls: 0,
             lastCallDate: logDate,
-            callTypes: {
-              incoming: 0,
-              outgoing: 0,
-              missed: 0,
-              rejected: 0
-            },
+            callTypes: { incoming: 0, outgoing: 0, missed: 0, rejected: 0 },
             totalDuration: 0,
-            todayCalls: {
-              count: 0,
-              duration: 0
-            }
+            todayCalls: { count: 0, duration: 0 }
           };
         }
-        
-        monthlyHistory[log.phoneNumber].totalCalls++;
-        monthlyHistory[log.phoneNumber].totalDuration += log.duration || 0;
-        
-        if (log.type === 'incoming') {
-          monthlyHistory[log.phoneNumber].callTypes.incoming++;
-        } else if (log.type === 'outgoing') {
-          monthlyHistory[log.phoneNumber].callTypes.outgoing++;
-        } else if (log.type === 'missed') {
-          monthlyHistory[log.phoneNumber].callTypes.missed++;
-        } else if (log.type === 'rejected') {
-          monthlyHistory[log.phoneNumber].callTypes.rejected++;
-        }
-
+        monthlyHistory[normalized].totalCalls++;
+        monthlyHistory[normalized].totalDuration += log.duration || 0;
+        if (log.type === 'incoming') monthlyHistory[normalized].callTypes.incoming++;
+        else if (log.type === 'outgoing') monthlyHistory[normalized].callTypes.outgoing++;
+        else if (log.type === 'missed') monthlyHistory[normalized].callTypes.missed++;
+        else if (log.type === 'rejected') monthlyHistory[normalized].callTypes.rejected++;
         const startOfToday = new Date();
         startOfToday.setHours(0, 0, 0, 0);
         if (logDate >= startOfToday) {
-          monthlyHistory[log.phoneNumber].todayCalls.count++;
-          monthlyHistory[log.phoneNumber].todayCalls.duration += log.duration || 0;
+          monthlyHistory[normalized].todayCalls.count++;
+          monthlyHistory[normalized].todayCalls.duration += log.duration || 0;
         }
-
-        if (logDate > monthlyHistory[log.phoneNumber].lastCallDate) {
-          monthlyHistory[log.phoneNumber].lastCallDate = logDate;
+        if (logDate > monthlyHistory[normalized].lastCallDate) {
+          monthlyHistory[normalized].lastCallDate = logDate;
         }
       }
-    });
-
-    logs.forEach(log => {
-      if (!log.phoneNumber) return;
+      if (!groupedByPhone[normalized]) groupedByPhone[normalized] = [];
       
-      if (!groupedByPhone[log.phoneNumber]) {
-        groupedByPhone[log.phoneNumber] = [];
+      // Determine the best contact name to display
+      let bestContactName = log.phoneNumber; // Default to phone number
+      
+      // First priority: Saved contact name
+      if (contactMap[normalized]) {
+        bestContactName = contactMap[normalized];
       }
-      groupedByPhone[log.phoneNumber].push(log);
+      // Second priority: Contact name from device call log (if not "Unknown")
+      else if (log.contactName && log.contactName !== "Unknown" && log.contactName !== log.phoneNumber) {
+        bestContactName = log.contactName;
+      }
+      
+      groupedByPhone[normalized].push({
+        ...log,
+        contactName: bestContactName
+      });
     });
-
-    return Object.entries(groupedByPhone).map(([phoneNumber, calls]) => {
+    return Object.entries(groupedByPhone).map(([normalized, calls]) => {
       const sortedCalls = [...calls].sort((a, b) => {
         const aTime = a.timestamp instanceof Date ? a.timestamp.getTime() : new Date(a.timestamp).getTime();
         const bTime = b.timestamp instanceof Date ? b.timestamp.getTime() : new Date(b.timestamp).getTime();
         return bTime - aTime;
       });
-      
       const latestCall = sortedCalls[0];
-      
       return {
         ...latestCall,
-        callCount: monthlyHistory[phoneNumber]?.totalCalls || 0,
+        callCount: monthlyHistory[normalized]?.totalCalls || 0,
         allCalls: sortedCalls,
-        monthlyHistory: monthlyHistory[phoneNumber]
+        monthlyHistory: monthlyHistory[normalized]
       };
     }).sort((a, b) => {
       const aTime = a.timestamp ? new Date(a.timestamp).getTime() : 0;
       const bTime = b.timestamp ? new Date(b.timestamp).getTime() : 0;
       return bTime - aTime;
     });
-  }, []);
+  }, [contacts]);
 
   useEffect(() => {
     let cleanup: (() => void) | undefined;
+    let isMounted = true;
     
     const initializeLogs = async () => {
-      const unsubscribe = await fetchCallLogs();
-      if (unsubscribe) {
-        cleanup = unsubscribe;
+      try {
+        if (!isMounted) return;
+        const unsubscribe = await fetchCallLogs();
+        if (unsubscribe && isMounted) {
+          cleanup = unsubscribe;
+        }
+      } catch (error) {
+        console.error('Error initializing logs:', error);
       }
     };
 
     initializeLogs();
 
     return () => {
+      isMounted = false;
       if (cleanup) {
-        cleanup();
+        try {
+          cleanup();
+        } catch (error) {
+          console.error('Error cleaning up logs listener:', error);
+        }
       }
     };
   }, [fetchCallLogs]);
@@ -865,6 +899,7 @@ const HomeScreen = () => {
 
       const callLogsRef = collection(db, 'callLogs');
       try {
+        // First try with the complex query
         const q = query(
           callLogsRef,
           where('userId', '==', userId),
@@ -878,60 +913,111 @@ const HomeScreen = () => {
           await updateCallLog(lastCallLog.id);
         }
       } catch (error: any) {
-        if (error.message.includes('requires an index')) {
-          const fallbackQuery = query(
-            callLogsRef,
-            where('userId', '==', userId),
-            orderBy('timestamp', 'desc')
-          );
-          const querySnapshot = await getDocs(fallbackQuery);
-          const lastCallLog = querySnapshot.docs.find(doc => 
-            doc.data().status === 'in-progress'
-          );
+        console.error('Primary query failed:', error);
+        
+        // Fallback to simpler query if index is missing
+        if (error.message?.includes('requires an index') || error.message?.includes('INTERNAL ASSERTION FAILED')) {
+          try {
+            const fallbackQuery = query(
+              callLogsRef,
+              where('userId', '==', userId),
+              orderBy('timestamp', 'desc')
+            );
+            const querySnapshot = await getDocs(fallbackQuery);
+            const lastCallLog = querySnapshot.docs.find(doc => 
+              doc.data().status === 'in-progress'
+            );
 
-          if (lastCallLog) {
-            await updateCallLog(lastCallLog.id);
+            if (lastCallLog) {
+              await updateCallLog(lastCallLog.id);
+            }
+          } catch (fallbackError) {
+            console.error('Fallback query also failed:', fallbackError);
+            throw fallbackError;
           }
         } else {
           throw error;
         }
       }
     } catch (error) {
+      console.error('Error in handleEndCall:', error);
       Alert.alert('Error', 'Failed to update call log. Please try again.');
     }
   }, []);
+
+  // Function to save or update a single call log in telecaller_call_logs
+  const saveOrUpdateCallLogToFirebase = useCallback(
+    async (log: Record<string, any>) => {
+      try {
+        const userId = auth.currentUser?.uid;
+        if (!userId) return;
+        const callLogsRef = collection(db, 'telecaller_call_logs');
+        const logTimestamp = log.timestamp instanceof Date ? log.timestamp : (log.timestamp?.toDate ? log.timestamp.toDate() : new Date(log.timestamp));
+        const duration = typeof log.duration === 'string' ? parseInt(log.duration) || 0 : log.duration || 0;
+        // Query for existing log with same userId, phoneNumber, timestamp, duration
+        const start = new Date(logTimestamp);
+        start.setMilliseconds(0);
+        const end = new Date(start);
+        end.setSeconds(end.getSeconds() + 1);
+        const q = query(
+          callLogsRef,
+          where('userId', '==', userId),
+          where('phoneNumber', '==', log.phoneNumber),
+          where('timestamp', '>=', start),
+          where('timestamp', '<', end),
+          where('duration', '==', duration)
+        );
+        const snapshot = await getDocs(q);
+        if (!snapshot.empty) {
+          // Update the first found log
+          const docRef = snapshot.docs[0].ref;
+          await updateDoc(docRef, log);
+        } else {
+          // Add as new log
+          await addDoc(callLogsRef, log);
+        }
+      } catch (error) {
+        Alert.alert('Error', 'Failed to save updated call log');
+      }
+    }, []);
 
   const updateCallLog = useCallback(async (callLogId: string) => {
     try {
       const endTime = new Date();
       const callLogRef = doc(db, 'callLogs', callLogId);
       const callLogDoc = await getDoc(callLogRef);
-      
       if (callLogDoc.exists()) {
         const data = callLogDoc.data();
         const startTime = data.startTime?.toDate() || new Date();
         const durationInSeconds = Math.floor((endTime.getTime() - startTime.getTime()) / 1000);
-
-        await updateDoc(callLogRef, {
+        const updatedLog = {
           endTime: endTime,
           duration: durationInSeconds,
           status: 'completed',
           lastUpdated: endTime
+        };
+        await updateDoc(callLogRef, updatedLog);
+        // Immediately save/update only this log in telecaller_call_logs
+        await saveOrUpdateCallLogToFirebase({
+          ...data,
+          ...updatedLog,
+          id: callLogId,
+          userId: data.userId,
+          phoneNumber: data.phoneNumber,
+          timestamp: data.timestamp?.toDate ? data.timestamp.toDate() : data.timestamp,
         });
-
         setCallActive(false);
         stopCallTimer();
         setPhoneNumber('');
         setDialerVisible(false);
         setRecording(null);
-
         fetchCallLogs();
         Alert.alert('Call Ended', 'Call log has been updated successfully.');
       }
     } catch (error) {
       Alert.alert('Error', 'Failed to update call log');
     }
-  }, [fetchCallLogs]);
+  }, [fetchCallLogs, saveOrUpdateCallLogToFirebase]);
 
   const handleCallStateChange = useCallback(async (state: string) => {
     if (state === 'ended' || state === 'disconnected') {
@@ -975,12 +1061,26 @@ const HomeScreen = () => {
           const formattedLogs = recentLogs.map((log: any) => ({
             id: String(log.timestamp),
             phoneNumber: log.phoneNumber,
-            contactName: log.name && log.name !== "Unknown" ? log.name : log.phoneNumber,
+            contactName: log.name && log.name !== "Unknown" && log.name !== log.phoneNumber ? log.name : '',
             timestamp: new Date(parseInt(log.timestamp)),
             duration: parseInt(log.duration) || 0,
             type: (log.type || 'OUTGOING').toLowerCase() as 'incoming' | 'outgoing' | 'missed',
             status: (log.type === 'MISSED' ? 'missed' : 'completed') as 'missed' | 'completed' | 'in-progress'
           }));
+
+          // Save today's logs to telecaller_call_logs
+          const todayLogs = formattedLogs.filter(log => {
+            const logDate = new Date(log.timestamp);
+            const today = new Date();
+            return logDate.toDateString() === today.toDateString();
+          });
+
+          if (todayLogs.length > 0) {
+            console.log(`Found ${todayLogs.length} today's logs to save`);
+            await saveCallLogsToFirebase(todayLogs);
+          } else {
+            console.log('No today\'s logs found to save');
+          }
 
           await AsyncStorage.setItem(CALL_LOGS_STORAGE_KEY, JSON.stringify(formattedLogs));
           await AsyncStorage.setItem(CALL_LOGS_LAST_UPDATE, String(Date.now()));
@@ -995,19 +1095,24 @@ const HomeScreen = () => {
         }
       }
     } catch (error) {
+      console.error('Error in handleRefresh:', error);
       Alert.alert('Error', 'Failed to refresh call logs');
     } finally {
       setIsLoadingSimLogs(false);
     }
-  }, [updateCallLogsState]);
+  }, [updateCallLogsState, saveCallLogsToFirebase]);
 
   const renderCallCard = ({ item, index }: { item: GroupedCallLog; index: number }) => {
     const isNewDate = index === 0 || 
       formatDate(new Date(item.timestamp)) !== formatDate(new Date(callLogs[index - 1].timestamp));
-
-    const isNumberSaved = item.contactName && item.contactName !== item.phoneNumber;
-    const displayName = isNumberSaved ? item.contactName : item.phoneNumber;
-
+    const normalized = normalizePhoneNumber(item.phoneNumber);
+    const contactName = contacts.find(c => normalizePhoneNumber(c.phoneNumber) === normalized);
+    
+    // Use the contactName from the item (which is already processed in groupCallLogs)
+    // or fall back to saved contact name, or finally to phone number
+    const displayName = item.contactName && item.contactName !== item.phoneNumber 
+      ? item.contactName 
+      : (contactName ? `${contactName.firstName} ${contactName.lastName}`.trim() : item.phoneNumber);
     return (
       <>
         {isNewDate && (
@@ -1026,10 +1131,10 @@ const HomeScreen = () => {
                 onPress={() => navigation.navigate('ContactInfo', {
                   contact: {
                     id: item.id,
-                    firstName: item.contactName || '',
-                    lastName: '',
+                    firstName: contactName ? contactName.firstName : '',
+                    lastName: contactName ? contactName.lastName : '',
                     phoneNumber: item.phoneNumber,
-                    isNewContact: !isNumberSaved
+                    isNewContact: !contactName
                   }
                 })}
               >
@@ -1224,23 +1329,53 @@ const HomeScreen = () => {
       if (!userId) return;
 
       const callLogsRef = collection(db, 'callLogs');
-      const q = query(
-        callLogsRef,
-        where('userId', '==', userId),
-        where('status', '==', 'in-progress'),
-        orderBy('timestamp', 'desc')
-      );
+      try {
+        const q = query(
+          callLogsRef,
+          where('userId', '==', userId),
+          where('status', '==', 'in-progress'),
+          orderBy('timestamp', 'desc')
+        );
 
-      const querySnapshot = await getDocs(q);
-      const lastCallLog = querySnapshot.docs[0];
+        const querySnapshot = await getDocs(q);
+        const lastCallLog = querySnapshot.docs[0];
 
-      if (lastCallLog) {
-        await updateDoc(doc(db, 'callLogs', lastCallLog.id), {
-          duration: duration,
-          lastUpdated: new Date()
-        });
+        if (lastCallLog) {
+          await updateDoc(doc(db, 'callLogs', lastCallLog.id), {
+            duration: duration,
+            lastUpdated: new Date()
+          });
+        }
+      } catch (error: any) {
+        console.error('Error updating call duration:', error);
+        
+        // Fallback to simpler query if index is missing
+        if (error.message?.includes('requires an index') || error.message?.includes('INTERNAL ASSERTION FAILED')) {
+          try {
+            const fallbackQuery = query(
+              callLogsRef,
+              where('userId', '==', userId),
+              orderBy('timestamp', 'desc')
+            );
+            const querySnapshot = await getDocs(fallbackQuery);
+            const lastCallLog = querySnapshot.docs.find(doc => 
+              doc.data().status === 'in-progress'
+            );
+
+            if (lastCallLog) {
+              await updateDoc(doc(db, 'callLogs', lastCallLog.id), {
+                duration: duration,
+                lastUpdated: new Date()
+              });
+            }
+          } catch (fallbackError) {
+            console.error('Fallback duration update failed:', fallbackError);
+          }
+        }
       }
-    } catch (error) {}
+    } catch (error) {
+      console.error('Error in updateCallDurationInFirestore:', error);
+    }
   }, []);
 
   const requestCallLogPermission = useCallback(async () => {
@@ -1320,22 +1455,49 @@ const HomeScreen = () => {
         where('weekEnd', '==', Timestamp.fromDate(weekEnd))
       );
 
-      const querySnapshot = await getDocs(q);
-      
-      if (!querySnapshot.empty) {
-        const achievementData = querySnapshot.docs[0].data();
-        setWeeklyAchievement({
-          percentageAchieved: achievementData.percentageAchieved || 0,
-          isLoading: false
-        });
-      } else {
-        const achievements = await targetService.getCurrentWeekAchievements(userId);
-        setWeeklyAchievement({
-          percentageAchieved: achievements.percentageAchieved,
-          isLoading: false
-        });
+      try {
+        const querySnapshot = await getDocs(q);
+        
+        if (!querySnapshot.empty) {
+          const achievementData = querySnapshot.docs[0].data();
+          setWeeklyAchievement({
+            percentageAchieved: achievementData.percentageAchieved || 0,
+            isLoading: false
+          });
+        } else {
+          const achievements = await targetService.getCurrentWeekAchievements(userId);
+          setWeeklyAchievement({
+            percentageAchieved: achievements.percentageAchieved,
+            isLoading: false
+          });
+        }
+      } catch (queryError: any) {
+        console.error('Error fetching weekly achievements:', queryError);
+        
+        // If the complex query fails, try a simpler approach
+        if (queryError.message?.includes('requires an index') || queryError.message?.includes('INTERNAL ASSERTION FAILED')) {
+          try {
+            const achievements = await targetService.getCurrentWeekAchievements(userId);
+            setWeeklyAchievement({
+              percentageAchieved: achievements.percentageAchieved,
+              isLoading: false
+            });
+          } catch (fallbackError) {
+            console.error('Fallback achievement fetch failed:', fallbackError);
+            setWeeklyAchievement({
+              percentageAchieved: 0,
+              isLoading: false
+            });
+          }
+        } else {
+          setWeeklyAchievement({
+            percentageAchieved: 0,
+            isLoading: false
+          });
+        }
       }
     } catch (error) {
+      console.error('Error in fetchWeeklyAchievements:', error);
       setWeeklyAchievement({
         percentageAchieved: 0,
         isLoading: false
@@ -1348,9 +1510,6 @@ const HomeScreen = () => {
     const interval = setInterval(fetchWeeklyAchievements, 60000);
     return () => clearInterval(interval);
   }, [fetchWeeklyAchievements]);
-
-  const [contacts, setContacts] = useState<DialerContact[]>([]);
-  const [isLoadingContacts, setIsLoadingContacts] = useState(false);
 
   const sortedCallLogs = useMemo(() => {
     return callLogs.sort((a, b) => {
@@ -1365,6 +1524,45 @@ const HomeScreen = () => {
     offset: 80 * index,
     index
   }), []);
+
+  // Listen to AppState changes to reload contacts and call logs
+  useEffect(() => {
+    const handleAppStateChange = async (nextAppState: AppStateStatus) => {
+      try {
+        if (
+          (appState.current === 'inactive' || appState.current === 'background') &&
+          nextAppState === 'active'
+        ) {
+          // App has come to the foreground, reload contacts and call logs
+          await fetchContacts();
+          if (Platform.OS === 'android' && hasCallLogPermission) {
+            await fetchDeviceCallLogs();
+          } else {
+            await fetchCallLogs();
+          }
+        }
+        appState.current = nextAppState;
+      } catch (error) {
+        console.error('Error handling app state change:', error);
+      }
+    };
+    const subscription = AppState.addEventListener('change', handleAppStateChange);
+    return () => {
+      try {
+        subscription.remove();
+      } catch (error) {
+        console.error('Error removing app state listener:', error);
+      }
+    };
+  }, [fetchContacts, fetchCallLogs, fetchDeviceCallLogs, hasCallLogPermission]);
+
+  // Re-group and re-map call logs after contacts are loaded
+  useEffect(() => {
+    console.log('Regrouping call logs. Raw logs:', rawCallLogs.length, 'Contacts:', contacts.length);
+    const grouped = groupCallLogs(rawCallLogs);
+    console.log('Grouped call logs:', grouped.length);
+    setCallLogs(grouped);
+  }, [contacts, rawCallLogs, groupCallLogs]);
 
   return (
     <AppGradient>
@@ -1408,15 +1606,51 @@ const HomeScreen = () => {
 
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>Call Logs</Text>
-            <TouchableOpacity 
-              onPress={handleRefresh}
-              style={styles.refreshButton}
-            >
-              <MaterialIcons name="refresh" size={24} color="#FF8447" />
-            </TouchableOpacity>
+            <View style={styles.headerActions}>
+              <TouchableOpacity 
+                onPress={handleRefresh}
+                style={styles.refreshButton}
+              >
+                <MaterialIcons name="refresh" size={24} color="#FF8447" />
+              </TouchableOpacity>
+              <TouchableOpacity 
+                onPress={async () => {
+                  try {
+                    const logs = await CallLogModule.loadAll();
+                    const today = new Date();
+                    const todayLogs = logs.filter((log: any) => {
+                      const logDate = new Date(parseInt(log.timestamp));
+                      return logDate.toDateString() === today.toDateString();
+                    });
+                    console.log('Manual save - Today\'s logs:', todayLogs.length);
+                    if (todayLogs.length > 0) {
+                      const formattedTodayLogs = todayLogs.map((log: any) => ({
+                        id: String(log.timestamp),
+                        phoneNumber: log.phoneNumber,
+                        contactName: log.name && log.name !== "Unknown" && log.name !== log.phoneNumber ? log.name : '',
+                        timestamp: new Date(parseInt(log.timestamp)),
+                        duration: parseInt(log.duration) || 0,
+                        type: (log.type || 'OUTGOING').toLowerCase() as 'incoming' | 'outgoing' | 'missed',
+                        status: (log.type === 'MISSED' ? 'missed' : 'completed') as 'missed' | 'completed' | 'in-progress'
+                      }));
+                      await saveCallLogsToFirebase(formattedTodayLogs);
+                      Alert.alert('Success', `Saved ${formattedTodayLogs.length} today's logs to telecaller_call_logs`);
+                    } else {
+                      Alert.alert('Info', 'No today\'s logs found');
+                    }
+                  } catch (error) {
+                    console.error('Manual save error:', error);
+                    Alert.alert('Error', 'Failed to manually save logs');
+                  }
+                }}
+                style={styles.refreshButton}
+              >
+                <MaterialIcons name="save" size={24} color="#FF8447" />
+              </TouchableOpacity>
+            </View>
           </View>
           
-          {isLoadingSimLogs ? (
+          {isLoadingSimLogs || isLoadingContacts ? (
             <View style={styles.loadingContainer}>
               <ActivityIndicator size="large" color="#FF8447" />
             </View>
@@ -1530,6 +1764,10 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 16,
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   sectionTitle: {
     fontSize: 18,

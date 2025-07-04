@@ -642,7 +642,7 @@ const ReportScreen: React.FC = () => {
                 <Text style={styles.errorText}>{errors.positiveLeads}</Text>
               )}
 
-              <Text style={styles.label}>Rejected Leads</Text>
+              <Text style={styles.label}>Rejected Calls</Text>
               <TextInput
                 style={[
                   styles.input,

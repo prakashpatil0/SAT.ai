@@ -85,7 +85,7 @@ const ContactSuggestion = memo(({ contact, onPress, onInfoPress }: {
   >
     <View style={styles.avatarContainer}>
       <Text style={styles.avatarText}>
-        {contact.firstName[0].toUpperCase()}
+        {(contact.firstName?.[0] || '#').toUpperCase()}
       </Text>
     </View>
     <View style={styles.contactInfo}>

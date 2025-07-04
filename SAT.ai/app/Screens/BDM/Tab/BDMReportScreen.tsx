@@ -185,7 +185,7 @@ const BDMReportScreen = () => {
   const [currentDate, setCurrentDate] = useState<string>("");
 
   const [numCalls, setNumCalls] = useState<string>("0");
-  const [callDuration, setCallDuration] = useState<string>("00:00");
+  const [callDuration, setCallDuration] = useState<string>("00:00:00");
   const [positiveLeadsFromCalls, setPositiveLeadsFromCalls] =
     useState<string>("");
 
@@ -346,14 +346,12 @@ const BDMReportScreen = () => {
       });
 
       setNumCalls(totalCalls.toString());
-      // Format duration as 'X hr Y min'
-      const hours = Math.floor(totalDuration / 3600);
-      const minutes = Math.floor((totalDuration % 3600) / 60);
-      setCallDuration(`${hours} hr ${minutes} min`);
+      // Format duration as HH:MM:SS
+      setCallDuration(formatDuration(totalDuration));
     } catch (error) {
       Alert.alert("Error", "Failed to fetch today's call data");
     }
-  }, []);
+  }, [formatDuration]);
 
   const processCallLogs = useCallback(async (snapshot: any) => {
     const logs: CallLog[] = [];

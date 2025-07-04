@@ -13,6 +13,7 @@ import {
   Dimensions,
   TouchableWithoutFeedback,
   Modal,
+  Keyboard,
 } from "react-native";
 import { MaterialIcons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
@@ -28,6 +29,7 @@ import { useProfile } from "@/app/context/ProfileContext";
 import FormInput from "@/app/components/FormInput";
 import AppGradient from "@/app/components/AppGradient";
 import WaveSkeleton from "@/app/components/WaveSkeleton";
+import DateTimePickerModal from 'react-native-modal-datetime-picker';
 
 const { width } = Dimensions.get("window");
 
@@ -128,6 +130,8 @@ const ProfileScreen = () => {
   const [yearPickerVisible, setYearPickerVisible] = useState(false);
   const [photoModalVisible, setPhotoModalVisible] = useState(false);
   const [tempPhotoUri, setTempPhotoUri] = useState<string | null>(null);
+  const [dobError, setDobError] = useState("");
+  const [isDatePickerVisible, setDatePickerVisible] = useState(false);
 
   // Animation refs
   const scaleAnim = useRef(new Animated.Value(1)).current;
@@ -285,10 +289,18 @@ const ProfileScreen = () => {
   };
 
   const validateName = (text: string) => {
-    setFormData((prev) => ({ ...prev, name: text }));
+    // Only allow letters and spaces, remove numbers and special characters
+    const filtered = text.replace(/[^A-Za-z ]/g, "");
+    setFormData((prev) => ({ ...prev, name: filtered }));
     if (!touched.name) return true;
 
-    if (text.trim().length < 3) {
+    if (!/^[A-Za-z ]+$/.test(filtered.trim())) {
+      setErrors((prev) => ({
+        ...prev,
+        name: "Name can only contain letters and spaces",
+      }));
+      return false;
+    } else if (filtered.trim().length < 3) {
       setErrors((prev) => ({
         ...prev,
         name: "Name must be at least 3 characters",
@@ -301,20 +313,30 @@ const ProfileScreen = () => {
   };
 
   const validatePhoneNumber = (text: string) => {
-    const cleaned = text.replace(/\D/g, "");
+    // Only allow digits, and limit to 10 digits
+    const cleaned = text.replace(/\D/g, "").slice(0, 10);
     setFormData((prev) => ({ ...prev, phoneNumber: cleaned }));
+    if (cleaned.length === 10) {
+      Keyboard.dismiss();
+    }
     if (!touched.phoneNumber) return true;
 
-    if (cleaned.length < 10) {
+    if (!/^\d{10}$/.test(cleaned)) {
       setErrors((prev) => ({
         ...prev,
-        phoneNumber: "Phone number must be at least 10 digits",
+        phoneNumber: "Phone number must be exactly 10 digits",
       }));
       return false;
     } else {
       setErrors((prev) => ({ ...prev, phoneNumber: "" }));
       return true;
     }
+  };
+
+  const isValidDOB = (date: Date) => {
+    const today = new Date();
+    const minDate = new Date(today.getFullYear() - 18, today.getMonth(), today.getDate());
+    return date <= minDate;
   };
 
   const handleBlur = (field: keyof typeof touched) => {
@@ -327,7 +349,13 @@ const ProfileScreen = () => {
     try {
       const isNameValid = validateName(formData.name);
       const isPhoneValid = validatePhoneNumber(formData.phoneNumber);
-      if (!isNameValid || !isPhoneValid) return;
+      const isDOBValid = isValidDOB(formData.dateOfBirth);
+      if (!isNameValid || !isPhoneValid || !isDOBValid) {
+        if (!isDOBValid) setDobError("You must be at least 18 years old.");
+        return;
+      } else {
+        setDobError("");
+      }
 
       setIsSaving(true);
       const userId = auth.currentUser?.uid;
@@ -513,6 +541,21 @@ const ProfileScreen = () => {
     return matrix;
   };
 
+  const showDatePicker = () => setDatePickerVisible(true);
+  const hideDatePicker = () => setDatePickerVisible(false);
+  const handleDateConfirm = (date: Date) => {
+    if (!isValidDOB(date)) {
+      setDobError("You must be at least 18 years old.");
+      hideDatePicker();
+      return;
+    } else {
+      setDobError("");
+    }
+    setSelectedDate(date);
+    setFormData((prev) => ({ ...prev, dateOfBirth: date }));
+    hideDatePicker();
+  };
+
   const Layout = role === "BDM" ? BDMMainLayout : TelecallerMainLayout;
 
   if (isLoading) {
@@ -633,7 +676,13 @@ const ProfileScreen = () => {
                     <FormInput
                       label="Full Name"
                       value={formData.name}
-                      onChangeText={validateName}
+                      onChangeText={(text: string) => {
+                        // Only allow letters and spaces
+                        const filtered = text.replace(/[^A-Za-z ]/g, "");
+                        setFormData((prev) => ({ ...prev, name: filtered }));
+                        if (!touched.name) return;
+                        validateName(filtered);
+                      }}
                       onBlur={() => handleBlur("name")}
                       error={touched.name ? errors.name : undefined}
                       leftIcon="account"
@@ -658,7 +707,13 @@ const ProfileScreen = () => {
                     <FormInput
                       label="Phone Number"
                       value={formData.phoneNumber}
-                      onChangeText={validatePhoneNumber}
+                      onChangeText={(text: string) => {
+                        // Only allow digits, and limit to 10 digits
+                        const cleaned = text.replace(/\D/g, "").slice(0, 10);
+                        setFormData((prev) => ({ ...prev, phoneNumber: cleaned }));
+                        if (!touched.phoneNumber) return;
+                        validatePhoneNumber(cleaned);
+                      }}
                       onBlur={() => handleBlur("phoneNumber")}
                       error={touched.phoneNumber ? errors.phoneNumber : undefined}
                       keyboardType="phone-pad"
@@ -666,8 +721,8 @@ const ProfileScreen = () => {
                       autoComplete="tel"
                     />
                     <Text style={styles.datePickerLabel}>Date of Birth</Text>
-                    <TouchableOpacity
-                      onPress={() => setCalendarVisible(!calendarVisible)}
+                     <TouchableOpacity
+                      onPress={showDatePicker}
                       style={styles.datePickerButton}
                     >
                       <View style={styles.datePickerContent}>
@@ -686,124 +741,14 @@ const ProfileScreen = () => {
                         />
                       </View>
                     </TouchableOpacity>
-
-                    {calendarVisible && (
-                      <View style={styles.calendarWrapper}>
-                        <View style={styles.calendarHeader}>
-                          <TouchableOpacity onPress={handlePrevMonth}>
-                            <Text style={styles.arrow}>◀</Text>
-                          </TouchableOpacity>
-                          <TouchableOpacity
-                            onPress={() => setYearPickerVisible(!yearPickerVisible)}
-                          >
-                            <Text style={styles.monthYear}>
-                              {new Date(calendarYear, calendarMonth).toLocaleString(
-                                "default",
-                                { month: "long" }
-                              )}{" "}
-                              {calendarYear}
-                            </Text>
-                          </TouchableOpacity>
-                          <TouchableOpacity onPress={handleNextMonth}>
-                            <Text style={styles.arrow}>▶</Text>
-                          </TouchableOpacity>
-                        </View>
-
-                        {yearPickerVisible && (
-                          <View style={styles.pickerContainer}>
-                            <ScrollView style={styles.yearScroll} horizontal>
-                              {[...Array(60)].map((_, i) => {
-                                const year = 1970 + i;
-                                return (
-                                  <TouchableOpacity
-                                    key={year}
-                                    onPress={() => setCalendarYear(year)}
-                                  >
-                                    <Text style={styles.pickerItem}>{year}</Text>
-                                  </TouchableOpacity>
-                                );
-                              })}
-                            </ScrollView>
-                            <ScrollView style={styles.monthScroll} horizontal>
-                              {Array.from({ length: 12 }, (_, i) => i).map(
-                                (month) => (
-                                  <TouchableOpacity
-                                    key={month}
-                                    onPress={() => {
-                                      setCalendarMonth(month);
-                                      setYearPickerVisible(false);
-                                    }}
-                                  >
-                                    <Text style={styles.pickerItem}>
-                                      {new Date(0, month).toLocaleString(
-                                        "default",
-                                        { month: "short" }
-                                      )}
-                                    </Text>
-                                  </TouchableOpacity>
-                                )
-                              )}
-                            </ScrollView>
-                          </View>
-                        )}
-
-                        <View style={styles.daysRow}>
-                          {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map(
-                            (day, i) => (
-                              <Text key={i} style={styles.dayText}>
-                                {day}
-                              </Text>
-                            )
-                          )}
-                        </View>
-
-                        {getCalendarMatrix(calendarYear, calendarMonth).map(
-                          (week, rowIdx) => (
-                            <View key={rowIdx} style={styles.weekRow}>
-                              {week.map((date, colIdx) => (
-                                <TouchableOpacity
-                                  key={colIdx}
-                                  style={[
-                                    styles.dateCell,
-                                    date &&
-                                    new Date(
-                                      calendarYear,
-                                      calendarMonth,
-                                      date
-                                    ).toDateString() === selectedDate.toDateString()
-                                      ? styles.selectedDate
-                                      : null,
-                                  ]}
-                                  onPress={() => {
-                                    const chosenDate = new Date(
-                                      calendarYear,
-                                      calendarMonth,
-                                      date ?? 1
-                                    );
-                                    setSelectedDate(chosenDate);
-                                    setFormData((prev) => ({
-                                      ...prev,
-                                      dateOfBirth: chosenDate,
-                                    }));
-                                    setCalendarVisible(false);
-                                  }}
-                                  disabled={!date}
-                                >
-                                  <Text
-                                    style={[
-                                      styles.dateText,
-                                      !date && { color: "#ccc" },
-                                    ]}
-                                  >
-                                    {date || ""}
-                                  </Text>
-                                </TouchableOpacity>
-                              ))}
-                            </View>
-                          )
-                        )}
-                      </View>
-                    )}
+                    <DateTimePickerModal
+                      isVisible={isDatePickerVisible}
+                      mode="date"
+                      date={selectedDate}
+                      maximumDate={new Date(new Date().setFullYear(new Date().getFullYear() - 18))}
+                      onConfirm={handleDateConfirm}
+                      onCancel={hideDatePicker}
+                    />
                   </>
                 ) : (
                   <>
@@ -885,6 +830,10 @@ const ProfileScreen = () => {
             )}
 
             <View style={styles.spacer} />
+
+            {dobError ? (
+              <Text style={{ color: '#FF5252', fontSize: 12, marginTop: 4 }}>{dobError}</Text>
+            ) : null}
           </View>
         </Animated.ScrollView>
 

@@ -34,6 +34,8 @@ import AppGradient from "@/app/components/AppGradient";
 import { getTargets } from "@/app/services/targetService";
 import { format, startOfDay, endOfDay } from "date-fns";
 import { doc, getDoc } from "firebase/firestore";
+import { useFocusEffect } from '@react-navigation/native';
+import { useCallback } from 'react';
 
 const PRODUCT_LIST = [
   { label: "Health Insurance", value: "Health Insurance" },
@@ -175,7 +177,7 @@ const ReportScreen: React.FC = () => {
     closingDetails,
   ]);
 
-  // Update the fetchTodayCallData function for faster updates
+  
   const fetchTodayCallData = async () => {
     try {
       const userId = auth.currentUser?.uid;
@@ -292,16 +294,15 @@ const ReportScreen: React.FC = () => {
   }, [isLoading]);
 
   // Update the useEffect for fetching data
-  useEffect(() => {
-    // Fetch immediately on mount
-    fetchTodayCallData();
+ useFocusEffect(
+  useCallback(() => {
+    fetchTodayCallData(); // ✅ Runs every time screen comes into focus
 
-    // Set up interval to fetch every 10 seconds
-    const interval = setInterval(fetchTodayCallData, 10000);
+    const interval = setInterval(fetchTodayCallData, 1000); // ⏱ Keep updating every 10s
 
-    // Cleanup interval on unmount
-    return () => clearInterval(interval);
-  }, []);
+    return () => clearInterval(interval); // 🧹 Clean up on screen blur
+  }, [])
+);
 
   // Format duration to HH:mm:ss format
   const formatDuration = (seconds: number) => {

@@ -26,7 +26,7 @@ import { useProfile } from "@/app/context/ProfileContext";
 import { BDMStackParamList } from "@/app/index";
 import BDMMainLayout from "@/app/components/BDMMainLayout";
 import CallLogModule from "react-native-call-log";
-import { AppState, AppStateStatus } from 'react-native';
+
 
 const SCREEN_HEIGHT = Dimensions.get("window").height;
 import {

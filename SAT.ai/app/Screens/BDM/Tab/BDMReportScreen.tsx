@@ -271,6 +271,27 @@ const BDMReportScreen = () => {
     []
   );
 
+  const SYNCED_REPORT_IDS_KEY = "bdm_synced_report_ids";
+
+  // Helper to get synced report IDs
+  const getSyncedReportIds = async (): Promise<string[]> => {
+    try {
+      const idsString = await AsyncStorage.getItem(SYNCED_REPORT_IDS_KEY);
+      return idsString ? JSON.parse(idsString) : [];
+    } catch {
+      return [];
+    }
+  };
+
+  // Helper to add a synced report ID
+  const addSyncedReportId = async (id: string) => {
+    const ids = await getSyncedReportIds();
+    if (!ids.includes(id)) {
+      ids.push(id);
+      await AsyncStorage.setItem(SYNCED_REPORT_IDS_KEY, JSON.stringify(ids));
+    }
+  };
+
   const formatDuration = useCallback((seconds: number) => {
     if (!seconds || seconds === 0) return "00:00:00";
     const hours = Math.floor(seconds / 3600);
@@ -617,7 +638,11 @@ const BDMReportScreen = () => {
         if (!userId) return;
 
         const syncedReports: string[] = [];
+        const alreadySyncedIds = await getSyncedReportIds();
         for (const report of pendingReports) {
+          if (alreadySyncedIds.includes(report.id)) {
+            continue; // Skip already synced
+          }
           try {
             await addDoc(collection(db, "bdm_reports"), {
               ...report,
@@ -625,6 +650,7 @@ const BDMReportScreen = () => {
               syncedAt: Timestamp.fromDate(new Date()),
             });
             syncedReports.push(report.id);
+            await addSyncedReportId(report.id);
           } catch (error) {
             // Handle silently
           }
@@ -928,6 +954,10 @@ const newErrors: { [key: string]: string } = {};
       const userId = auth.currentUser?.uid;
       if (!userId) throw new Error("User not authenticated");
 
+      // Check if already synced
+      const alreadySyncedIds = await getSyncedReportIds();
+      if (alreadySyncedIds.includes(reportData.id)) return;
+
       let formattedDuration = reportData.totalMeetingDuration;
       if (formattedDuration && !formattedDuration.includes(":")) {
         const hrMatch = formattedDuration.match(/(\d+)\s*hr/);
@@ -946,6 +976,7 @@ const newErrors: { [key: string]: string } = {};
         synced: true,
         syncedAt: Timestamp.fromDate(new Date()),
       });
+      await addSyncedReportId(reportData.id);
 
       const weeklySummaryRef = doc(
         db,
@@ -1022,8 +1053,10 @@ const newErrors: { [key: string]: string } = {};
         return;
       }
 
+      const alreadySyncedIds = await getSyncedReportIds();
       const reportsByWeek: { [key: string]: any[] } = {};
       pendingReports.forEach((report: any) => {
+        if (alreadySyncedIds.includes(report.id)) return; // Skip already synced
         const weekKey = `${report.year}_${report.month}_${report.weekNumber}`;
         reportsByWeek[weekKey] = reportsByWeek[weekKey] || [];
         reportsByWeek[weekKey].push(report);
@@ -1051,6 +1084,7 @@ const newErrors: { [key: string]: string } = {};
             synced: true,
             syncedAt: Timestamp.fromDate(new Date()),
           });
+          await addSyncedReportId(report.id);
         }
 
         let totalMeetings = 0;

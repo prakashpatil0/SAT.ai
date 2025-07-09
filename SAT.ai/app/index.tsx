@@ -8,7 +8,6 @@ import {
   AppState,
 } from "react-native";
 import {
-  NavigationContainer,
   DrawerActions,
   useNavigation,
   RouteProp,

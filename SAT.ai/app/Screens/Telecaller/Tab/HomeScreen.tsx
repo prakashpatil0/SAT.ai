@@ -294,17 +294,7 @@ const HomeScreen = () => {
   }, [fetchContacts]);
 
 
-useEffect(() => {
-  const subscription = AppState.addEventListener('change', async (nextAppState: AppStateStatus) => {
-    if (nextAppState === 'active') {
-      await handleRefresh(); // fetch latest logs when user returns to app
-    }
-  });
 
-  return () => {
-    subscription.remove(); // cleanup
-  };
-}, [handleRefresh]);
 
 
 const fetchCallLogs = useCallback(async () => {
@@ -1116,6 +1106,17 @@ const fetchCallLogs = useCallback(async () => {
       setIsLoadingSimLogs(false);
     }
   }, [updateCallLogsState, saveCallLogsToFirebase]);
+  useEffect(() => {
+  const subscription = AppState.addEventListener('change', async (nextAppState: AppStateStatus) => {
+    if (nextAppState === 'active') {
+      await handleRefresh(); // fetch latest logs when user returns to app
+    }
+  });
+
+  return () => {
+    subscription.remove(); // cleanup
+  };
+}, [handleRefresh]);
 
   const renderCallCard = ({ item, index }: { item: GroupedCallLog; index: number }) => {
     const isNewDate = index === 0 || 

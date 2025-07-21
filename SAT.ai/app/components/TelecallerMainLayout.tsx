@@ -7,6 +7,8 @@ import TelecallerBottomTabs from '@/app/components/TelecallerBottomTabs';
 import AppGradient from './AppGradient';
 import { storage } from '@/firebaseConfig';
 import { ref, getDownloadURL } from 'firebase/storage';
+import MeetingTickerPill from './MeetingTickerPill';
+
 
 type TelecallerMainLayoutProps = {
   children: React.ReactNode;
@@ -63,6 +65,9 @@ const TelecallerMainLayout: React.FC<TelecallerMainLayoutProps> = ({
                 <MaterialIcons name="menu" size={24} color="#333" />
               </TouchableOpacity>
             )}
+            <View style={{ flex: 1, alignItems: 'center' }}>
+              <MeetingTickerPill role="telecaller" />
+            </View>
             <TouchableOpacity 
               onPress={() => navigation.navigate('Profile' as never)}
               style={styles.profileButton}

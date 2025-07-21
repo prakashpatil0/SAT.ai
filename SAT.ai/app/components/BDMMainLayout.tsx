@@ -8,6 +8,7 @@ import BDMBottomTabs from '@/app/Screens/BDM/BDMBottomTabs';
 import AppGradient from './AppGradient';
 import { storage } from '@/firebaseConfig';
 import { ref, getDownloadURL } from 'firebase/storage';
+import MeetingTickerPill from './MeetingTickerPill';
 
 type BDMMainLayoutProps = {
   children: React.ReactNode;
@@ -67,7 +68,7 @@ const BDMMainLayout: React.FC<BDMMainLayoutProps> = ({
   return (
     <View style={styles.container}>
       <View style={styles.headerContainer}>
-        {/* Top Row - Drawer Menu and Profile */}
+        {/* Top Row - Drawer Menu, Meeting Pill, and Profile */}
         <View style={styles.topRow}>
           {showDrawer && (
             <TouchableOpacity 
@@ -77,6 +78,9 @@ const BDMMainLayout: React.FC<BDMMainLayoutProps> = ({
               <MaterialIcons name="menu" size={24} color="#333" />
             </TouchableOpacity>
           )}
+          <View style={styles.tickerPillWrapper}>
+            <MeetingTickerPill role={userProfile?.role === 'telecaller' ? 'telecaller' : 'bdm'} />
+          </View>
           <TouchableOpacity 
             onPress={() => navigation.navigate('Profile' as never)}
             style={styles.profileButton}
@@ -89,7 +93,7 @@ const BDMMainLayout: React.FC<BDMMainLayoutProps> = ({
                 style={styles.profileImage}
               />
             ) : (
-              <View style={[styles.profileImage, { backgroundColor: '#f0f0f0', justifyContent: 'center', alignItems: 'center' }]}>
+              <View style={[styles.profileImage, { backgroundColor: '#f0f0f0', justifyContent: 'center', alignItems: 'center' }]}> 
                 <MaterialIcons name="person" size={24} color="#999" />
               </View>
             )}
@@ -144,6 +148,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 20,
     paddingBottom: 10,
+  },
+  tickerPillWrapper: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginHorizontal: 8,
   },
   bottomRow: {
     flexDirection: 'row',

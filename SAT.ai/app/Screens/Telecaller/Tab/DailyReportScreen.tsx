@@ -20,6 +20,8 @@ import { LinearGradient } from "expo-linear-gradient";
 import { Chip } from "react-native-paper";
 import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
 import { auth, db } from "@/firebaseConfig";
+import { MaterialIcons } from "@expo/vector-icons";
+
 import {
   collection,
   addDoc,
@@ -34,54 +36,8 @@ import AppGradient from "@/app/components/AppGradient";
 import { getTargets } from "@/app/services/targetService";
 import { format, startOfDay, endOfDay } from "date-fns";
 import { doc, getDoc } from "firebase/firestore";
-import { useFocusEffect } from '@react-navigation/native';
-import { useCallback } from 'react';
-
-const PRODUCT_LIST = [
-  { label: "Health Insurance", value: "Health Insurance" },
-  { label: "Bike Insurance", value: "Bike Insurance" },
-  { label: "Car Insurance", value: "Car Insurance" },
-  { label: "Term Insurance", value: "Term Insurance" },
-  { label: "Mutual Funds", value: "Mutual Funds" },
-  { label: "Saving Plans", value: "Saving Plans" },
-  { label: "Travel Insurance", value: "Travel Insurance" },
-  { label: "Group Mediclaim", value: "Group Mediclaim" },
-  { label: "Group Personal Accident", value: "Group Personal Accident" },
-  { label: "Group Term Life", value: "Group Term Life" },
-  { label: "Group Credit Life", value: "Group Credit Life" },
-  { label: "Workmen Compensation", value: "Workmen Compensation" },
-  { label: "Group Gratuity", value: "Group Gratuity" },
-  { label: "Fire & Burglary Insurance", value: "Fire & Burglary Insurance" },
-  { label: "Shop Owner Insurance", value: "Shop Owner Insurance" },
-  { label: "Motor Fleet Insurance", value: "Motor Fleet Insurance" },
-  { label: "Marine Single Transit", value: "Marine Single Transit" },
-  { label: "Marine Open Policy", value: "Marine Open Policy" },
-  { label: "Marine Sales Turnover", value: "Marine Sales Turnover" },
-  {
-    label: "Directors & Officers Insurance",
-    value: "Directors & Officers Insurance",
-  },
-  {
-    label: "General Liability Insurance",
-    value: "General Liability Insurance",
-  },
-  {
-    label: "Product Liability Insurance",
-    value: "Product Liability Insurance",
-  },
-  {
-    label: "Professional Indemnity for Doctors",
-    value: "Professional Indemnity for Doctors",
-  },
-  {
-    label: "Professional Indemnity for Companies",
-    value: "Professional Indemnity for Companies",
-  },
-  { label: "Cyber Insurance", value: "Cyber Insurance" },
-  { label: "Office Package Policy", value: "Office Package Policy" },
-  { label: "Crime Insurance", value: "Crime Insurance" },
-  { label: "Other", value: "Other" },
-];
+import { useFocusEffect } from "@react-navigation/native";
+import { useCallback } from "react";
 
 interface ClosingDetail {
   selectedProduct: string;
@@ -118,7 +74,6 @@ const ReportScreen: React.FC = () => {
   const [notAttendedCalls, setNotAttendedCalls] = useState("");
   const [closingLeads, setClosingLeads] = useState("");
   const [closingDetails, setClosingDetails] = useState<ClosingDetail[]>([
-    
     {
       selectedProduct: "",
       otherProduct: "",
@@ -127,12 +82,12 @@ const ReportScreen: React.FC = () => {
       showOtherInput: false,
     },
   ]);
- const resetForm = () => {
+  const resetForm = () => {
     // Reset all form field values
-    setPositiveLeads('');
-    setRejectedLeads('');
-    setNotAttendedCalls('');
-    setClosingLeads('');
+    setPositiveLeads("");
+    setRejectedLeads("");
+    setNotAttendedCalls("");
+    setClosingLeads("");
 
     // Reset closingDetails array
     setClosingDetails([
@@ -147,13 +102,13 @@ const ReportScreen: React.FC = () => {
 
     // Reset error states
     setErrors({
-      positiveLeads: '',
-      rejectedLeads: '',
-      notAttendedCalls: '',
-      closingLeads: '',
-      [`closing_0_amount`]: '',
-      [`closing_0_description`]: '',
-      [`closing_0_product`]: '',
+      positiveLeads: "",
+      rejectedLeads: "",
+      notAttendedCalls: "",
+      closingLeads: "",
+      [`closing_0_amount`]: "",
+      [`closing_0_description`]: "",
+      [`closing_0_product`]: "",
     });
 
     // Reset total closing amount
@@ -162,7 +117,9 @@ const ReportScreen: React.FC = () => {
   const [totalClosingAmount, setTotalClosingAmount] = useState(0);
   const [dropdownVisible, setDropdownVisible] = useState<number | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
-  const [filteredProducts, setFilteredProducts] = useState(PRODUCT_LIST);
+  const [productList, setProductList] = useState<string[]>([]);
+  const [filteredProducts, setFilteredProducts] = useState<string[]>([]);
+
   const [errors, setErrors] = useState<{ [key: string]: string }>({});
   const [todayCalls, setTodayCalls] = useState(0);
   const [todayDuration, setTodayDuration] = useState(0);
@@ -179,16 +136,50 @@ const ReportScreen: React.FC = () => {
   const closingAmountRefs = useRef<Array<TextInput | null>>([]);
 
   // Filter products based on search
+
+  useEffect(() => {
+    const fetchProducts = async () => {
+      try {
+        const userId = auth.currentUser?.uid;
+        if (!userId) return;
+
+        const userDoc = await getDoc(doc(db, "users", userId));
+        const companyId = userDoc.exists() ? userDoc.data().companyId : null;
+        if (!companyId) return;
+
+        const q = query(
+          collection(db, "products"),
+          where("active", "==", true),
+          where("companyId", "==", companyId)
+        );
+
+        const snapshot = await getDocs(q);
+        console.log(
+          "Fetched product docs:",
+          snapshot.docs.map((doc) => doc.data())
+        ); // ✅ Add this line
+        const list = snapshot.docs.map((doc) => doc.data().name);
+
+        setProductList(list);
+        setFilteredProducts(list);
+      } catch (error) {
+        console.error("Error fetching product list:", error);
+      }
+    };
+
+    fetchProducts();
+  }, []);
+
   useEffect(() => {
     if (searchQuery.trim() === "") {
-      setFilteredProducts(PRODUCT_LIST);
+      setFilteredProducts(productList);
     } else {
-      const filtered = PRODUCT_LIST.filter((product) =>
-        product.label.toLowerCase().includes(searchQuery.toLowerCase())
+      const filtered = productList.filter((product) =>
+        product.toLowerCase().includes(searchQuery.toLowerCase())
       );
       setFilteredProducts(filtered);
     }
-  }, [searchQuery]);
+  }, [searchQuery, productList]);
 
   // Load draft data on mount
   useEffect(() => {
@@ -209,7 +200,6 @@ const ReportScreen: React.FC = () => {
     closingDetails,
   ]);
 
-  
   const fetchTodayCallData = async () => {
     try {
       const userId = auth.currentUser?.uid;
@@ -326,15 +316,15 @@ const ReportScreen: React.FC = () => {
   }, [isLoading]);
 
   // Update the useEffect for fetching data
- useFocusEffect(
-  useCallback(() => {
-    fetchTodayCallData(); // ✅ Runs every time screen comes into focus
+  useFocusEffect(
+    useCallback(() => {
+      fetchTodayCallData(); // ✅ Runs every time screen comes into focus
 
-    const interval = setInterval(fetchTodayCallData, 1000); // ⏱ Keep updating every 10s
+      const interval = setInterval(fetchTodayCallData, 1000); // ⏱ Keep updating every 10s
 
-    return () => clearInterval(interval); // 🧹 Clean up on screen blur
-  }, [])
-);
+      return () => clearInterval(interval); // 🧹 Clean up on screen blur
+    }, [])
+  );
 
   // Format duration to HH:mm:ss format
   const formatDuration = (seconds: number) => {
@@ -408,65 +398,79 @@ const ReportScreen: React.FC = () => {
 
     if (!numMeetings.trim()) {
       newErrors.numMeetings = "Number of calls is required";
-      if (!firstEmptyField) firstEmptyField = () => numMeetingsRef.current?.focus();
+      if (!firstEmptyField)
+        firstEmptyField = () => numMeetingsRef.current?.focus();
     } else if (isNaN(Number(numMeetings)) || Number(numMeetings) < 0) {
       newErrors.numMeetings = "Please enter a valid number";
-      if (!firstEmptyField) firstEmptyField = () => numMeetingsRef.current?.focus();
+      if (!firstEmptyField)
+        firstEmptyField = () => numMeetingsRef.current?.focus();
     }
 
     if (!meetingDuration.trim()) {
       newErrors.meetingDuration = "Call duration is required";
-      if (!firstEmptyField) firstEmptyField = () => meetingDurationRef.current?.focus();
+      if (!firstEmptyField)
+        firstEmptyField = () => meetingDurationRef.current?.focus();
     }
 
     if (!positiveLeads.trim()) {
       newErrors.positiveLeads = "Positive leads is required";
-      if (!firstEmptyField) firstEmptyField = () => positiveLeadsRef.current?.focus();
+      if (!firstEmptyField)
+        firstEmptyField = () => positiveLeadsRef.current?.focus();
     } else if (isNaN(Number(positiveLeads)) || Number(positiveLeads) < 0) {
       newErrors.positiveLeads = "Please enter a valid number";
-      if (!firstEmptyField) firstEmptyField = () => positiveLeadsRef.current?.focus();
+      if (!firstEmptyField)
+        firstEmptyField = () => positiveLeadsRef.current?.focus();
     }
 
     if (!rejectedLeads.trim()) {
       newErrors.rejectedLeads = "Rejected leads is required";
-      if (!firstEmptyField) firstEmptyField = () => rejectedLeadsRef.current?.focus();
+      if (!firstEmptyField)
+        firstEmptyField = () => rejectedLeadsRef.current?.focus();
     } else if (isNaN(Number(rejectedLeads)) || Number(rejectedLeads) < 0) {
       newErrors.rejectedLeads = "Please enter a valid number";
-      if (!firstEmptyField) firstEmptyField = () => rejectedLeadsRef.current?.focus();
+      if (!firstEmptyField)
+        firstEmptyField = () => rejectedLeadsRef.current?.focus();
     }
 
     if (!notAttendedCalls.trim()) {
       newErrors.notAttendedCalls = "Not attended calls is required";
-      if (!firstEmptyField) firstEmptyField = () => notAttendedCallsRef.current?.focus();
+      if (!firstEmptyField)
+        firstEmptyField = () => notAttendedCallsRef.current?.focus();
     } else if (
       isNaN(Number(notAttendedCalls)) ||
       Number(notAttendedCalls) < 0
     ) {
       newErrors.notAttendedCalls = "Please enter a valid number";
-      if (!firstEmptyField) firstEmptyField = () => notAttendedCallsRef.current?.focus();
+      if (!firstEmptyField)
+        firstEmptyField = () => notAttendedCallsRef.current?.focus();
     }
 
     if (!closingLeads.trim()) {
       newErrors.closingLeads = "Closing leads is required";
-      if (!firstEmptyField) firstEmptyField = () => closingLeadsRef.current?.focus();
+      if (!firstEmptyField)
+        firstEmptyField = () => closingLeadsRef.current?.focus();
     } else if (isNaN(Number(closingLeads)) || Number(closingLeads) < 0) {
       newErrors.closingLeads = "Please enter a valid number";
-      if (!firstEmptyField) firstEmptyField = () => closingLeadsRef.current?.focus();
+      if (!firstEmptyField)
+        firstEmptyField = () => closingLeadsRef.current?.focus();
     }
 
     closingDetails.forEach((detail, index) => {
       if (!detail.selectedProduct) {
         newErrors[`closing_${index}_product`] = "Please select a product";
-        if (!firstEmptyField) firstEmptyField = () => closingAmountRefs.current[index]?.focus();
-      }
+        if (!firstEmptyField)
+          firstEmptyField = () => closingAmountRefs.current[index]?.focus();
+    }
 
       if (!detail.amount.trim()) {
         newErrors[`closing_${index}_amount`] = "Amount is required";
-        if (!firstEmptyField) firstEmptyField = () => closingAmountRefs.current[index]?.focus();
+        if (!firstEmptyField)
+          firstEmptyField = () => closingAmountRefs.current[index]?.focus();
       }
       if (!detail.description.trim()) {
         newErrors[`closing_${index}_description`] = "Description is required";
-        if (!firstEmptyField) firstEmptyField = () => closingAmountRefs.current[index]?.focus();
+        if (!firstEmptyField)
+          firstEmptyField = () => closingAmountRefs.current[index]?.focus();
       }
     });
 
@@ -528,10 +532,7 @@ const ReportScreen: React.FC = () => {
         updatedAt: Timestamp.fromDate(now),
       };
 
-      await addDoc(
-        collection(db, "telecaller_reports"),
-        reportData
-      );
+      await addDoc(collection(db, "telecaller_reports"), reportData);
 
       await AsyncStorage.setItem(
         STORAGE_KEYS.LAST_REPORT,
@@ -641,16 +642,25 @@ const ReportScreen: React.FC = () => {
             enableOnAndroid
           >
             <View style={styles.inputContainer}>
-              <Text style={styles.dateText}>
-                {format(new Date(), "dd MMMM (EEEE)")}
-              </Text>
+              <View style={{ position: "relative", alignItems: "center" }}>
+                {/* Reset Icon at Top Right */}
+                <TouchableOpacity
+                  onPress={resetForm}
+                  style={{ position: "absolute", right: 0 }}
+                >
+                  <Ionicons name="refresh" size={24} color="#FF5252" />
+                </TouchableOpacity>
 
+                {/* Centered Date */}
+                <Text style={styles.dateText}>
+                  {format(new Date(), "dd MMMM (EEEE)")}
+                </Text>
+              </View>
               {/* Number of Calls - Read Only with Auto Update */}
               <Text style={styles.label}>Number of Calls</Text>
               <View style={styles.readOnlyInput}>
                 <Text style={styles.readOnlyText}>{todayCalls}</Text>
               </View>
-
               {/* Call Duration - Read Only with Auto Update */}
               <Text style={styles.label}>Call Duration</Text>
               <View style={styles.readOnlyInput}>
@@ -658,141 +668,126 @@ const ReportScreen: React.FC = () => {
                   {formatDuration(todayDuration)}
                 </Text>
               </View>
+              <Text style={styles.label}>Positive Leads</Text>
+              <TextInput
+                style={[
+                  styles.input,
+                  errors.positiveLeads && styles.inputError,
+                ]}
+                value={positiveLeads}
+                onChangeText={(text) => {
+                  // Check if the new text contains only digits
+                  const isValid = /^[0-9]*$/.test(text);
 
-<Text style={styles.label}>Positive Leads</Text>
-<TextInput
-  style={[
-    styles.input,
-    errors.positiveLeads && styles.inputError,
-  ]}
-  value={positiveLeads}
-  onChangeText={(text) => {
-    // Check if the new text contains only digits
-    const isValid = /^[0-9]*$/.test(text);
+                  if (isValid) {
+                    setPositiveLeads(text);
+                    setErrors((prev) => ({ ...prev, positiveLeads: "" })); // Clear error
+                  } else {
+                    setErrors((prev) => ({
+                      ...prev,
+                      positiveLeads: "Only valid number allowed",
+                    }));
+                  }
+                }}
+                keyboardType="numeric"
+                placeholder="Enter number"
+                ref={positiveLeadsRef}
+              />
+              {/* Show error if present */}
+              {errors.positiveLeads ? (
+                <Text style={styles.errorText}>{errors.positiveLeads}</Text>
+              ) : null}
+              {/* Positive Leads Field */}
+              {/* Rejected Leads Field */}
+              <Text style={styles.label}>Rejected Leads</Text>
+              <TextInput
+                style={[
+                  styles.input,
+                  errors.rejectedLeads && styles.inputError,
+                ]}
+                value={rejectedLeads}
+                onChangeText={(text) => {
+                  // Check if the input is a valid number (only digits)
+                  const isValid = /^[0-9]*$/.test(text);
 
-    if (isValid) {
-      setPositiveLeads(text);
-      setErrors((prev) => ({ ...prev, positiveLeads: '' })); // Clear error
-    } else {
-      setErrors((prev) => ({
-        ...prev,
-        positiveLeads: 'Only valid number allowed',
-      }));
-    }
-  }}
-  keyboardType="numeric"
-  placeholder="Enter number"
-  ref={positiveLeadsRef}
-/>
+                  if (isValid) {
+                    setRejectedLeads(text); // Update value only if valid
+                    setErrors((prev) => ({ ...prev, rejectedLeads: "" })); // Clear error message
+                  } else {
+                    setErrors((prev) => ({
+                      ...prev,
+                      rejectedLeads: "Only valid number allowed", // Show error message
+                    }));
+                  }
+                }}
+                keyboardType="numeric"
+                placeholder="Enter number"
+                ref={rejectedLeadsRef}
+              />
+              {/* Show error message below if any */}
+              {errors.rejectedLeads && (
+                <Text style={styles.errorText}>{errors.rejectedLeads}</Text>
+              )}
+              {/* Not Attended Calls Field */}
+              <Text style={styles.label}>Not Attended Calls</Text>
+              <TextInput
+                style={[
+                  styles.input,
+                  errors.notAttendedCalls && styles.inputError,
+                ]}
+                value={notAttendedCalls}
+                onChangeText={(text) => {
+                  // Allow only digits
+                  const numericText = text.replace(/[^0-9]/g, ""); // Only digits allowed
+                  setNotAttendedCalls(numericText);
 
-{/* Show error if present */}
-{errors.positiveLeads ? (
-  <Text style={styles.errorText}>{errors.positiveLeads}</Text>
-) : null}
+                  // Clear error if valid number is entered
+                  if (numericText) {
+                    setErrors((prev) => ({ ...prev, notAttendedCalls: "" }));
+                  } else {
+                    setErrors((prev) => ({
+                      ...prev,
+                      notAttendedCalls: "Only valid number allowed", // Show error message
+                    }));
+                  }
+                }}
+                keyboardType="numeric"
+                placeholder=""
+                ref={notAttendedCallsRef}
+              />
+              {/* Show error message below if any */}
+              {errors.notAttendedCalls && (
+                <Text style={styles.errorText}>{errors.notAttendedCalls}</Text>
+              )}
+              {/* Closing Leads Field */}
+              <Text style={styles.label}>Closing Leads</Text>
+              <TextInput
+                style={[styles.input, errors.closingLeads && styles.inputError]}
+                value={closingLeads}
+                onChangeText={(text) => {
+                  // Allow only digits using a regular expression
+                  const numericText = text.replace(/[^0-9]/g, ""); // Only digits allowed
+                  setClosingLeads(numericText);
 
-
-
-  {/* Positive Leads Field */}
-
-
-{/* Rejected Leads Field */}
-<Text style={styles.label}>Rejected Leads</Text>
-<TextInput
-  style={[
-    styles.input,
-    errors.rejectedLeads && styles.inputError,
-  ]}
-  value={rejectedLeads}
-  onChangeText={(text) => {
-    // Check if the input is a valid number (only digits)
-    const isValid = /^[0-9]*$/.test(text);
-
-    if (isValid) {
-      setRejectedLeads(text); // Update value only if valid
-      setErrors((prev) => ({ ...prev, rejectedLeads: '' })); // Clear error message
-    } else {
-      setErrors((prev) => ({
-        ...prev,
-        rejectedLeads: 'Only valid number allowed', // Show error message
-      }));
-    }
-  }}
-  keyboardType="numeric"
-  placeholder="Enter number"
-  ref={rejectedLeadsRef}
-/>
-{/* Show error message below if any */}
-{errors.rejectedLeads && (
-  <Text style={styles.errorText}>{errors.rejectedLeads}</Text>
-)}
-
-
-     {/* Not Attended Calls Field */}
-<Text style={styles.label}>Not Attended Calls</Text>
-<TextInput
-  style={[
-    styles.input,
-    errors.notAttendedCalls && styles.inputError,
-  ]}
-  value={notAttendedCalls}
-  onChangeText={(text) => {
-    // Allow only digits
-    const numericText = text.replace(/[^0-9]/g, ''); // Only digits allowed
-    setNotAttendedCalls(numericText);
-
-    // Clear error if valid number is entered
-    if (numericText) {
-      setErrors((prev) => ({ ...prev, notAttendedCalls: '' }));
-    } else {
-      setErrors((prev) => ({
-        ...prev,
-        notAttendedCalls: 'Only valid number allowed', // Show error message
-      }));
-    }
-  }}
-  keyboardType="numeric"
-  placeholder=""
-  ref={notAttendedCallsRef}
-/>
-{/* Show error message below if any */}
-{errors.notAttendedCalls && (
-  <Text style={styles.errorText}>{errors.notAttendedCalls}</Text>
-)}
-
-{/* Closing Leads Field */}
-<Text style={styles.label}>Closing Leads</Text>
-<TextInput
-  style={[styles.input, errors.closingLeads && styles.inputError]}
-  value={closingLeads}
-  onChangeText={(text) => {
-    // Allow only digits using a regular expression
-    const numericText = text.replace(/[^0-9]/g, ''); // Only digits allowed
-    setClosingLeads(numericText);
-
-    // Clear the error message if valid number is entered
-    if (numericText) {
-      setErrors((prev) => ({ ...prev, closingLeads: '' }));
-    } else {
-      // Show error message if the input is invalid
-      setErrors((prev) => ({
-        ...prev,
-        closingLeads: 'Only valid number allowed', // Error message
-      }));
-    }
-  }}
-  keyboardType="numeric"
-  placeholder=""
-  ref={closingLeadsRef}
-/>
-
-{/* Display error message if there's an error */}
-{errors.closingLeads && (
-  <Text style={styles.errorText}>{errors.closingLeads}</Text>
-)}
-
-
-
-
+                  // Clear the error message if valid number is entered
+                  if (numericText) {
+                    setErrors((prev) => ({ ...prev, closingLeads: "" }));
+                  } else {
+                    // Show error message if the input is invalid
+                    setErrors((prev) => ({
+                      ...prev,
+                      closingLeads: "Only valid number allowed", // Error message
+                    }));
+                  }
+                }}
+                keyboardType="numeric"
+                placeholder=""
+                ref={closingLeadsRef}
+              />
+              {/* Display error message if there's an error */}
+              {errors.closingLeads && (
+                <Text style={styles.errorText}>{errors.closingLeads}</Text>
+              )}
               {/* Closing Details */}
               <View style={styles.section}>
                 <Text style={styles.sectionTitle}>Closing Details</Text>
@@ -829,11 +824,7 @@ const ReportScreen: React.FC = () => {
                         )
                       }
                     >
-                      <Text>
-                        {PRODUCT_LIST.find(
-                          (p) => p.value === detail.selectedProduct
-                        )?.label || "Select Product"}
-                      </Text>
+                      <Text>{detail.selectedProduct || "Select Product"}</Text>
 
                       <Ionicons
                         name={
@@ -848,28 +839,51 @@ const ReportScreen: React.FC = () => {
 
                     {/* Product Dropdown */}
                     {dropdownVisible === index && (
-                      <View style={styles.dropdownList}>
-                        {filteredProducts.map((item) => (
-                          <TouchableOpacity
-                            key={item.value}
-                            style={[
-                              styles.dropdownItem,
-                              detail.selectedProduct === item.value && styles.dropdownItemSelected,
-                            ]}
-                            onPress={() => handleProductSelection(index, item.value)}
-                          >
-                            <Text
+                      <View style={styles.dropdownContainer}>
+                        <View style={styles.searchContainer}>
+                          <TextInput
+                            style={styles.searchInput}
+                            placeholder="Search products..."
+                            value={searchQuery}
+                            onChangeText={(text) => setSearchQuery(text)}
+                          />
+                          <MaterialIcons name="search" size={20} color="#666" />
+                        </View>
+
+                        <ScrollView
+                          style={styles.dropdownList}
+                          nestedScrollEnabled={true}
+                        >
+                          {filteredProducts.map((item) => (
+                            <TouchableOpacity
+                              key={item}
                               style={[
-                                styles.dropdownItemText,
-                                detail.selectedProduct === item.value && styles.dropdownItemTextSelected,
+                                styles.dropdownItem,
+                                detail.selectedProduct === item &&
+                                  styles.dropdownItemSelected,
                               ]}
+                              onPress={() => {
+                                handleProductSelection(index, item);
+                                setSearchQuery("");
+                              }}
                             >
-                              {item.label}
-                            </Text>
-                          </TouchableOpacity>
-                        ))}
+                              <Text
+                                numberOfLines={1}
+                                ellipsizeMode="tail"
+                                style={[
+                                  styles.dropdownItemText,
+                                  detail.selectedProduct === item &&
+                                    styles.dropdownItemTextSelected,
+                                ]}
+                              >
+                                {item}
+                              </Text>
+                            </TouchableOpacity>
+                          ))}
+                        </ScrollView>
                       </View>
                     )}
+
                     {errors[`closing_${index}_product`] && (
                       <Text style={styles.errorText}>
                         {errors[`closing_${index}_product`]}
@@ -877,47 +891,51 @@ const ReportScreen: React.FC = () => {
                     )}
 
                     {/* Other fields */}
-<Text style={styles.label}>
-  Closing Amount <Text style={styles.required}>*</Text>
-</Text>
-<View style={styles.amountInputContainer}>
-  <Text style={styles.currencySymbol}>₹</Text>
-  <TextInput
-    style={[
-      styles.amountInput,
-      errors[`closing_${index}_amount`] && styles.inputError, // Apply error styles if error exists
-    ]}
-    value={detail.amount}
-    onChangeText={(text) => {
-      // Ensure only digits are stored
-      const numericText = text.replace(/[^0-9]/g, ''); // Only digits allowed
+                    <Text style={styles.label}>
+                      Closing Amount <Text style={styles.required}>*</Text>
+                    </Text>
+                    <View style={styles.amountInputContainer}>
+                      <Text style={styles.currencySymbol}>₹</Text>
+                      <TextInput
+                        style={[
+                          styles.amountInput,
+                          errors[`closing_${index}_amount`] &&
+                            styles.inputError, // Apply error styles if error exists
+                        ]}
+                        value={detail.amount}
+                        onChangeText={(text) => {
+                          // Ensure only digits are stored
+                          const numericText = text.replace(/[^0-9]/g, ""); // Only digits allowed
 
-      // Update the amount in the closingDetails array
-      const newDetails = [...closingDetails];
-      newDetails[index] = { ...detail, amount: numericText };
-      setClosingDetails(newDetails);
+                          // Update the amount in the closingDetails array
+                          const newDetails = [...closingDetails];
+                          newDetails[index] = {
+                            ...detail,
+                            amount: numericText,
+                          };
+                          setClosingDetails(newDetails);
 
-      // Recalculate total amount
-      const total = newDetails.reduce((sum, d) => {
-        const amount = parseInt(d.amount.replace(/[^0-9]/g, "")) || 0; // Ensure no NaN
-        return sum + amount;
-      }, 0);
-      setTotalClosingAmount(total); // Update the total
-    }}
-    keyboardType="numeric"
-    placeholder="Enter Amount"
-    ref={(el) => (closingAmountRefs.current[index] = el)} // Dynamic ref for each index
-  />
-</View>
+                          // Recalculate total amount
+                          const total = newDetails.reduce((sum, d) => {
+                            const amount =
+                              parseInt(d.amount.replace(/[^0-9]/g, "")) || 0; // Ensure no NaN
+                            return sum + amount;
+                          }, 0);
+                          setTotalClosingAmount(total); // Update the total
+                        }}
+                        keyboardType="numeric"
+                        placeholder="Enter Amount"
+                        ref={(el) => (closingAmountRefs.current[index] = el)} // Dynamic ref for each index
+                      />
+                    </View>
 
-{/* Show error message below if any */}
-{errors[`closing_${index}_amount`] && (
-  <Text style={styles.errorText}>
-    {errors[`closing_${index}_amount`]} {/* Display the error message */}
-  </Text>
-)}
-
-
+                    {/* Show error message below if any */}
+                    {errors[`closing_${index}_amount`] && (
+                      <Text style={styles.errorText}>
+                        {errors[`closing_${index}_amount`]}{" "}
+                        {/* Display the error message */}
+                      </Text>
+                    )}
 
                     <Text style={styles.label}>Description</Text>
                     <TextInput
@@ -965,7 +983,6 @@ const ReportScreen: React.FC = () => {
                   </Text>
                 </TouchableOpacity>
               </View>
-
               {/* Total Amount */}
               <View style={styles.totalContainer}>
                 <Text style={styles.totalLabel}>Total Closing Amount</Text>
@@ -973,16 +990,7 @@ const ReportScreen: React.FC = () => {
                   ₹ {totalClosingAmount.toLocaleString()}
                 </Text>
               </View>
-// Add this within the return block in your JSX
-
-{/* Reset Button */}
-<TouchableOpacity
-  style={styles.resetButton}
-  onPress={resetForm} // Call the resetForm function on press
->
-  <Text style={styles.resetButtonText}>Reset Form</Text>
-</TouchableOpacity>
-
+              // Add this within the return block in your JSX
               {/* Submit Button */}
               <TouchableOpacity
                 style={styles.submitButton}
@@ -995,13 +1003,12 @@ const ReportScreen: React.FC = () => {
                   end={{ x: 1, y: 0 }}
                 >
                   <Text style={styles.submitText}>Submit Report</Text>
-                  
                 </LinearGradient>
               </TouchableOpacity>
             </View>
           </KeyboardAwareScrollView>
         </View>
-        
+
         {/* Success Modal */}
         <Modal
           transparent={true}
@@ -1080,13 +1087,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     marginLeft: 4,
   },
-//   errorText1: {
-//   color: 'red',
-//   fontSize: 12,
-//   marginTop: 4,
-//   marginLeft: 4,
-// },
-
+ 
   section: {
     marginTop: 20,
   },
@@ -1122,10 +1123,8 @@ const styles = StyleSheet.create({
   },
   dropdownList: {
     marginTop: 8,
-    borderWidth: 1,
-    borderColor: "#ddd",
-    borderRadius: 8,
     backgroundColor: "#fff",
+    maxHeight: 220,
   },
   dropdownItem: {
     flexDirection: "row",
@@ -1228,20 +1227,7 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontFamily: "LexendDeca_600SemiBold",
   },
-  resetButton: {
-  backgroundColor: '#FF5252', // Red color
-  padding: 12,
-  borderRadius: 8,
-  alignItems: 'center',
-  marginTop: 20,
-},
-
-resetButtonText: {
-  color: '#fff',
-  fontSize: 16,
-  fontWeight: 'bold',
-}
-,
+  
   modalOverlay: {
     flex: 1,
     justifyContent: "center",
@@ -1348,6 +1334,29 @@ resetButtonText: {
     backgroundColor: "rgba(255, 255, 255, 0.3)",
     borderRadius: 4,
     marginBottom: 12,
+  },
+  searchInput: {
+    flex: 1,
+    height: 40,
+    paddingHorizontal: 8,
+    fontFamily: "LexendDeca_400Regular",
+  },
+  searchContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderBottomWidth: 1,
+    borderBottomColor: "#EEEEEE",
+    padding: 8,
+  },
+  dropdownContainer: {
+    borderWidth: 1,
+    borderColor: "#E0E0E0",
+    borderRadius: 8,
+    backgroundColor: "#FFFFFF",
+    marginBottom: 15,
+    elevation: 3,
+    maxHeight: 300, // Total height limit
+    overflow: "hidden",
   },
 });
 

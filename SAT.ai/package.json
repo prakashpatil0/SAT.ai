@@ -34,6 +34,7 @@
     "axios": "^1.8.3",
     "date-fns": "^4.1.0",
     "date-fns-tz": "^3.2.0",
+    "datetime-picker": "^0.6.0",
     "emailjs-com": "^3.2.0",
     "expo": "~52.0.38",
     "expo-av": "^15.0.2",

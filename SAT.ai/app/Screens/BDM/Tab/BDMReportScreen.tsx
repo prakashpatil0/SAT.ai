@@ -228,39 +228,38 @@ const BDMReportScreen = () => {
     "November",
     "December",
   ];
-  const productList = useMemo(
-    () => [
-      "None", // Added for deselect option
-      "Car Insurance",
-      "Bike Insurance",
-      "Health Insurance",
-      "Term Insurance",
-      "Saving Plan",
-      "Travel Insurance",
-      "Group Mediclaim",
-      "Group Personal Accident",
-      "Group Term Life",
-      "Group Credit Life",
-      "Workmen Compensation",
-      "Group Gratuity",
-      "Fire & Burglary Insurance",
-      "Shop Owner Insurance",
-      "Motor Fleet Insurance",
-      "Marine Single Transit",
-      "Marine Open Policy",
-      "Marine Sales Turnover",
-      "Directors & Officers Insurance",
-      "General Liability Insurance",
-      "Product Liability Insurance",
-      "Professional Indemnity for Doctors",
-      "Professional Indemnity for Companies",
-      "Cyber Insurance",
-      "Office Package Policy",
-      "Crime Insurance",
-      "Other",
-    ],
-    []
-  );
+  const [fetchedProducts, setFetchedProducts] = useState<string[]>([]);
+
+  useEffect(() => {
+    const fetchProducts = async () => {
+      const userId = auth.currentUser?.uid;
+      if (!userId) return;
+
+      try {
+        // Get user's companyId from users table
+        const userDoc = await getDoc(doc(db, "users", userId));
+        const companyId = userDoc.exists() ? userDoc.data().companyId : null;
+
+        if (!companyId) return;
+
+        const q = query(
+          collection(db, "products"),
+          where("companyId", "==", companyId),
+          where("active", "==", true)
+        );
+
+        const snapshot = await getDocs(q);
+        // console.log("Fetched product docs:", snapshot.docs.map(doc => doc.data())); // ✅ Add this line
+        const productNames = snapshot.docs.map((doc) => doc.data().name);
+
+        setFetchedProducts(["None", ...productNames]); // Add "None" at start
+      } catch (err) {
+        console.error("Failed to fetch products:", err);
+      }
+    };
+
+    fetchProducts();
+  }, []);
 
   const STORAGE_KEYS = useMemo(
     () => ({
@@ -488,15 +487,15 @@ const BDMReportScreen = () => {
 
   useEffect(() => {
     if (searchQuery.trim() === "") {
-      setFilteredProducts(productList);
+      setFilteredProducts(fetchedProducts);
     } else {
       setFilteredProducts(
-        productList.filter((product) =>
+        fetchedProducts.filter((product) =>
           product.toLowerCase().includes(searchQuery.toLowerCase())
         )
       );
     }
-  }, [searchQuery, productList]);
+  }, [searchQuery, fetchedProducts]);
 
   useEffect(() => {
     let unsubscribe: (() => void) | undefined;

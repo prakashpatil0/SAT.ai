@@ -80,6 +80,7 @@ const SignUpScreen = () => {
     password: '',
     confirmPassword: '',
     role: '',
+    companyId: '',
   });
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
@@ -142,6 +143,7 @@ const SignUpScreen = () => {
         email: formData.email.trim().toLowerCase(),
         phoneNumber: formData.phoneNumber.trim(),
         role: formData.role.toLowerCase(),
+        companyId: formData.companyId.trim(), // ✅ ADD THIS LINE
         designation: 
           formData.role.toLowerCase() === 'bdm'
             ? 'BDM'
@@ -283,6 +285,15 @@ const SignUpScreen = () => {
       Alert.alert('Error', 'Please select your role');
       return false;
     }
+  // ✅ Company ID validation
+ const companyIdRegex = /^[a-zA-Z0-9]+$/;
+if (!formData.companyId.trim()) {
+  Alert.alert('Error', 'Please enter your Company ID');
+  return false;
+} else if (!companyIdRegex.test(formData.companyId.trim())) {
+  Alert.alert('Error', 'Company ID should contain only letters and numbers');
+  return false;
+}
 
     return true;
   };
@@ -469,6 +480,36 @@ const SignUpScreen = () => {
               />
             </View>
           </TouchableOpacity>
+<TextInput
+  label="Company ID"
+  value={formData.companyId}
+  onChangeText={(text) => {
+    const cleaned = text.replace(/[^a-zA-Z0-9]/g, ''); // ✅ Remove special characters
+    setFormData({ ...formData, companyId: cleaned });
+  }}
+  mode="outlined"
+  style={styles.input}
+  left={<TextInput.Icon icon="domain" color="#B1B1B1" />}
+  theme={{
+    roundness: 10,
+    colors: {
+      primary: "#FF8447",
+      text: "#333",
+      placeholder: "#969595",
+    },
+    fonts: {
+      regular: {
+        fontFamily: "LexendDeca_400Regular",
+      },
+    },
+    animation: {
+      scale: 1,
+    },
+  }}
+  outlineStyle={styles.inputOutline}
+  contentStyle={styles.inputContent}
+/>
+
 
           <Button
             mode="contained"

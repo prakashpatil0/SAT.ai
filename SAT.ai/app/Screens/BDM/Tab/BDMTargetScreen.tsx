@@ -458,8 +458,15 @@ const BDMTargetScreen = () => {
           <ScrollView style={styles.scrollView}>
             <View style={styles.card}>
               <Text style={styles.achievementText}>
-                Last week you achieved <Text style={styles.achievementHighlight}>{lastWeekProgress}%</Text> of your target!
-              </Text>
+  Last week you achieved{' '}
+  <Text style={styles.achievementHighlight}>
+    {isNaN(lastWeekProgress) || lastWeekProgress <= 0
+      ? '0%'
+      : `${lastWeekProgress.toFixed(1)}%`}
+  </Text>{' '}
+  of your target!
+</Text>
+
               <TouchableOpacity 
                 style={styles.reportLink}
                 onPress={() => navigation.navigate('BDMViewFullReport' as never)}
@@ -475,8 +482,29 @@ const BDMTargetScreen = () => {
                 <Text style={styles.daysLeft}>{getDaysLeft()} days to go!</Text>
               </View>
 
-              {renderProgressBar()}
-              <Text style={styles.progressText}>{Math.round(overallProgress)}%</Text>
+              <View style={{ marginTop: 8 }}>
+  <View style={styles.progressBarContainer}>
+    <View
+      style={[
+        styles.progressBar,
+        {
+          width: `${Math.min(
+            (targetData.closing.achieved / targetData.closing.target) * 100,
+            100
+          )}%`,
+        },
+      ]}
+    />
+  </View>
+  <Text style={styles.progressText}>
+    {Math.min(
+      (targetData.closing.achieved / targetData.closing.target) * 100,
+      100
+    ).toFixed(1)}
+    %
+  </Text>
+</View>
+
 
               <View style={styles.targetDetails}>
                 <View style={styles.columnHeaders}>
@@ -510,14 +538,13 @@ const BDMTargetScreen = () => {
                     <Text style={styles.target}>{targetData.meetingDuration.target}</Text>
                   </View>
                 </View>
-
-                <View style={styles.row}>
-                  <Text style={styles.label}>Closing Amount</Text>
-                  <View style={styles.valueColumns}>
-                    <Text style={styles.achieved}>₹{targetData.closing.achieved.toLocaleString()}</Text>
-                    <Text style={styles.target}>₹{targetData.closing.target.toLocaleString()}</Text>
-                  </View>
-                </View>
+<View style={styles.row}>
+  <Text style={styles.label}>Closing Amount</Text>
+  <View style={styles.valueColumns}>
+    <Text style={styles.achieved}>₹{targetData.closing.achieved.toLocaleString()}</Text>
+    <Text style={styles.target}>₹{targetData.closing.target.toLocaleString()}</Text>
+  </View>
+</View>
               </View>
             </View>
           </ScrollView>

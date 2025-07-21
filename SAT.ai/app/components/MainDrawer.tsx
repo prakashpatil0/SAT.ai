@@ -123,7 +123,6 @@ const MainDrawer = (props: MainDrawerProps) => {
             { label: "Meeting Reports", icon: "file-document-outline", screen: "BDMMeetingReports", color: "#09142D" },
             { label: "My Scripts", icon: "note-text-outline", screen: "BDMMyNotesScreen", color: "#09142D" },
             { label: "Leaderboard", icon: "podium", screen: "BDMLeaderBoard", color: "#09142D" },
-            { label: "Leave Application", icon: "calendar-star", screen: "TelecallerLeaveApplication", color: "#09142D" },
           ],
           employeeServices: [
             { label: "Leave Application", icon: "calendar-star", screen: "TelecallerLeaveApplication", color: "#09142D" },

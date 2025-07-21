@@ -212,6 +212,14 @@ const BDMLeaderBoard = () => {
         }
       });
 
+      // Get current user's companyId
+      const currentCompanyId = userProfile?.companyId;
+      if (!currentCompanyId) {
+        setLeaderboardData(placeholderData);
+        setLoading(false);
+        return;
+      }
+
       // Convert to array and sort by highest percentage
       const sortedUsers = Object.entries(userAchievements)
         .map(([userId, data]) => ({
@@ -221,9 +229,29 @@ const BDMLeaderBoard = () => {
         }))
         .sort((a, b) => b.percentageAchieved - a.percentageAchieved);
 
+      // Fetch user docs and filter
+      const filteredUsers: (typeof sortedUsers[0])[] = [];
+      for (const user of sortedUsers) {
+        try {
+          const userDoc = await getDoc(doc(db, "users", user.userId));
+          if (userDoc.exists()) {
+            const userData = userDoc.data();
+            if (
+              userData.companyId === currentCompanyId &&
+              userData.role && userData.role.toLowerCase() === "bdm"
+            ) {
+              filteredUsers.push(user);
+            }
+          }
+        } catch {
+          // skip user if error
+        }
+        if (filteredUsers.length >= 10) break;
+      }
+
       // Fetch user details for all users
       const leaderboardData = await Promise.all(
-        sortedUsers.map(async (user) => {
+        filteredUsers.map(async (user, index) => {
           try {
             // Try to get user from users collection
             const userDoc = await getDoc(doc(db, "users", user.userId));
@@ -254,7 +282,7 @@ const BDMLeaderBoard = () => {
               name: userName,
               profileImage: profileImage || defaultProfileImages[0],
               percentageAchieved: user.percentageAchieved,
-              rank: sortedUsers.indexOf(user) + 1
+              rank: index + 1
             };
           } catch (error) {
             console.error(`Error fetching user details for ${user.userId}:`, error);
@@ -263,7 +291,7 @@ const BDMLeaderBoard = () => {
               name: "Unknown User",
               profileImage: defaultProfileImages[0],
               percentageAchieved: user.percentageAchieved,
-              rank: sortedUsers.indexOf(user) + 1
+              rank: index + 1
             };
           }
         })

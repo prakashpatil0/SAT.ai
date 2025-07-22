@@ -10,7 +10,6 @@ import {
   NativeSyntheticEvent,
   NativeScrollEvent,
   Platform,
-  RefreshControl,
   PermissionsAndroid,
   Dimensions,
   Alert,
@@ -135,29 +134,6 @@ const OLDER_LOGS_UPDATE_INTERVAL = 12 * 60 * 60 * 1000;
 const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
 const ACHIEVEMENT_STORAGE_KEY = "bdm_weekly_achievement";
 const SCREEN_WIDTH = Dimensions.get("window").width;
-const COMPANY_DATABASE: CompanyDatabase = {
-  "google.com": {
-    name: "Google",
-    domain: "google.com",
-    industry: "Technology",
-    contacts: [
-      { firstName: "John", lastName: "Smith", id: "gs1", contactType: "company", company: "Google" },
-      { firstName: "Sarah", lastName: "Lee", id: "gs2", contactType: "company", company: "Google" },
-    ],
-  },
-  "amazon.com": {
-    name: "Amazon",
-    domain: "amazon.com",
-    industry: "E-commerce",
-    contacts: [{ firstName: "Mike", lastName: "Johnson", id: "am1", contactType: "company", company: "Amazon" }],
-  },
-  "microsoft.com": {
-    name: "Microsoft",
-    domain: "microsoft.com",
-    industry: "Technology",
-    contacts: [{ firstName: "Priya", lastName: "Patel", id: "ms1", contactType: "company", company: "Microsoft" }],
-  },
-};
 
 const COMPANY_KEYWORDS = [
   "Pvt Ltd", "LLP", "Ltd", "Inc", "Enterprises", "Corporation", "Corp", "Company", "Co", 
@@ -264,6 +240,7 @@ const BDMHomeScreen = () => {
   
 const [meetingDetails, setMeetingDetails] = useState<
   Array<{
+    meetingTime: string;
     meetingId: string;
     meetingDate: { seconds: number };
     individuals: Array<{ name: string }>;
@@ -1143,11 +1120,6 @@ useEffect(() => {
     return () => clearInterval(statsUpdateInterval);
   }, [calculateMeetingStats]);
 
-
-
-
-
-
 useFocusEffect(
   useCallback(() => {
     const userId = auth.currentUser?.uid;
@@ -1184,18 +1156,8 @@ useFocusEffect(
   }, [])
 );
 
-
-
-
-
-
-
-
-
-
 const flatListRef = useRef<FlatList<any>>(null);
 const currentIndex = useRef(0);
-
 
 useEffect(() => {
   if (meetingDetails.length > 0 && flatListRef.current) {
@@ -1372,54 +1334,6 @@ useEffect(() => {
     <AppGradient>
       <BDMMainLayout showDrawer showBottomTabs={true} showBackButton={false}>
         <View style={styles.container}>
-  {isLoading ? (
-          <ActivityIndicator size="large" color="#FF8447" />
-        ) : meetingDetails && meetingDetails.length > 0 ? (
-<View style={styles.meetingSection}>
-<View style={{ height: 40 }}>
-  <FlatList
-    data={meetingDetails}
-    keyExtractor={(item) => item.meetingId}
-    pagingEnabled={true}
-    snapToAlignment="start"
-    snapToInterval={80}
-    decelerationRate="fast"
-    showsVerticalScrollIndicator={false}
-    getItemLayout={(_, index) => ({
-      length: 40,
-      offset: 40 * index,
-      index,
-    })}
-renderItem={({ item }) => {
-  const meetingTime = new Date(item.meetingDate.seconds * 1000);
-  const formattedDate = meetingTime.toLocaleDateString("en-GB", {
-    day: "2-digit",
-    month: "long",
-    year: "numeric",
-  });
-
-  return (
-    <View style={styles.meetingPill}>
-      <View style={styles.meetingLeft}>
-        <MaterialIcons name="person" size={18} color="#6B7280" />
-        <Text style={styles.meetingTitle}>
-          {item.individuals[0]?.name || "N/A"} -
-        </Text>
-        <Text style={styles.meetingTime}>
-          {formattedDate}       {item.meetingTime || "N/A"}
-        </Text>
-      </View>
-    </View>
-  );
-}}
-
-
-  />
-</View>
-</View>
-        ) : (
-          <Text style={styles.noMeetingsText}>No upcoming meetings found.</Text>
-        )}
           <View style={styles.welcomeSection}>
             <Text style={styles.welcomeText}>{isFirstTimeUser ? "Welcome,👋👋" : "Hi,👋"}</Text>
             {isLoading ? (
@@ -1528,73 +1442,6 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     padding: 16,
-  },
-   meetingSection: { // This is missing in your original code
-    paddingBottom: 10,
-  },
-  meetingCard: {
-    backgroundColor: '#f1f1f1',
-    padding: 15,
-    marginBottom: 10,
-    borderRadius: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 5,
-  },
-  meetingIcon: {
-    backgroundColor: "#FFE28A",
-    borderRadius: 20,
-    width: 32,
-    height: 32,
-    alignItems: "center",
-    justifyContent: "center",
-    marginRight: 10,
-  },
-  // New style to align the elements in a row
-  meetingInfoRow: {
-    flexDirection: 'row', // Display in a horizontal row
-    justifyContent: 'space-between', // Space out the items
-    alignItems: 'center', // Vertically align the items to the center
-  },
-
-  // Participant name text style
-  participantText: {
-    fontSize: 16,
-    color: '#333',
-    fontWeight: 'bold',
-    flex: 1, // Allow it to take up available space in the row
-  },
-
-  // Meeting details (date) style
-  meetingDetails: {
-    fontSize: 14,
-    color: '#555',
-    marginVertical: 5,
-    flex: 1, // Allow it to take up available space in the row
-  },
-
-  // Time left container
-  timeLeftContainer: {
-    marginTop: 10,
-  },
-
-  // Time left text style
-  timeLeftText: {
-    padding: 5,
-    color: 'white',
-    fontWeight: 'bold',
-    borderRadius: 5,
-    textAlign: 'center',
-    fontSize: 12,
-    flex: 1, // Allow it to take up available space in the row
-  },
-
-  noMeetingsText: {
-    fontSize: 16,
-    color: '#888',
-    textAlign: 'center',
   },
   welcomeSection: {
     marginBottom: 24,
@@ -1811,36 +1658,61 @@ const styles = StyleSheet.create({
 meetingLeft: {
   flexDirection: 'row',
   alignItems: 'center',
+  marginTop: -1,
 },
 
 meetingTitle: {
   marginLeft: 6,
   fontSize: 14,
-  fontWeight: '500',
+  fontFamily: "Inter_600SemiBold",
   color: '#374151',
+  marginTop: -1,
 },
 
 meetingTime: {
   fontSize: 14,
+  fontFamily: "Inter_600SemiBold",
   marginLeft: 4,
   color: '#374151',
+  marginTop: -1,
 },
 
 meetingCountdown: {
   fontSize: 14,
-  fontWeight: '700',
+  fontFamily: "Inter_600SemiBold",
   color: '#DC2626',
 },
 meetingPill: {
-  height: 40,
+  height: 30, // increased for better touch
   backgroundColor: "#E6F4F1",
-  borderRadius: 30,
+  borderRadius: 20,
   paddingVertical: 6,
   paddingHorizontal: 14,
   flexDirection: "row",
   alignItems: "center",
-  justifyContent: "space-between",
+  justifyContent: "flex-start",
   marginHorizontal: 16,
+  borderWidth: 1.5,
+  borderColor: '#FF8447',
+  borderStyle: 'dashed',
+  marginVertical: 5, // add spacing between pills
+  minWidth: 260,
+  maxWidth: 400,
+  alignSelf: 'center',
+},
+
+meetingTickerContainer: {
+  marginLeft: 8,
+  height: 36, // ticker height
+  overflow: 'hidden',
+  justifyContent: 'center',
+  flex: 1,
+},
+
+meetingTickerItem: {
+  flexDirection: 'row',
+  alignItems: 'center',
+  height: 36, // ticker height
 },
 
 });

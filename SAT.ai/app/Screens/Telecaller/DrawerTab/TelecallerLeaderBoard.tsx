@@ -242,6 +242,15 @@ const LeaderBoard = () => {
         }
       });
 
+      // Get current user's companyId
+      const currentCompanyId = userProfile?.companyId;
+      if (!currentCompanyId) {
+        setLeaderboardData(placeholderData);
+        setLoading(false);
+        return;
+      }
+
+      // Fetch user docs and filter by companyId and role
       const sortedUsers = Object.entries(userAchievements)
         .map(([userId, data]) => ({
           userId,
@@ -252,10 +261,30 @@ const LeaderBoard = () => {
           count: data.count
         }))
         .sort((a, b) => b.percentageAchieved - a.percentageAchieved)
-        .slice(0, 10);
+        .slice(0, 50); // Fetch more, filter later
+
+      // Fetch user docs and filter
+      const filteredUsers: typeof sortedUsers = [];
+      for (const user of sortedUsers) {
+        try {
+          const userDoc = await getDoc(doc(db, "users", user.userId));
+          if (userDoc.exists()) {
+            const userData = userDoc.data();
+            if (
+              userData.companyId === currentCompanyId &&
+              userData.role && userData.role.toLowerCase() === "telecaller"
+            ) {
+              filteredUsers.push(user);
+            }
+          }
+        } catch {
+          // skip user if error
+        }
+        if (filteredUsers.length >= 10) break;
+      }
 
       const leaderboardData = await Promise.all(
-        sortedUsers.map(async (user, index) => {
+        filteredUsers.slice(0, 10).map(async (user, index) => {
           try {
             const userDoc = await getDoc(doc(db, "users", user.userId));
             let userName = userNameMap[user.userId] || "Unknown User";

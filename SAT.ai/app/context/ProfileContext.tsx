@@ -11,6 +11,7 @@ interface UserProfile {
   role?: string;
   name?: string;
   profileImageUrl?: string;
+  companyId?: string;
   // Add other profile fields as needed
 }
 

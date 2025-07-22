@@ -73,6 +73,7 @@ const ReportScreen: React.FC = () => {
   const [rejectedLeads, setRejectedLeads] = useState("");
   const [notAttendedCalls, setNotAttendedCalls] = useState("");
   const [closingLeads, setClosingLeads] = useState("");
+  
   const [closingDetails, setClosingDetails] = useState<ClosingDetail[]>([
     {
       selectedProduct: "",
@@ -119,6 +120,7 @@ const ReportScreen: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState("");
   const [productList, setProductList] = useState<string[]>([]);
   const [filteredProducts, setFilteredProducts] = useState<string[]>([]);
+const [companyId, setCompanyId] = useState<string | null>(null);
 
   const [errors, setErrors] = useState<{ [key: string]: string }>({});
   const [todayCalls, setTodayCalls] = useState(0);
@@ -134,6 +136,31 @@ const ReportScreen: React.FC = () => {
   const notAttendedCallsRef = useRef<TextInput>(null);
   const closingLeadsRef = useRef<TextInput>(null);
   const closingAmountRefs = useRef<Array<TextInput | null>>([]);
+
+useEffect(() => {
+  const fetchCompanyId = async () => {
+    try {
+      const userId = auth.currentUser?.uid;
+      if (!userId) return;
+
+      const userDocRef = doc(db, "users", userId);
+      const userDoc = await getDoc(userDocRef);
+
+      if (userDoc.exists()) {
+        const userData = userDoc.data();
+        const cid = userData.companyId || null;
+        setCompanyId(cid); // ✅ Save in state
+        console.log("Fetched companyId:", cid);
+      } else {
+        console.warn("User document not found");
+      }
+    } catch (error) {
+      console.error("Error fetching company ID:", error);
+    }
+  };
+
+  fetchCompanyId();
+}, []);
 
   // Filter products based on search
 
@@ -392,98 +419,85 @@ const ReportScreen: React.FC = () => {
     }
   };
 
-  const validateForm = (): boolean => {
-    const newErrors: { [key: string]: string } = {};
-    let firstEmptyField: (() => void) | null = null;
+const validateForm = (): boolean => {
+  const newErrors: { [key: string]: string } = {};
+  let firstEmptyField: (() => void) | null = null;
 
-    if (!numMeetings.trim()) {
-      newErrors.numMeetings = "Number of calls is required";
-      if (!firstEmptyField)
-        firstEmptyField = () => numMeetingsRef.current?.focus();
-    } else if (isNaN(Number(numMeetings)) || Number(numMeetings) < 0) {
-      newErrors.numMeetings = "Please enter a valid number";
-      if (!firstEmptyField)
-        firstEmptyField = () => numMeetingsRef.current?.focus();
-    }
-
-    if (!meetingDuration.trim()) {
-      newErrors.meetingDuration = "Call duration is required";
-      if (!firstEmptyField)
-        firstEmptyField = () => meetingDurationRef.current?.focus();
-    }
-
+  // Only validate PP739792 specific fields
+  if (companyId === "PP739792") {
     if (!positiveLeads.trim()) {
       newErrors.positiveLeads = "Positive leads is required";
-      if (!firstEmptyField)
-        firstEmptyField = () => positiveLeadsRef.current?.focus();
+      if (!firstEmptyField) firstEmptyField = () => positiveLeadsRef.current?.focus();
     } else if (isNaN(Number(positiveLeads)) || Number(positiveLeads) < 0) {
       newErrors.positiveLeads = "Please enter a valid number";
-      if (!firstEmptyField)
-        firstEmptyField = () => positiveLeadsRef.current?.focus();
+      if (!firstEmptyField) firstEmptyField = () => positiveLeadsRef.current?.focus();
     }
 
     if (!rejectedLeads.trim()) {
       newErrors.rejectedLeads = "Rejected leads is required";
-      if (!firstEmptyField)
-        firstEmptyField = () => rejectedLeadsRef.current?.focus();
+      if (!firstEmptyField) firstEmptyField = () => rejectedLeadsRef.current?.focus();
     } else if (isNaN(Number(rejectedLeads)) || Number(rejectedLeads) < 0) {
       newErrors.rejectedLeads = "Please enter a valid number";
-      if (!firstEmptyField)
-        firstEmptyField = () => rejectedLeadsRef.current?.focus();
+      if (!firstEmptyField) firstEmptyField = () => rejectedLeadsRef.current?.focus();
     }
 
     if (!notAttendedCalls.trim()) {
       newErrors.notAttendedCalls = "Not attended calls is required";
-      if (!firstEmptyField)
-        firstEmptyField = () => notAttendedCallsRef.current?.focus();
-    } else if (
-      isNaN(Number(notAttendedCalls)) ||
-      Number(notAttendedCalls) < 0
-    ) {
+      if (!firstEmptyField) firstEmptyField = () => notAttendedCallsRef.current?.focus();
+    } else if (isNaN(Number(notAttendedCalls)) || Number(notAttendedCalls) < 0) {
       newErrors.notAttendedCalls = "Please enter a valid number";
-      if (!firstEmptyField)
-        firstEmptyField = () => notAttendedCallsRef.current?.focus();
+      if (!firstEmptyField) firstEmptyField = () => notAttendedCallsRef.current?.focus();
     }
 
     if (!closingLeads.trim()) {
       newErrors.closingLeads = "Closing leads is required";
-      if (!firstEmptyField)
-        firstEmptyField = () => closingLeadsRef.current?.focus();
+      if (!firstEmptyField) firstEmptyField = () => closingLeadsRef.current?.focus();
     } else if (isNaN(Number(closingLeads)) || Number(closingLeads) < 0) {
       newErrors.closingLeads = "Please enter a valid number";
-      if (!firstEmptyField)
-        firstEmptyField = () => closingLeadsRef.current?.focus();
+      if (!firstEmptyField) firstEmptyField = () => closingLeadsRef.current?.focus();
+    }
+  }
+
+  // BU603894 still uses positiveLeads and rejectedLeads but renamed in UI
+  if (companyId === "BU603894") {
+    if (!positiveLeads.trim()) {
+      newErrors.positiveLeads = "Connected calls is required";
+      if (!firstEmptyField) firstEmptyField = () => positiveLeadsRef.current?.focus();
     }
 
-    closingDetails.forEach((detail, index) => {
-      if (!detail.selectedProduct) {
-        newErrors[`closing_${index}_product`] = "Please select a product";
-        if (!firstEmptyField)
-          firstEmptyField = () => closingAmountRefs.current[index]?.focus();
+    if (!rejectedLeads.trim()) {
+      newErrors.rejectedLeads = "Disbursement unit is required";
+      if (!firstEmptyField) firstEmptyField = () => rejectedLeadsRef.current?.focus();
+    }
+  }
+
+  // Validate closing details (common for both)
+  closingDetails.forEach((detail, index) => {
+    if (!detail.selectedProduct || detail.selectedProduct.trim() === "") {
+      newErrors[`closing_${index}_product`] = "Please select a product";
+      if (!firstEmptyField) firstEmptyField = () => closingAmountRefs.current[index]?.focus();
     }
 
-      if (!detail.amount.trim()) {
-        newErrors[`closing_${index}_amount`] = "Amount is required";
-        if (!firstEmptyField)
-          firstEmptyField = () => closingAmountRefs.current[index]?.focus();
-      }
-      if (!detail.description.trim()) {
-        newErrors[`closing_${index}_description`] = "Description is required";
-        if (!firstEmptyField)
-          firstEmptyField = () => closingAmountRefs.current[index]?.focus();
-      }
-    });
-
-    setErrors(newErrors);
-
-    // Focus the first empty field if any
-    if (firstEmptyField) {
-      setTimeout(() => firstEmptyField && firstEmptyField(), 100);
-      return false;
+    if (!detail.amount || detail.amount.trim() === "") {
+      newErrors[`closing_${index}_amount`] = "Amount is required";
+      if (!firstEmptyField) firstEmptyField = () => closingAmountRefs.current[index]?.focus();
     }
 
-    return Object.keys(newErrors).length === 0;
-  };
+    if (!detail.description || detail.description.trim() === "") {
+      newErrors[`closing_${index}_description`] = "Description is required";
+      if (!firstEmptyField) firstEmptyField = () => closingAmountRefs.current[index]?.focus();
+    }
+  });
+
+  setErrors(newErrors);
+
+  if (firstEmptyField) {
+    setTimeout(() => firstEmptyField && firstEmptyField(), 100);
+    return false;
+  }
+
+  return Object.keys(newErrors).length === 0;
+};
 
   const handleSubmit = async () => {
     if (isSubmitting) return;
@@ -668,7 +682,10 @@ const ReportScreen: React.FC = () => {
                   {formatDuration(todayDuration)}
                 </Text>
               </View>
-              <Text style={styles.label}>Positive Leads</Text>
+{/* Conditionally show fields based on companyId */}
+{companyId === "PP739792" && (
+  <>
+                  <Text style={styles.label}>Positive Leads</Text>
               <TextInput
                 style={[
                   styles.input,
@@ -697,8 +714,7 @@ const ReportScreen: React.FC = () => {
               {errors.positiveLeads ? (
                 <Text style={styles.errorText}>{errors.positiveLeads}</Text>
               ) : null}
-              {/* Positive Leads Field */}
-              {/* Rejected Leads Field */}
+         
               <Text style={styles.label}>Rejected Leads</Text>
               <TextInput
                 style={[
@@ -788,6 +804,73 @@ const ReportScreen: React.FC = () => {
               {errors.closingLeads && (
                 <Text style={styles.errorText}>{errors.closingLeads}</Text>
               )}
+  </>
+)}
+
+{companyId === "BU603894" && (
+  <>
+       <Text style={styles.label}>Connected Calls</Text>
+              <TextInput
+                style={[
+                  styles.input,
+                  errors.positiveLeads && styles.inputError,
+                ]}
+                value={positiveLeads}
+                onChangeText={(text) => {
+                  // Check if the new text contains only digits
+                  const isValid = /^[0-9]*$/.test(text);
+
+                  if (isValid) {
+                    setPositiveLeads(text);
+                    setErrors((prev) => ({ ...prev, positiveLeads: "" })); // Clear error
+                  } else {
+                    setErrors((prev) => ({
+                      ...prev,
+                      positiveLeads: "Only valid number allowed",
+                    }));
+                  }
+                }}
+                keyboardType="numeric"
+                placeholder="Enter number"
+                ref={positiveLeadsRef}
+              />
+              {/* Show error if present */}
+              {errors.positiveLeads ? (
+                <Text style={styles.errorText}>{errors.positiveLeads}</Text>
+              ) : null}
+          
+              <Text style={styles.label}>Disbursement Unit</Text>
+              <TextInput
+                style={[
+                  styles.input,
+                  errors.rejectedLeads && styles.inputError,
+                ]}
+                value={rejectedLeads}
+                onChangeText={(text) => {
+                  // Check if the input is a valid number (only digits)
+                  const isValid = /^[0-9]*$/.test(text);
+
+                  if (isValid) {
+                    setRejectedLeads(text); // Update value only if valid
+                    setErrors((prev) => ({ ...prev, rejectedLeads: "" })); // Clear error message
+                  } else {
+                    setErrors((prev) => ({
+                      ...prev,
+                      rejectedLeads: "Only valid number allowed", // Show error message
+                    }));
+                  }
+                }}
+                keyboardType="numeric"
+                placeholder="Enter number"
+                ref={rejectedLeadsRef}
+              />
+              {/* Show error message below if any */}
+              {errors.rejectedLeads && (
+                <Text style={styles.errorText}>{errors.rejectedLeads}</Text>
+              )}
+    
+  </>
+)}
               {/* Closing Details */}
               <View style={styles.section}>
                 <Text style={styles.sectionTitle}>Closing Details</Text>
@@ -892,8 +975,10 @@ const ReportScreen: React.FC = () => {
 
                     {/* Other fields */}
                     <Text style={styles.label}>
-                      Closing Amount <Text style={styles.required}>*</Text>
-                    </Text>
+  {companyId === "PP739792" ? "Closing Amount" : "Disbursement Amount"}{" "}
+  <Text style={styles.required}>*</Text>
+</Text>
+
                     <View style={styles.amountInputContainer}>
                       <Text style={styles.currencySymbol}>₹</Text>
                       <TextInput

@@ -181,10 +181,10 @@ useEffect(() => {
         );
 
         const snapshot = await getDocs(q);
-        console.log(
-          "Fetched product docs:",
-          snapshot.docs.map((doc) => doc.data())
-        ); // ✅ Add this line
+        // console.log(
+        //   "Fetched product docs:",
+        //   snapshot.docs.map((doc) => doc.data())
+        // ); 
         const list = snapshot.docs.map((doc) => doc.data().name);
 
         setProductList(list);

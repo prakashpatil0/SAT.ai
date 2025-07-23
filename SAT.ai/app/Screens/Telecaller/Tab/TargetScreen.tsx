@@ -46,6 +46,7 @@ interface FirebaseTargetData {
   year?: number;
   fromDate?: Timestamp;
   toDate?: Timestamp;
+  disbursementUnit?: number; // <-- Add this line
 }
 
 // Define types for achievements and targets
@@ -54,6 +55,7 @@ interface Achievements {
   callDuration: number;
   positiveLeads: number;
   closingAmount: number;
+   disbursementUnit?: number; // <-- Add this line
 }
 
 interface Targets {
@@ -61,6 +63,7 @@ interface Targets {
   callDuration: number;
   positiveLeads: number;
   closingAmount: number;
+    disbursementUnit?: number;
 }
 
 interface DailyReport {
@@ -89,6 +92,8 @@ const WeeklyTargetScreen = () => {
     positiveLeads: number;
     numCalls: number;
     callDuration: number;
+    disbursementUnit: number;
+    
     closingAmount: number;
     percentageAchieved: number;
   }>({
@@ -96,6 +101,7 @@ const WeeklyTargetScreen = () => {
     numCalls: 0,
     callDuration: 0,
     closingAmount: 0,
+    disbursementUnit: 0,
     percentageAchieved: 0,
   });
   const [previousAchievement, setPreviousAchievement] = useState<number>(0);
@@ -103,11 +109,13 @@ const WeeklyTargetScreen = () => {
     positiveLeads: 0,
     numCalls: 0,
     callDuration: 0,
-    closingAmount: 0
+    closingAmount: 0,
+    disbursementUnit: 0
   });
   const [daysRemaining, setDaysRemaining] = useState(0);
   const [waveAnimation] = useState(new Animated.Value(0));
   const [userName, setUserName] = useState<string>('');
+  const [companyId, setCompanyId] = useState<string | null>(null);
 
   const fetchData = async (showLoading = true) => {
     if (!auth.currentUser) {
@@ -143,6 +151,7 @@ const WeeklyTargetScreen = () => {
       if (!userSnapshot.empty) {
         const userData = userSnapshot.docs[0].data();
         setUserName(userData.displayName || userData.email || 'Unknown User');
+        setCompanyId(userData.companyId || null); // <-- set companyId here
       }
 
       // Fetch targets from Firebase
@@ -237,13 +246,14 @@ const WeeklyTargetScreen = () => {
       );
 
       // Update achievements state
-      setAchievements({
-        numCalls: weeklyTotalCalls,
-        callDuration: weeklyTotalDuration,
-        positiveLeads: weeklyTotalPositiveLeads,
-        closingAmount: weeklyTotalClosingAmount,
-        percentageAchieved: Math.round(weeklyAchievementPercentage * 10) / 10
-      });
+   setAchievements({
+  numCalls: weeklyTotalCalls,
+  callDuration: weeklyTotalDuration,
+  positiveLeads: weeklyTotalPositiveLeads,
+  closingAmount: weeklyTotalClosingAmount,
+  disbursementUnit: 0, // default or calculated value if available
+  percentageAchieved: Math.round(weeklyAchievementPercentage * 10) / 10,
+});
 
       // Calculate date-related fields
       const currentDate = new Date();
@@ -449,6 +459,8 @@ const WeeklyTargetScreen = () => {
         employeeId = userData.employeeId;
         userEmail = userData.email || userEmail;
         setUserName(userData.displayName || userData.email || 'Unknown User');
+  setCompanyId(userData.companyId || null); // <-- make sure it's set here too
+console.log('🔥 companyId:', userData.companyId);
 
         const targetDataRef = collection(db, 'telecaller_target_data');
         let q;
@@ -475,12 +487,14 @@ const WeeklyTargetScreen = () => {
             const updateDate = typeof targetDoc.updatedAt === 'string'
               ? targetDoc.updatedAt
               : targetDoc.updatedAt?.toDate().toLocaleDateString() || 'Unknown date';
-            const newTargets = {
-              numCalls: targetDoc.numMeetings || TARGET_VALUES.numCalls,
-              positiveLeads: targetDoc.positiveLeads || TARGET_VALUES.positiveLeads,
-              callDuration: parseInt(targetDoc.meetingDuration) || TARGET_VALUES.callDuration,
-              closingAmount: targetDoc.closingAmount || TARGET_VALUES.closingAmount
-            };
+          const newTargets = {
+  numCalls: targetDoc.numMeetings || TARGET_VALUES.numCalls,
+  positiveLeads: targetDoc.positiveLeads || TARGET_VALUES.positiveLeads,
+  callDuration: parseInt(targetDoc.meetingDuration) || TARGET_VALUES.callDuration,
+  closingAmount: targetDoc.closingAmount || TARGET_VALUES.closingAmount,
+  disbursementUnit: targetDoc.disbursementUnit || 0,  // <-- Add this line if exists in Firestore
+};
+
 
             if (JSON.stringify(newTargets) !== JSON.stringify(targets)) {
               Notifications.scheduleNotificationAsync({
@@ -612,29 +626,67 @@ const WeeklyTargetScreen = () => {
                 <Text style={[styles.tableHeaderText, { flex: 1, textAlign: 'right' }]}>Target</Text>
               </View>
 
-              <View style={styles.tableRow}>
-                <Text style={[styles.tableCell, { flex: 2 }]}>No. of Calls</Text>
-                <Text style={[styles.tableCell, { flex: 1, textAlign: 'right' }]}>{achievements.numCalls}</Text>
-                <Text style={[styles.targetCell, { flex: 1, textAlign: 'right' }]}>{targets.numCalls}</Text>
-              </View>
+             {companyId === 'PP739792' && (
+  <>
+    <View style={styles.tableRow}>
+      <Text style={[styles.tableCell, { flex: 2 }]}>No. of Calls</Text>
+      <Text style={[styles.tableCell, { flex: 1, textAlign: 'right' }]}>{achievements.numCalls}</Text>
+      <Text style={[styles.targetCell, { flex: 1, textAlign: 'right' }]}>{targets.numCalls}</Text>
+    </View>
 
-              <View style={styles.tableRow}>
-                <Text style={[styles.tableCell, { flex: 2 }]}>Call Duration</Text>
-                <Text style={[styles.tableCell, { flex: 1, textAlign: 'right' }]}>{formatDuration(achievements.callDuration)}</Text>
-                <Text style={[styles.targetCell, { flex: 1, textAlign: 'right' }]}>{formatDuration(targets.callDuration)}</Text>
-              </View>
+    <View style={styles.tableRow}>
+      <Text style={[styles.tableCell, { flex: 2 }]}>Call Duration</Text>
+      <Text style={[styles.tableCell, { flex: 1, textAlign: 'right' }]}>{formatDuration(achievements.callDuration)}</Text>
+      <Text style={[styles.targetCell, { flex: 1, textAlign: 'right' }]}>{formatDuration(targets.callDuration)}</Text>
+    </View>
 
-              <View style={styles.tableRow}>
-                <Text style={[styles.tableCell, { flex: 2 }]}>Positive Leads</Text>
-                <Text style={[styles.tableCell, { flex: 1, textAlign: 'right' }]}>{achievements.positiveLeads}</Text>
-                <Text style={[styles.targetCell, { flex: 1, textAlign: 'right' }]}>{targets.positiveLeads}</Text>
-              </View>
+    <View style={styles.tableRow}>
+      <Text style={[styles.tableCell, { flex: 2 }]}>Positive Leads</Text>
+      <Text style={[styles.tableCell, { flex: 1, textAlign: 'right' }]}>{achievements.positiveLeads}</Text>
+      <Text style={[styles.targetCell, { flex: 1, textAlign: 'right' }]}>{targets.positiveLeads}</Text>
+    </View>
 
-              <View style={styles.tableRow}>
-                <Text style={[styles.tableCell, { flex: 2 }]}>Closing Amount</Text>
-                <Text style={[styles.tableCell, { flex: 1, textAlign: 'right' }]}>₹{achievements.closingAmount.toLocaleString()}</Text>
-                <Text style={[styles.targetCell, { flex: 1, textAlign: 'right' }]}>{targets.closingAmount.toLocaleString()}</Text>
-              </View>
+    <View style={styles.tableRow}>
+      <Text style={[styles.tableCell, { flex: 2 }]}>Closing Amount</Text>
+      <Text style={[styles.tableCell, { flex: 1, textAlign: 'right' }]}>₹{achievements.closingAmount.toLocaleString()}</Text>
+      <Text style={[styles.targetCell, { flex: 1, textAlign: 'right' }]}>{targets.closingAmount.toLocaleString()}</Text>
+    </View>
+  </>
+)}
+
+{companyId === 'BU603894' && (
+  <>
+    <View style={styles.tableRow}>
+      <Text style={[styles.tableCell, { flex: 2 }]}>No. of Calls</Text>
+      <Text style={[styles.tableCell, { flex: 1, textAlign: 'right' }]}>{achievements.numCalls}</Text>
+      <Text style={[styles.targetCell, { flex: 1, textAlign: 'right' }]}>{targets.numCalls}</Text>
+    </View>
+
+    <View style={styles.tableRow}>
+      <Text style={[styles.tableCell, { flex: 2 }]}>Call Duration</Text>
+      <Text style={[styles.tableCell, { flex: 1, textAlign: 'right' }]}>{formatDuration(achievements.callDuration)}</Text>
+      <Text style={[styles.targetCell, { flex: 1, textAlign: 'right' }]}>{formatDuration(targets.callDuration)}</Text>
+    </View>
+
+    <View style={styles.tableRow}>
+      <Text style={[styles.tableCell, { flex: 2 }]}>Connected calls</Text>
+      <Text style={[styles.tableCell, { flex: 1, textAlign: 'right' }]}>{achievements.positiveLeads}</Text>
+      <Text style={[styles.targetCell, { flex: 1, textAlign: 'right' }]}>{targets.positiveLeads}</Text>
+    </View>
+{/* <View style={styles.tableRow}>
+      <Text style={[styles.tableCell, { flex: 2 }]}>Disbursement unit</Text>
+      <Text style={[styles.tableCell, { flex: 1, textAlign: 'right' }]}>₹{achievements.closingAmount.toLocaleString()}</Text>
+      <Text style={[styles.targetCell, { flex: 1, textAlign: 'right' }]}>{targets.closingAmount.toLocaleString()}</Text>
+    </View> */}
+    <View style={styles.tableRow}>
+      <Text style={[styles.tableCell, { flex: 2 }]}>Disbursement Amount</Text>
+      <Text style={[styles.tableCell, { flex: 1, textAlign: 'right' }]}>₹{achievements.closingAmount.toLocaleString()}</Text>
+      <Text style={[styles.targetCell, { flex: 1, textAlign: 'right' }]}>{targets.closingAmount.toLocaleString()}</Text>
+    </View>
+    
+  </>
+)}
+
             </View>
           </View>
         </View>

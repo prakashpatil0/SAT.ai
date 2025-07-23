@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState ,useEffect} from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, Modal } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
@@ -8,7 +8,7 @@ import TelecallerMainLayout from '@/app/components/TelecallerMainLayout';
 import * as Haptics from 'expo-haptics';
 import { format } from 'date-fns';
 import { getAuth } from 'firebase/auth';
-import { doc, updateDoc, addDoc, collection } from 'firebase/firestore';
+import { doc, updateDoc, addDoc, collection,getDoc ,query,where,getDocs} from 'firebase/firestore';
 import { db } from '@/firebaseConfig';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import DateTimePicker from '@react-native-community/datetimepicker';
@@ -54,52 +54,63 @@ const TelecallerCallNoteDetails = () => {
   const { meeting } = route.params as { meeting: Meeting };
   const [selectedProduct, setSelectedProduct] = useState<string | null>(null);
   const [showProductModal, setShowProductModal] = useState(false);
-  const [selectedProductLabel, setSelectedProductLabel] = useState('Select Product');
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [expectedDate, setExpectedDate] = useState<Date | null>(null);
   const [expectedClosingAmount, setExpectedClosingAmount] = useState('');
     const [isSaving, setIsSaving] = useState(false);
   
-  type ProductItem = {
-  label: string;
-  value: string;
+type ProductItem = {
+  name: string;
+  id: string;
 };
-const PRODUCT_LIST: ProductItem[] = [
-  { label: "Health Insurance", value: "health_insurance" },
-  { label: "Bike Insurance", value: "bike_insurance" },
-  { label: "Car Insurance", value: "car_insurance" },
-  { label: "Term Insurance", value: "term_insurance" },
-  { label: "Mutual Funds", value: "mutual_funds" },
-  { label: "Saving Plans", value: "saving_plan" },
-  { label: "Travel Insurance", value: "travel_insurance" },
-  { label: "Group Mediclaim", value: "group_mediclaim" },
-  { label: "Group Personal Accident", value: "group_personal_accident" },
-  { label: "Group Term Life", value: "group_term_life" },
-  { label: "Group Credit Life", value: "group_credit_life" },
-  { label: "Workmen Compensation", value: "workmen_compensation" },
-  { label: "Group Gratuity", value: "group_gratuity" },
-  { label: "Fire & Burglary Insurance", value: "fire_burglary_insurance" },
-  { label: "Shop Owner Insurance", value: "shop_owner_insurance" },
-  { label: "Motor Fleet Insurance", value: "motor_fleet_insurance" },
-  { label: "Marine Single Transit", value: "marine_single_transit" },
-  { label: "Marine Open Policy", value: "marine_open_policy" },
-  { label: "Marine Sales Turnover", value: "marine_sales_turnover" },
-  { label: "Directors & Officers Insurance", value: "directors_officers_insurance" },
-  { label: "General Liability Insurance", value: "general_liability_insurance" },
-  { label: "Product Liability Insurance", value: "product_liability_insurance" },
-  { label: "Professional Indemnity for Doctors", value: "professional_indemnity_for_doctors" },
-  { label: "Professional Indemnity for Companies", value: "professional_indemnity_for_companies" },
-  { label: "Cyber Insurance", value: "cyber_insurance" },
-  { label: "Office Package Policy", value: "office_package_policy" },
-  { label: "Crime Insurance", value: "crime_insurance" },
-  { label: "Other", value: "other" },
-];
+
+const [productList, setProductList] = useState<ProductItem[]>([]);
+const [loadingProducts, setLoadingProducts] = useState(true);
+useEffect(() => {
+  const fetchProducts = async () => {
+    try {
+      const auth = getAuth();
+      const userId = auth.currentUser?.uid;
+      if (!userId) throw new Error('User not authenticated');
+
+      // Step 1: Fetch user document to get companyId
+      const userDocRef = doc(db, 'users', userId);
+      const userSnapshot = await getDoc(userDocRef);
+      if (!userSnapshot.exists()) throw new Error('User document not found');
+
+      const userData = userSnapshot.data();
+      const companyId = userData.companyId;
+
+      // Step 2: Fetch products for that companyId
+      const productsQuery = query(
+        collection(db, 'products'),
+        where('companyId', '==', companyId),
+        where('active', '==', true)
+      );
+
+      const snapshot = await getDocs(productsQuery);
+     const products: ProductItem[] = snapshot.docs.map(doc => ({
+  id: doc.id,
+  name: doc.data().name,
+}));
+setProductList(products);
+
+    } catch (error) {
+      console.error('Error fetching products:', error);
+    } finally {
+      setLoadingProducts(false);
+    }
+  };
+
+  fetchProducts();
+}, []);
+
 
 const handleProductSelect = (item: ProductItem) => {
-  setSelectedProduct(item.value);
-  setSelectedProductLabel(item.label);
+  setSelectedProduct(item.name); // store the readable name like "1BHK"
   setShowProductModal(false);
 };
+
 const onChangeDate = (event: any, selectedDate?: Date) => {
   setShowDatePicker(false);
   if (selectedDate) {
@@ -219,7 +230,7 @@ const handleSubmit = async () => {
       callTimestamp: callTimestamp.toISOString(),
       callDuration: meeting.duration,
       type: meeting.type || 'outgoing',
-      selectedProduct,
+      selectedProduct: selectedProduct,
       expectedClosingAmount,
       expectedClosingDate: expectedDate ? expectedDate.toISOString() : null,
     };
@@ -367,7 +378,7 @@ const handleSubmit = async () => {
   style={styles.statusButton}
   onPress={() => setShowProductModal(true)}
 >
-  <Text style={styles.statusText}>{selectedProductLabel}</Text>
+  <Text style={styles.statusText}>{selectedProduct}</Text>
   <MaterialIcons name="keyboard-arrow-down" size={24} color="#666" />
 </TouchableOpacity>
 
@@ -384,18 +395,20 @@ const handleSubmit = async () => {
   >
     <View style={[styles.modalContent, { maxHeight: 600 }]}>
       <ScrollView nestedScrollEnabled>
-        {PRODUCT_LIST.map((item, index) => (
-          <TouchableOpacity
-            key={item.value}
-            style={[
-              styles.statusOption,
-              index < PRODUCT_LIST.length - 1 && styles.statusOptionBorder
-            ]}
-            onPress={() => handleProductSelect(item)}
-          >
-            <Text style={styles.statusOptionText}>{item.label}</Text>
-          </TouchableOpacity>
-        ))}
+      {productList.map((item, index) => (
+  <TouchableOpacity
+    key={`${item.name}-${index}`} // Ensure uniqueness using name+index
+    style={[
+      styles.statusOption,
+      index < productList.length - 1 && styles.statusOptionBorder
+    ]}
+    onPress={() => handleProductSelect(item)}
+  >
+    <Text style={styles.statusOptionText}>{item.name}</Text>
+  </TouchableOpacity>
+))}
+
+
       </ScrollView>
     </View>
   </TouchableOpacity>
@@ -441,7 +454,7 @@ const handleSubmit = async () => {
   style={styles.statusButton}
   onPress={() => setShowProductModal(true)}
 >
-  <Text style={styles.statusText}>{selectedProductLabel}</Text>
+  <Text style={styles.statusText}>{selectedProduct}</Text>
   <MaterialIcons name="keyboard-arrow-down" size={24} color="#666" />
 </TouchableOpacity>
 
@@ -458,18 +471,20 @@ const handleSubmit = async () => {
   >
     <View style={[styles.modalContent, { maxHeight: 600 }]}>
       <ScrollView nestedScrollEnabled>
-        {PRODUCT_LIST.map((item, index) => (
-          <TouchableOpacity
-            key={item.value}
-            style={[
-              styles.statusOption,
-              index < PRODUCT_LIST.length - 1 && styles.statusOptionBorder
-            ]}
-            onPress={() => handleProductSelect(item)}
-          >
-            <Text style={styles.statusOptionText}>{item.label}</Text>
-          </TouchableOpacity>
-        ))}
+      {productList.map((item, index) => (
+  <TouchableOpacity
+    key={`${item.name}-${index}`} // Ensure uniqueness using name+index
+    style={[
+      styles.statusOption,
+      index < productList.length - 1 && styles.statusOptionBorder
+    ]}
+    onPress={() => handleProductSelect(item)}
+  >
+    <Text style={styles.statusOptionText}>{item.name}</Text>
+  </TouchableOpacity>
+))}
+
+
       </ScrollView>
     </View>
   </TouchableOpacity>
@@ -528,7 +543,7 @@ const handleSubmit = async () => {
   style={styles.statusButton}
   onPress={() => setShowProductModal(true)}
 >
-  <Text style={styles.statusText}>{selectedProductLabel}</Text>
+  <Text style={styles.statusText}>{selectedProduct}</Text>
   <MaterialIcons name="keyboard-arrow-down" size={24} color="#666" />
 </TouchableOpacity>
 
@@ -545,18 +560,20 @@ const handleSubmit = async () => {
   >
     <View style={[styles.modalContent, { maxHeight: 600 }]}>
       <ScrollView nestedScrollEnabled>
-        {PRODUCT_LIST.map((item, index) => (
-          <TouchableOpacity
-            key={item.value}
-            style={[
-              styles.statusOption,
-              index < PRODUCT_LIST.length - 1 && styles.statusOptionBorder
-            ]}
-            onPress={() => handleProductSelect(item)}
-          >
-            <Text style={styles.statusOptionText}>{item.label}</Text>
-          </TouchableOpacity>
-        ))}
+{productList.map((item, index) => (
+  <TouchableOpacity
+    key={`${item.name}-${index}`} // Ensure uniqueness using name+index
+    style={[
+      styles.statusOption,
+      index < productList.length - 1 && styles.statusOptionBorder
+    ]}
+    onPress={() => handleProductSelect(item)}
+  >
+    <Text style={styles.statusOptionText}>{item.name}</Text>
+  </TouchableOpacity>
+))}
+
+
       </ScrollView>
     </View>
   </TouchableOpacity>

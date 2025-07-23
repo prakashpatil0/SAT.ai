@@ -94,13 +94,14 @@ export const getTargets = async (): Promise<TargetData> => {
       return TARGET_VALUES;
     }
 
-    const targetDoc = querySnapshot.docs[0].data() as FirebaseTargetData;
+    const targetDoc = querySnapshot.docs[0].data() as any; // use any to allow extra fields
     
     const targetData = {
       positiveLeads: targetDoc.positiveLeads || TARGET_VALUES.positiveLeads,
       numCalls: targetDoc.numMeetings || TARGET_VALUES.numCalls,
       callDuration: parseInt(targetDoc.meetingDuration) || TARGET_VALUES.callDuration,
-      closingAmount: targetDoc.closingAmount || TARGET_VALUES.closingAmount
+      closingAmount: targetDoc.closingAmount || TARGET_VALUES.closingAmount,
+      disbursmentUnits: targetDoc.disbursmentUnits || 0, // <-- add this line
     };
 
     // Cache the result

@@ -17,6 +17,7 @@ interface FirebaseTargetData {
   numMeetings: number;
   positiveLeads: number;
   updatedAt: Timestamp | string;
+  disbursmentUnits?: number; // <-- add this for correct field
 }
 
 // Format duration function
@@ -155,7 +156,7 @@ export const initializeTargetNotificationListener = async () => {
             Notifications.scheduleNotificationAsync({
               content: {
                 title: 'Target Updated! 🎯',
-                body: `Your weekly targets have been updated on ${updateDate}:\n• Calls: ${targetDoc.numMeetings}\n• Duration: ${formatDuration(parseInt(targetDoc.meetingDuration))}\n• Leads: ${targetDoc.positiveLeads}\n• Amount: ₹${targetDoc.closingAmount.toLocaleString()}`,
+                body: `Your weekly targets have been updated on ${updateDate}:\n• Calls: ${targetDoc.numMeetings}\n• Duration: ${formatDuration(parseInt(targetDoc.meetingDuration))}\n• Leads: ${targetDoc.positiveLeads}\n• Disbursement Units: ${targetDoc.disbursmentUnits ?? '-'}\n• Amount: ₹${targetDoc.closingAmount.toLocaleString()}`,
                 sound: true,
                 priority: Notifications.AndroidNotificationPriority.HIGH,
               },

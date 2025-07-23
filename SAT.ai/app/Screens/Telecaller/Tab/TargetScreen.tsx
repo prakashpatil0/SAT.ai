@@ -46,7 +46,8 @@ interface FirebaseTargetData {
   year?: number;
   fromDate?: Timestamp;
   toDate?: Timestamp;
-  disbursementUnit?: number; // <-- Add this line
+  disbursementUnit?: number; // legacy/optional
+  disbursmentUnits?: number; // <-- add this for correct field
 }
 
 // Define types for achievements and targets
@@ -55,7 +56,8 @@ interface Achievements {
   callDuration: number;
   positiveLeads: number;
   closingAmount: number;
-   disbursementUnit?: number; // <-- Add this line
+  disbursementUnit?: number;
+  rejectedLeads?: number;
 }
 
 interface Targets {
@@ -63,7 +65,7 @@ interface Targets {
   callDuration: number;
   positiveLeads: number;
   closingAmount: number;
-    disbursementUnit?: number;
+  disbursmentUnits?: number;
 }
 
 interface DailyReport {
@@ -73,6 +75,7 @@ interface DailyReport {
   totalClosingAmount: number;
   createdAt: Timestamp;
   userId: string;
+  rejectedLeads?: number;
 }
 
 // Move the formatDuration function outside of fetchData
@@ -92,9 +95,9 @@ const WeeklyTargetScreen = () => {
     positiveLeads: number;
     numCalls: number;
     callDuration: number;
-    disbursementUnit: number;
-    
     closingAmount: number;
+    disbursementUnit: number;
+    rejectedLeads: number;
     percentageAchieved: number;
   }>({
     positiveLeads: 0,
@@ -102,6 +105,7 @@ const WeeklyTargetScreen = () => {
     callDuration: 0,
     closingAmount: 0,
     disbursementUnit: 0,
+    rejectedLeads: 0,
     percentageAchieved: 0,
   });
   const [previousAchievement, setPreviousAchievement] = useState<number>(0);
@@ -110,7 +114,7 @@ const WeeklyTargetScreen = () => {
     numCalls: 0,
     callDuration: 0,
     closingAmount: 0,
-    disbursementUnit: 0
+    disbursmentUnits: 0,
   });
   const [daysRemaining, setDaysRemaining] = useState(0);
   const [waveAnimation] = useState(new Animated.Value(0));
@@ -190,6 +194,7 @@ const WeeklyTargetScreen = () => {
       let weeklyTotalDuration = 0;
       let weeklyTotalPositiveLeads = 0;
       let weeklyTotalClosingAmount = 0;
+      let weeklyTotalRejectedLeads = 0;
 
       let monthlyTotalCalls = 0;
       let monthlyTotalDuration = 0;
@@ -198,7 +203,7 @@ const WeeklyTargetScreen = () => {
 
       // Process weekly data
       weeklySnapshot.docs.forEach(doc => {
-        const report = doc.data() as DailyReport;
+        const report = doc.data() as DailyReport & { rejectedLeads?: number };
         weeklyTotalCalls += report.numMeetings || 0;
         const durationParts = report.meetingDuration.split(':');
         const hours = parseInt(durationParts[0], 10);
@@ -208,6 +213,7 @@ const WeeklyTargetScreen = () => {
         weeklyTotalDuration += totalHours;
         weeklyTotalPositiveLeads += report.positiveLeads || 0;
         weeklyTotalClosingAmount += report.totalClosingAmount || 0;
+        weeklyTotalRejectedLeads += report.rejectedLeads || 0;
       });
 
       // Process monthly data
@@ -252,6 +258,7 @@ const WeeklyTargetScreen = () => {
   positiveLeads: weeklyTotalPositiveLeads,
   closingAmount: weeklyTotalClosingAmount,
   disbursementUnit: 0, // default or calculated value if available
+  rejectedLeads: weeklyTotalRejectedLeads,
   percentageAchieved: Math.round(weeklyAchievementPercentage * 10) / 10,
 });
 
@@ -492,7 +499,7 @@ console.log('🔥 companyId:', userData.companyId);
   positiveLeads: targetDoc.positiveLeads || TARGET_VALUES.positiveLeads,
   callDuration: parseInt(targetDoc.meetingDuration) || TARGET_VALUES.callDuration,
   closingAmount: targetDoc.closingAmount || TARGET_VALUES.closingAmount,
-  disbursementUnit: targetDoc.disbursementUnit || 0,  // <-- Add this line if exists in Firestore
+  disbursmentUnits: targetDoc.disbursmentUnits || 0, // <-- use correct field
 };
 
 
@@ -673,11 +680,12 @@ console.log('🔥 companyId:', userData.companyId);
       <Text style={[styles.tableCell, { flex: 1, textAlign: 'right' }]}>{achievements.positiveLeads}</Text>
       <Text style={[styles.targetCell, { flex: 1, textAlign: 'right' }]}>{targets.positiveLeads}</Text>
     </View>
-{/* <View style={styles.tableRow}>
+    <View style={styles.tableRow}>
       <Text style={[styles.tableCell, { flex: 2 }]}>Disbursement unit</Text>
-      <Text style={[styles.tableCell, { flex: 1, textAlign: 'right' }]}>₹{achievements.closingAmount.toLocaleString()}</Text>
-      <Text style={[styles.targetCell, { flex: 1, textAlign: 'right' }]}>{targets.closingAmount.toLocaleString()}</Text>
-    </View> */}
+      <Text style={[styles.tableCell, { flex: 1, textAlign: 'right' }]}>{achievements.rejectedLeads ?? 0}</Text>
+      <Text style={[styles.targetCell, { flex: 1, textAlign: 'right' }]}>{targets.disbursmentUnits}</Text>
+    </View>
+
     <View style={styles.tableRow}>
       <Text style={[styles.tableCell, { flex: 2 }]}>Disbursement Amount</Text>
       <Text style={[styles.tableCell, { flex: 1, textAlign: 'right' }]}>₹{achievements.closingAmount.toLocaleString()}</Text>

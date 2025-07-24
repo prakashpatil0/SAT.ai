@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from 'react';
-import { View, StyleSheet, KeyboardAvoidingView, Platform, Alert, TouchableOpacity, Modal, ViewStyle, TextStyle, StyleProp } from 'react-native';
+import { View, StyleSheet, KeyboardAvoidingView, Platform,ScrollView, Alert, TouchableOpacity, Modal, ViewStyle, TextStyle, StyleProp } from 'react-native';
 import { TextInput, Button, Text, HelperText } from 'react-native-paper';
 import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
@@ -57,6 +57,7 @@ interface Styles {
   inputContainerWithError: ViewStyle;
   formField: ViewStyle;
   formFieldWithError: ViewStyle;
+  scrollViewContainer: ViewStyle;
 }
 
 interface FormFieldProps {
@@ -304,6 +305,10 @@ if (!formData.companyId.trim()) {
         behavior={Platform.OS === "ios" ? "padding" : "height"}
         style={styles.container}
       >
+          <ScrollView
+      contentContainerStyle={styles.scrollViewContainer}
+      keyboardShouldPersistTaps="handled" // Ensure inputs are tappable
+    >
         <View style={styles.innerContainer}>
           <Text style={styles.title}>Create New Account</Text>
 
@@ -535,6 +540,7 @@ if (!formData.companyId.trim()) {
             </View>
           </View>
         </View>
+        </ScrollView>
       </KeyboardAvoidingView>
 
       <Modal
@@ -574,6 +580,10 @@ if (!formData.companyId.trim()) {
 const styles = StyleSheet.create<Styles>({
   container: {
     flex: 1,
+  },
+  scrollViewContainer: {
+    flexGrow: 1,  
+    justifyContent: 'center',
   },
   innerContainer: {
     flex: 1,

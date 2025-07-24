@@ -12,8 +12,9 @@ import { format } from 'date-fns';
 import { ScrollView } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { db } from '@/firebaseConfig';
-import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import {  serverTimestamp } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
+import { doc, updateDoc, addDoc, collection,getDoc ,query,where,getDocs} from 'firebase/firestore';
 
 
 
@@ -93,36 +94,8 @@ type ProductItem = {
   value: string;
 };
 
-const PRODUCT_LIST: ProductItem[] = [
-  { label: "Health Insurance", value: "health_insurance" },
-  { label: "Bike Insurance", value: "bike_insurance" },
-  { label: "Car Insurance", value: "car_insurance" },
-  { label: "Term Insurance", value: "term_insurance" },
-  { label: "Mutual Funds", value: "mutual_funds" },
-  { label: "Saving Plans", value: "saving_plan" },
-  { label: "Travel Insurance", value: "travel_insurance" },
-  { label: "Group Mediclaim", value: "group_mediclaim" },
-  { label: "Group Personal Accident", value: "group_personal_accident" },
-  { label: "Group Term Life", value: "group_term_life" },
-  { label: "Group Credit Life", value: "group_credit_life" },
-  { label: "Workmen Compensation", value: "workmen_compensation" },
-  { label: "Group Gratuity", value: "group_gratuity" },
-  { label: "Fire & Burglary Insurance", value: "fire_burglary_insurance" },
-  { label: "Shop Owner Insurance", value: "shop_owner_insurance" },
-  { label: "Motor Fleet Insurance", value: "motor_fleet_insurance" },
-  { label: "Marine Single Transit", value: "marine_single_transit" },
-  { label: "Marine Open Policy", value: "marine_open_policy" },
-  { label: "Marine Sales Turnover", value: "marine_sales_turnover" },
-  { label: "Directors & Officers Insurance", value: "directors_officers_insurance" },
-  { label: "General Liability Insurance", value: "general_liability_insurance" },
-  { label: "Product Liability Insurance", value: "product_liability_insurance" },
-  { label: "Professional Indemnity for Doctors", value: "professional_indemnity_for_doctors" },
-  { label: "Professional Indemnity for Companies", value: "professional_indemnity_for_companies" },
-  { label: "Cyber Insurance", value: "cyber_insurance" },
-  { label: "Office Package Policy", value: "office_package_policy" },
-  { label: "Crime Insurance", value: "crime_insurance" },
-  { label: "Other", value: "other" },
-];
+const [products, setProducts] = useState<string[]>([]); // State to hold product names
+
 const [productOpen, setProductOpen] = useState(false);
 const [selectedProduct, setSelectedProduct] = useState<string | null>(null);
 const [showProductModal, setShowProductModal] = useState(false);
@@ -130,16 +103,47 @@ const [selectedProductLabel, setSelectedProductLabel] = useState('Select Product
 const [showDatePicker, setShowDatePicker] = useState(false);
 const [expectedDate, setExpectedDate] = useState<Date | null>(null);
 const [expectedClosingAmount, setExpectedClosingAmount] = useState('');
+useEffect(() => {
+  const fetchProducts = async () => {
+    try {
+      const auth = getAuth();
+      const user = auth.currentUser;
+      if (user) {
+        const userRef = doc(db, 'users', user.uid);
+        const userSnapshot = await getDoc(userRef);
+        
+        if (userSnapshot.exists()) {
+          const companyId = userSnapshot.data().companyId;
+          if (companyId) {
+            // Query the 'products' collection where companyId matches
+            const productsRef = collection(db, 'products');
+            const q = query(productsRef, where('companyId', '==', companyId));
+            const querySnapshot = await getDocs(q);
+            
+            // Extract only product names
+            const fetchedProductNames = querySnapshot.docs.map(doc => doc.data().name);
+            setProducts(fetchedProductNames);
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching products:', error);
+    }
+  };
+
+  fetchProducts();
+}, []);
 
   const handleStatusSelect = (selectedStatus: string) => {
     setStatus(selectedStatus);
     setShowStatusModal(false);
   };
-const handleProductSelect = (item: ProductItem) => {
-  setSelectedProduct(item.value);
-  setSelectedProductLabel(item.label);
+const handleProductSelect = (productName: string) => {
+  setSelectedProduct(productName); // Store the selected product name
+  setSelectedProductLabel(productName); // You can update a label if needed
   setShowProductModal(false);
 };
+
 const onChangeDate = (event: any, selectedDate?: Date) => {
   setShowDatePicker(false);
   if (selectedDate) {
@@ -485,16 +489,13 @@ const getErrorMessage = (error: any): string => {
   >
     <View style={[styles.modalContent, { maxHeight: 600 }]}>
       <ScrollView nestedScrollEnabled>
-        {PRODUCT_LIST.map((item, index) => (
+        {products.map((productName, index) => (
           <TouchableOpacity
-            key={item.value}
-            style={[
-              styles.statusOption,
-              index < PRODUCT_LIST.length - 1 && styles.statusOptionBorder
-            ]}
-            onPress={() => handleProductSelect(item)}
+            key={index}
+            style={[styles.statusOption, index < products.length - 1 && styles.statusOptionBorder]}
+            onPress={() => handleProductSelect(productName)} // Pass the product name
           >
-            <Text style={styles.statusOptionText}>{item.label}</Text>
+            <Text style={styles.statusOptionText}>{productName}</Text> {/* Display product name */}
           </TouchableOpacity>
         ))}
       </ScrollView>
@@ -559,16 +560,13 @@ const getErrorMessage = (error: any): string => {
   >
     <View style={[styles.modalContent, { maxHeight: 600 }]}>
       <ScrollView nestedScrollEnabled>
-        {PRODUCT_LIST.map((item, index) => (
+      {products.map((productName, index) => (
           <TouchableOpacity
-            key={item.value}
-            style={[
-              styles.statusOption,
-              index < PRODUCT_LIST.length - 1 && styles.statusOptionBorder
-            ]}
-            onPress={() => handleProductSelect(item)}
+            key={index}
+            style={[styles.statusOption, index < products.length - 1 && styles.statusOptionBorder]}
+            onPress={() => handleProductSelect(productName)} // Pass the product name
           >
-            <Text style={styles.statusOptionText}>{item.label}</Text>
+            <Text style={styles.statusOptionText}>{productName}</Text> {/* Display product name */}
           </TouchableOpacity>
         ))}
       </ScrollView>
@@ -646,16 +644,13 @@ const getErrorMessage = (error: any): string => {
   >
     <View style={[styles.modalContent, { maxHeight: 600 }]}>
       <ScrollView nestedScrollEnabled>
-        {PRODUCT_LIST.map((item, index) => (
+      {products.map((productName, index) => (
           <TouchableOpacity
-            key={item.value}
-            style={[
-              styles.statusOption,
-              index < PRODUCT_LIST.length - 1 && styles.statusOptionBorder
-            ]}
-            onPress={() => handleProductSelect(item)}
+            key={index}
+            style={[styles.statusOption, index < products.length - 1 && styles.statusOptionBorder]}
+            onPress={() => handleProductSelect(productName)} // Pass the product name
           >
-            <Text style={styles.statusOptionText}>{item.label}</Text>
+            <Text style={styles.statusOptionText}>{productName}</Text> {/* Display product name */}
           </TouchableOpacity>
         ))}
       </ScrollView>

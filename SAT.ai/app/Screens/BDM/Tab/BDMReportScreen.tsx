@@ -165,9 +165,8 @@ const BDMReportScreen = () => {
     "idle" | "syncing" | "synced" | "error"
   >("idle");
   const [errors, setErrors] = useState<{ [key: string]: string }>({});
-  const [selectedProducts, setSelectedProducts] = useState<{
-    [key: number]: string;
-  }>({ 0: "Health Insurance" });
+  const [selectedProducts, setSelectedProducts] = useState<{ [key: number]: string }>({});
+
   const [showProductDropdown, setShowProductDropdown] = useState<number | null>(
     null
   );
@@ -178,9 +177,10 @@ const BDMReportScreen = () => {
 
   const [numMeetings, setNumMeetings] = useState<string>("");
   const [totalMeetingDuration, setMeetingDuration] = useState<string>("");
-  const [closingDetails, setClosingDetails] = useState<ClosingDetail[]>([
-    { productType: "Health Insurance", closingAmount: 0, description: "" },
-  ]);
+ const [closingDetails, setClosingDetails] = useState<ClosingDetail[]>([
+  { productType: "", closingAmount: 0, description: "" }
+]);
+
   const [totalAmount, setTotalAmount] = useState<number>(0);
   const [currentDate, setCurrentDate] = useState<string>("");
 
@@ -597,7 +597,7 @@ const BDMReportScreen = () => {
           setClosingDetails(
             draftData.closingDetails || [
               {
-                productType: "Health Insurance",
+                productType: "",
                 closingAmount: 0,
                 description: "",
               },
@@ -838,7 +838,7 @@ const BDMReportScreen = () => {
 
         setClosingDetails([
           {
-            productType: "Health Insurance",
+            productType: "",
             closingAmount: 0,
             description: "",
           },
@@ -1158,15 +1158,16 @@ const BDMReportScreen = () => {
   }, [syncLocalWithFirebase]);
 
   const addClosingDetail = useCallback(() => {
-    setClosingDetails((prev) => [
-      ...prev,
-      { productType: "Health Insurance", closingAmount: 0, description: "" },
-    ]);
-    setSelectedProducts((prev) => ({
-      ...prev,
-      [closingDetails.length]: "Health Insurance",
-    }));
-  }, [closingDetails.length]);
+  setClosingDetails((prev) => [
+    ...prev,
+    { productType: "", closingAmount: 0, description: "" },
+  ]);
+  setSelectedProducts((prev) => ({
+    ...prev,
+    [closingDetails.length]: "", // No default product
+  }));
+}, [closingDetails.length]);
+
 
   const removeClosingDetail = useCallback((index: number) => {
     setClosingDetails((prev) => prev.filter((_, i) => i !== index));

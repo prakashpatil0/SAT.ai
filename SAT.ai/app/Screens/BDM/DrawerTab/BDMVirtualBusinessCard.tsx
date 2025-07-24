@@ -332,7 +332,7 @@ const BDMVirtualBusinessCard = () => {
             <View style={styles.bottomLine} />
           </Animated.View>
         </ViewShot>
-        <Text style={styles.noteText}>(You can edit your card click on content)</Text>
+        <Text style={styles.noteText}>(You can edit your card by clicking on the content.)</Text>
 
         {/* Share & Download Buttons */}
         <View style={{marginTop: -10}}>

@@ -22,6 +22,7 @@ interface TargetData {
   projectedMeetings: { achieved: number; target: number };
   attendedMeetings: { achieved: number; target: number };
   meetingDuration: { achieved: string; target: string };
+   bookingsTaken: { achieved: number; target: number }; // ✅ New field
   closing: { achieved: number; target: number };
 }
 
@@ -69,6 +70,7 @@ const BDMTargetScreen = () => {
     projectedMeetings: { achieved: 0, target: 30 },
     attendedMeetings: { achieved: 0, target: 30 },
     meetingDuration: { achieved: '00:00:00', target: '00:00:00' },
+     bookingsTaken: { achieved: 0, target: 10 }, // ✅ Default target value
     closing: { achieved: 0, target: 50000 }
   });
   const [progressAnim] = useState(new Animated.Value(0));
@@ -77,6 +79,7 @@ const BDMTargetScreen = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [waveAnimation] = useState(new Animated.Value(0));
   const [error, setError] = useState<string | null>(null);
+const [companyId, setCompanyId] = useState<string | null>(null);
 
   const formatDuration = useCallback((totalSeconds: number) => {
     const hours = Math.floor(totalSeconds / 3600);
@@ -123,6 +126,7 @@ const BDMTargetScreen = () => {
         const userData = userDoc.data();
         employeeId = userData.employeeId;
         userEmail = userData.email || userEmail;
+        setCompanyId(userData.companyId || null); // ✅ Add this
       }
 
       if (!userEmail) {
@@ -145,8 +149,9 @@ const BDMTargetScreen = () => {
       if (!targetSnapshot.empty) {
         const targetDoc = targetSnapshot.docs[0].data();
         newTargetData.projectedMeetings.target = targetDoc.numMeetings || 30;
-        newTargetData.attendedMeetings.target = targetDoc.positiveLeads || 30;
-        newTargetData.meetingDuration.target = `${targetDoc.meetingDuration || '20'}:00:00`;
+        newTargetData.attendedMeetings.target = targetDoc.positiveLeadsFromMeetings || 30;
+        newTargetData.meetingDuration.target = `${targetDoc.totalMeetingDuration || '20'}:00:00`;
+         newTargetData.bookingsTaken.target = targetDoc.bookingsTaken || 10;
         newTargetData.closing.target = targetDoc.closingAmount || 50000;
       }
 
@@ -181,14 +186,15 @@ const BDMTargetScreen = () => {
       let totalAttendedMeetings = 0;
       let totalDuration = 0;
       let totalClosing = 0;
-
+let totalBookingsTaken = 0;
       currentWeekSnapshot.forEach(doc => {
         const data = doc.data();
+        // console.log('Report ID:', doc.id, '| bookingsTaken:', data.bookingsTaken);
         totalMeetings += data.numMeetings || 0;
-        totalAttendedMeetings += data.positiveLeads || 0;
+        totalAttendedMeetings += data.positiveLeadsFromMeetings || 0;
         totalClosing += data.totalClosingAmount || 0;
-        
-        const durationStr = data.meetingDuration || '';
+        totalBookingsTaken += data.bookingsTaken || 0;
+        const durationStr = data.totalMeetingDuration || '';
         if (durationStr.includes(':')) {
           const [hours, minutes, seconds] = durationStr.split(':').map(Number);
           totalDuration += (hours * 3600) + (minutes * 60) + seconds;
@@ -209,7 +215,7 @@ const BDMTargetScreen = () => {
       lastWeekSnapshot.forEach(doc => {
         const data = doc.data();
         lastWeekMeetings += data.numMeetings || 0;
-        lastWeekAttendedMeetings += data.positiveLeads || 0;
+        lastWeekAttendedMeetings += data.positiveLeadsFromMeetings || 0;
         lastWeekClosing += data.totalClosingAmount || 0;
         
         const durationStr = data.meetingDuration || '';
@@ -228,6 +234,7 @@ const BDMTargetScreen = () => {
       newTargetData.projectedMeetings.achieved = totalMeetings;
       newTargetData.attendedMeetings.achieved = totalAttendedMeetings;
       newTargetData.meetingDuration.achieved = formatDuration(totalDuration);
+      newTargetData.bookingsTaken.achieved = totalBookingsTaken; // ✅ Add this
       newTargetData.closing.achieved = totalClosing;
 
       setTargetData(newTargetData);
@@ -371,12 +378,16 @@ const BDMTargetScreen = () => {
           },
           attendedMeetings: { 
             achieved: targetData.attendedMeetings.achieved, 
-            target: targetDoc.positiveLeads || 30 
+            target: targetDoc.positiveLeadsFromMeetings || 30 
           },
           meetingDuration: { 
             achieved: targetData.meetingDuration.achieved, 
-            target: `${targetDoc.meetingDuration || '20'}:00:00` 
+            target: `${targetDoc.totalMeetingDuration || '20'}:00:00` 
           },
+           bookingsTaken: { 
+    achieved: targetData.bookingsTaken.achieved, 
+    target: targetDoc.bookingsTaken || 10 
+  },
           closing: { 
             achieved: targetData.closing.achieved, 
             target: targetDoc.closingAmount || 50000 
@@ -538,6 +549,19 @@ const BDMTargetScreen = () => {
                     <Text style={styles.target}>{targetData.meetingDuration.target}</Text>
                   </View>
                 </View>
+
+
+               {companyId?.trim() === "BU603894" && (
+  <View style={styles.row}>
+    <Text style={styles.label}>No of bookings taken</Text>
+    <View style={styles.valueColumns}>
+      <Text style={styles.achieved}>{targetData.bookingsTaken.achieved}</Text>
+      <Text style={styles.target}>{targetData.bookingsTaken.target}</Text>
+    </View>
+  </View>
+)}
+
+
 <View style={styles.row}>
   <Text style={styles.label}>Closing Amount</Text>
   <View style={styles.valueColumns}>
@@ -714,5 +738,11 @@ const styles = StyleSheet.create({
     fontFamily: 'LexendDeca_500Medium',
   },
 });
+
+
+
+
+
+
 
 export default BDMTargetScreen;

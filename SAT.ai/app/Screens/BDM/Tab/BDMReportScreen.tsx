@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useCallback, useMemo ,useRef} from "react";
 import {
   View,
   Text,
@@ -166,6 +166,7 @@ const BDMReportScreen = () => {
   >("idle");
   const [errors, setErrors] = useState<{ [key: string]: string }>({});
   const [selectedProducts, setSelectedProducts] = useState<{ [key: number]: string }>({});
+const [companyId, setCompanyId] = useState<string | null>(null);
 
   const [showProductDropdown, setShowProductDropdown] = useState<number | null>(
     null
@@ -174,12 +175,14 @@ const BDMReportScreen = () => {
   const [filteredProducts, setFilteredProducts] = useState<string[]>([]);
   const [showOtherInput, setShowOtherInput] = useState<number | null>(null);
   const [otherProductInput, setOtherProductInput] = useState("");
-
+const [selectedCompanyId, setSelectedCompanyId] = useState<string>("");
   const [numMeetings, setNumMeetings] = useState<string>("");
   const [totalMeetingDuration, setMeetingDuration] = useState<string>("");
  const [closingDetails, setClosingDetails] = useState<ClosingDetail[]>([
   { productType: "", closingAmount: 0, description: "" }
 ]);
+const [bookingsTaken, setbookingsTaken] = useState<string>("");
+const bookingsTakenRef = useRef<TextInput>(null); // Optional, if you use ref
 
   const [totalAmount, setTotalAmount] = useState<number>(0);
   const [currentDate, setCurrentDate] = useState<string>("");
@@ -241,7 +244,7 @@ const BDMReportScreen = () => {
         const companyId = userDoc.exists() ? userDoc.data().companyId : null;
 
         if (!companyId) return;
-
+setCompanyId(companyId); // ✅ This is the missing part
         const q = query(
           collection(db, "products"),
           where("companyId", "==", companyId),
@@ -562,6 +565,7 @@ const BDMReportScreen = () => {
         totalMeetingDuration,
         closingDetails,
         totalAmount,
+        bookingsTaken,
         date: new Date().toISOString(),
       };
       await AsyncStorage.setItem(
@@ -593,6 +597,7 @@ const BDMReportScreen = () => {
         if (draftDate.getTime() === today.getTime()) {
           setNumMeetings(draftData.numMeetings || "");
           setMeetingDuration(draftData.totalMeetingDuration || "");
+setbookingsTaken(draftData.bookingsTaken || "");
 
           setClosingDetails(
             draftData.closingDetails || [
@@ -705,6 +710,10 @@ const BDMReportScreen = () => {
       if (!product || product.trim() === "" || product === "Select product") {
         newErrors[`closing_${index}_productType`] = "Product type is required";
       }
+if (companyId === "BU603894" && bookingsTaken.trim() === "") {
+  newErrors.bookingsTaken = "No. of bookings taken is required";
+}
+
 
       // Closing amount check
       if (
@@ -818,6 +827,7 @@ const BDMReportScreen = () => {
         callDuration,
         positiveLeadsFromCalls: Number(positiveLeadsFromCalls || 0),
         positiveLeadsFromMeetings: Number(positiveLeadsFromMeetings || 0),
+bookingsTaken: companyId === "BU603894" ? Number(bookingsTaken || 0) : null,
         meetings: meetingsWithDuration,
         createdAt: now.toISOString(),
         updatedAt: now.toISOString(),
@@ -844,7 +854,10 @@ const BDMReportScreen = () => {
           },
         ]);
         setTotalAmount(0);
-        setSelectedProducts({ 0: "Health Insurance" });
+        setSelectedProducts({ 0: "" });
+         setPositiveLeadsFromCalls("");
+  setPositiveLeadsFromMeetings("");
+  setbookingsTaken(""); // works conditionally anyway
       }, 2000);
     } catch (error) {
       Alert.alert("Error", "Failed to submit report. Please try again.");
@@ -1496,6 +1509,46 @@ const BDMReportScreen = () => {
                       </Text>
                     )}
                   </View>
+
+
+
+{companyId === "BU603894" && (
+  
+  <View style={styles.section}>
+    <Text style={styles.label}>No of bookings taken</Text>
+    <TextInput
+      style={[
+        styles.input,
+        errors.bookingsTaken && styles.inputError,
+      ]}
+      value={bookingsTaken}
+      onChangeText={(text) => {
+        const isValid = /^[0-9]*$/.test(text);
+
+        if (isValid) {
+          setbookingsTaken(text); // Update value only if valid
+          setErrors((prev) => ({ ...prev, bookingsTaken: "" })); // Clear error message
+        } else {
+          setErrors((prev) => ({
+            ...prev,
+            bookingsTaken: "Only valid number allowed", // Show error message
+          }));
+        }
+      }}
+      keyboardType="numeric"
+      placeholder="Enter number"
+      ref={bookingsTakenRef}
+    />
+
+    {errors.bookingsTaken && (
+      <Text style={styles.errorText}>{errors.bookingsTaken}</Text>
+    )}
+  </View>
+)}
+
+
+
+
 
                   <View style={styles.separator} />
 

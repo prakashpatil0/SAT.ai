@@ -45,7 +45,7 @@ interface Meeting {
   meetingType: 'Individual' | 'Company';
   userId: string;
   notes: string;
-  status: 'planned' | 'completed' | 'cancelled';
+  status: 'Not Interested' | 'Prospect' | 'Suspect' |'Closing';
   createdAt: Date | Timestamp;
   meetingStartDateTime: Date | Timestamp;
   syncStatus?: 'synced' | 'pending';
@@ -687,7 +687,7 @@ useFocusEffect(
               <View style={styles.formSection}>
                 <Text style={styles.formLabel}>Status</Text>
                 <View style={styles.statusButtons}>
-                  {['planned', 'completed', 'cancelled'].map((status) => (
+                  {['Not Interested' , 'Prospect' , 'Suspect' ,'Closing'].map((status) => (
                     <TouchableOpacity
                       key={status}
                       style={[
@@ -696,7 +696,7 @@ useFocusEffect(
                       ]}
                       onPress={() => setEditedMeeting({
                         ...editedMeeting,
-                        status: status as 'planned' | 'completed' | 'cancelled'
+                        status: status as 'Not Interested' | 'Prospect' | 'Suspect' |'Closing'
                       })}
                     >
                       <Text style={[
